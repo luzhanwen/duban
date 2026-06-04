@@ -12,6 +12,12 @@ import {
   getReadingGuide,
 } from "../lib/readingGuides.js";
 import { getReadingChat, sendReadingChatMessage } from "../lib/readingChat.js";
+import {
+  addReadingNote,
+  deleteReadingNote,
+  getReadingNotes,
+  updateReadingNote,
+} from "../lib/notes.js";
 import { formatUsd } from "../lib/pricing.js";
 import { toText } from "../lib/text.js";
 
@@ -40,6 +46,10 @@ export default function Reader({ bookId, onBack, onPlan }) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [notes, setNotes] = useState([]);
+  const [pendingNoteDraft, setPendingNoteDraft] = useState(null);
+  const [noteSourceTarget, setNoteSourceTarget] = useState(null);
+  const [noteNotice, setNoteNotice] = useState("");
   const [currentPage, setCurrentPage] = useState(null);
   const [initialReadingPage, setInitialReadingPage] = useState(null);
   const [selectedQuoteDraft, setSelectedQuoteDraft] = useState(null);
@@ -112,6 +122,10 @@ export default function Reader({ bookId, onBack, onPlan }) {
     setChatMessages([]);
     setChatError("");
     setChatLoading(false);
+    setNotes([]);
+    setPendingNoteDraft(null);
+    setNoteSourceTarget(null);
+    setNoteNotice("");
     setReflectionAnswer("");
     const savedLocationForItem = getSavedLocationForCurrentItem(
       progressRef.current,
@@ -134,6 +148,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
     });
     getReadingChat(book.id, currentKey).then((saved) => {
       if (alive) setChatMessages(saved);
+    });
+    getReadingNotes(book.id, currentKey).then((saved) => {
+      if (alive) setNotes(saved);
     });
 
     return () => {
@@ -289,7 +306,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
     }
   }
 
-  async function handleSendChat(content) {
+  async function handleSendChat(content, options = {}) {
     const text = toText(content).trim();
     if (!text || chatLoading) return;
 
@@ -297,6 +314,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
       id: `chat-local-${Date.now()}`,
       role: "user",
       content: text,
+      quote: options.quote || null,
       createdAt: new Date().toISOString(),
     };
     const streamingMessage = {
@@ -322,6 +340,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
         guide,
         messages: previousMessages,
         content: text,
+        quote: options.quote || null,
         onDelta: (delta) => {
           setChatMessages((current) =>
             current.map((message) =>
@@ -347,11 +366,104 @@ export default function Reader({ bookId, onBack, onPlan }) {
         id: `quote-${Date.now()}`,
         pageNumber: selection.pageNumber || null,
         text: toText(selection.text).trim(),
+        rects: normalizeHighlightRects(selection.rects),
       });
       return;
     }
 
-    handleSendChat(buildSelectedTextPrompt(selection, currentItem));
+    if (selection?.action === "note") {
+      if (noteSourceTarget?.id) {
+        handleReplaceNoteSource(selection);
+        return;
+      }
+
+      setPendingNoteDraft(buildPendingNoteFromSelection(selection));
+    }
+  }
+
+  async function handleReplaceNoteSource(selection) {
+    if (!book?.id || !currentKey || !noteSourceTarget?.id) return;
+    const nextSource = buildPendingNoteFromSelection(selection);
+    const saved = await updateReadingNote(book.id, currentKey, noteSourceTarget.id, {
+      pageNumber: nextSource.pageNumber,
+      text: nextSource.text,
+      rects: nextSource.rects,
+      highlightDisabled: false,
+    });
+    setNotes(saved);
+    setNoteSourceTarget(null);
+    showNoteNotice("已重新绑定原文和高亮");
+  }
+
+  async function handleSavePendingNote(noteText) {
+    if (!pendingNoteDraft || !book?.id || !currentKey) return;
+    const saved = await addReadingNote(book.id, currentKey, {
+      ...pendingNoteDraft,
+      note: noteText,
+      source: "selection",
+    });
+    setNotes(saved);
+    setPendingNoteDraft(null);
+    showNoteNotice("已添加到本章笔记");
+  }
+
+  async function handleAddChatMessageToNote(message, previousUserMessage) {
+    if (!book?.id || !currentKey || !message?.content) return;
+    const quote = previousUserMessage?.quote || extractQuoteFromChatContent(previousUserMessage?.content);
+    const saved = await addReadingNote(book.id, currentKey, {
+      pageNumber: quote.pageNumber || currentPageContext?.pageNumber || null,
+      text: quote.text,
+      rects: quote.rects,
+      note: "AI 导师回答",
+      assistantContent: message.content,
+      source: "chat",
+    });
+    setNotes(saved);
+    showNoteNotice("已把这次回答加入笔记");
+  }
+
+  async function handleUpdateNote(noteId, patch) {
+    if (!book?.id || !currentKey || !noteId) return;
+    const saved = await updateReadingNote(book.id, currentKey, noteId, patch);
+    setNotes(saved);
+    showNoteNotice("笔记已更新");
+  }
+
+  async function handleDeleteNote(noteId) {
+    if (!book?.id || !currentKey || !noteId) return;
+    const saved = await deleteReadingNote(book.id, currentKey, noteId);
+    setNotes(saved);
+    if (noteSourceTarget?.id === noteId) setNoteSourceTarget(null);
+    showNoteNotice("笔记已删除");
+  }
+
+  async function handleClearNoteHighlight(noteId) {
+    if (!book?.id || !currentKey || !noteId) return;
+    const saved = await updateReadingNote(book.id, currentKey, noteId, {
+      rects: [],
+      highlightDisabled: true,
+    });
+    setNotes(saved);
+    showNoteNotice("已取消这条笔记的高亮");
+  }
+
+  function handleStartReplaceNoteSource(note) {
+    if (!note?.id) return;
+    setPendingNoteDraft(null);
+    setNoteSourceTarget(note);
+    showNoteNotice("请在 PDF 中重新划选原文，然后点“添加笔记”");
+  }
+
+  function handleCancelReplaceNoteSource() {
+    setNoteSourceTarget(null);
+    showNoteNotice("已取消重新选择原文");
+  }
+
+  function showNoteNotice(message) {
+    setNoteNotice(message);
+    window.setTimeout(() => {
+      setNoteNotice((current) => (current === message ? "" : current));
+    }, 2400);
   }
 
   if (sessionStage === SESSION_STAGES.reading) {
@@ -376,8 +488,20 @@ export default function Reader({ bookId, onBack, onPlan }) {
         chatMessages={chatMessages}
         chatLoading={chatLoading}
         chatError={chatError}
+        notes={notes}
+        pendingNoteDraft={pendingNoteDraft}
+        noteNotice={noteNotice}
         selectedQuoteDraft={selectedQuoteDraft}
         onQuoteDraftUsed={() => setSelectedQuoteDraft(null)}
+        onSavePendingNote={handleSavePendingNote}
+        onCancelPendingNote={() => setPendingNoteDraft(null)}
+        onAddChatMessageToNote={handleAddChatMessageToNote}
+        onUpdateNote={handleUpdateNote}
+        onDeleteNote={handleDeleteNote}
+        onClearNoteHighlight={handleClearNoteHighlight}
+        onStartReplaceNoteSource={handleStartReplaceNoteSource}
+        noteSourceTarget={noteSourceTarget}
+        onCancelReplaceNoteSource={handleCancelReplaceNoteSource}
         onBack={onBack}
         onIntro={() => setSessionStage(SESSION_STAGES.intro)}
         onReflection={openReflection}
@@ -545,10 +669,22 @@ function ReadingStage({
   chatMessages,
   chatLoading,
   chatError,
+  notes,
+  pendingNoteDraft,
+  noteNotice,
   selectedQuoteDraft,
   currentPage,
   currentPageHasText,
   onQuoteDraftUsed,
+  onSavePendingNote,
+  onCancelPendingNote,
+  onAddChatMessageToNote,
+  onUpdateNote,
+  onDeleteNote,
+  onClearNoteHighlight,
+  onStartReplaceNoteSource,
+  noteSourceTarget,
+  onCancelReplaceNoteSource,
   onBack,
   onIntro,
   onReflection,
@@ -559,6 +695,11 @@ function ReadingStage({
   onJump,
   onMarkUnfinished,
 }) {
+  const visibleHighlights = useMemo(
+    () => (pendingNoteDraft ? [pendingNoteDraft, ...notes] : notes),
+    [notes, pendingNoteDraft]
+  );
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
       <header className="shrink-0 border-b border-line bg-paper/95 backdrop-blur">
@@ -598,13 +739,14 @@ function ReadingStage({
         </div>
       </header>
 
-      <main className="mx-auto grid min-h-0 w-full max-w-[1500px] flex-1 gap-5 overflow-y-auto px-6 py-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
-        <article className="min-h-[70vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-6 py-7 shadow-sm sm:px-10 lg:min-h-0">
+      <main className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
+        <article className="min-h-[60vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-4 py-5 shadow-sm sm:px-10 sm:py-7 lg:min-h-0">
           <PdfReader
             bookId={book.id}
             startPage={item.startPage}
             endPage={item.endPage}
             initialPage={initialPage}
+            highlights={visibleHighlights}
             onCurrentPageChange={onCurrentPageChange}
             onAskSelection={onAskSelection}
           />
@@ -623,8 +765,19 @@ function ReadingStage({
           chatMessages={chatMessages}
           chatLoading={chatLoading}
           chatError={chatError}
+          notes={notes}
+          pendingNoteDraft={pendingNoteDraft}
+          noteNotice={noteNotice}
           selectedQuoteDraft={selectedQuoteDraft}
           onQuoteDraftUsed={onQuoteDraftUsed}
+          onSavePendingNote={onSavePendingNote}
+          onCancelPendingNote={onCancelPendingNote}
+          onAddChatMessageToNote={onAddChatMessageToNote}
+          onUpdateNote={onUpdateNote}
+          onDeleteNote={onDeleteNote}
+          onClearNoteHighlight={onClearNoteHighlight}
+          onStartReplaceNoteSource={onStartReplaceNoteSource}
+          noteSourceTarget={noteSourceTarget}
           currentPage={currentPage}
           currentPageHasText={currentPageHasText}
           disabled={chapterSections.length === 0 && !currentPageHasText}
@@ -634,6 +787,21 @@ function ReadingStage({
           onMarkUnfinished={onMarkUnfinished}
         />
       </main>
+
+      {pendingNoteDraft && (
+        <FloatingNoteComposer
+          draft={pendingNoteDraft}
+          onSave={onSavePendingNote}
+          onCancel={onCancelPendingNote}
+        />
+      )}
+
+      {noteSourceTarget && (
+        <ReplaceSourceBanner
+          note={noteSourceTarget}
+          onCancel={onCancelReplaceNoteSource}
+        />
+      )}
     </div>
   );
 }
@@ -789,8 +957,19 @@ function TutorSidebar({
   chatMessages,
   chatLoading,
   chatError,
+  notes,
+  pendingNoteDraft,
+  noteNotice,
   selectedQuoteDraft,
   onQuoteDraftUsed,
+  onSavePendingNote,
+  onCancelPendingNote,
+  onAddChatMessageToNote,
+  onUpdateNote,
+  onDeleteNote,
+  onClearNoteHighlight,
+  onStartReplaceNoteSource,
+  noteSourceTarget,
   currentPage,
   currentPageHasText,
   disabled,
@@ -800,50 +979,100 @@ function TutorSidebar({
   onMarkUnfinished,
 }) {
   const [activeGuideTab, setActiveGuideTab] = useState("goals");
+  const [activePanel, setActivePanel] = useState("chat");
+
+  useEffect(() => {
+    if (selectedQuoteDraft?.text) {
+      setActivePanel("chat");
+      return;
+    }
+
+    if (pendingNoteDraft?.text) {
+      setActivePanel("notes");
+    }
+  }, [selectedQuoteDraft, pendingNoteDraft]);
 
   return (
-    <aside className="h-full min-h-[70vh] overflow-hidden lg:min-h-0">
-      <section className="flex h-full min-h-0 flex-col rounded-xl border border-line bg-paper-card p-3 shadow-sm">
-        {loading && <GuideLoading startedAt={startedAt} compact />}
-        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+    <aside className="overflow-visible lg:h-full lg:min-h-0 lg:overflow-hidden">
+      <section className="flex flex-col gap-3 rounded-xl border border-line bg-paper-card p-3 shadow-sm lg:h-full lg:min-h-0">
+        <SidebarPanelTabs activePanel={activePanel} onChange={setActivePanel} />
 
-        {!guide && !loading && (
-          <button
-            onClick={onGenerate}
+        {activePanel === "chat" ? (
+          <ChatPanel
+            guide={guide}
+            messages={chatMessages}
+            loading={chatLoading}
+            error={chatError}
+            noteNotice={noteNotice}
+            selectedQuoteDraft={selectedQuoteDraft}
+            onQuoteDraftUsed={onQuoteDraftUsed}
+            onAddMessageToNote={onAddChatMessageToNote}
+            currentPage={currentPage}
+            currentPageHasText={currentPageHasText}
             disabled={disabled}
-            className="mt-5 w-full rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
-          >
-            生成阅读目标
-          </button>
+            onSend={onSendChat}
+          />
+        ) : (
+          <SidebarPanel
+            activePanel={activePanel}
+            guide={guide}
+            loading={loading}
+            startedAt={startedAt}
+            error={error}
+            activeGuideTab={activeGuideTab}
+            onTabChange={setActiveGuideTab}
+            onAsk={(question) => {
+              setActivePanel("chat");
+              onSendChat(question);
+            }}
+            disabled={disabled || chatLoading}
+            currentIndex={currentIndex}
+            planItems={planItems}
+            completed={completed}
+            notes={notes}
+            onUpdateNote={onUpdateNote}
+            onDeleteNote={onDeleteNote}
+            onClearNoteHighlight={onClearNoteHighlight}
+            onStartReplaceNoteSource={onStartReplaceNoteSource}
+            noteSourceTarget={noteSourceTarget}
+            pendingNoteDraft={pendingNoteDraft}
+            onSavePendingNote={onSavePendingNote}
+            onCancelPendingNote={onCancelPendingNote}
+            onGenerate={onGenerate}
+            onJump={onJump}
+            onMarkUnfinished={onMarkUnfinished}
+          />
         )}
-
-        <ChatPanel
-          guide={guide}
-          messages={chatMessages}
-          loading={chatLoading}
-          error={chatError}
-          selectedQuoteDraft={selectedQuoteDraft}
-          onQuoteDraftUsed={onQuoteDraftUsed}
-          currentPage={currentPage}
-          currentPageHasText={currentPageHasText}
-          disabled={disabled}
-          onSend={onSendChat}
-        />
-
-        <SidebarTools
-          guide={guide}
-          activeGuideTab={activeGuideTab}
-          onTabChange={setActiveGuideTab}
-          onAsk={onSendChat}
-          disabled={disabled || chatLoading}
-          currentIndex={currentIndex}
-          planItems={planItems}
-          completed={completed}
-          onJump={onJump}
-          onMarkUnfinished={onMarkUnfinished}
-        />
       </section>
     </aside>
+  );
+}
+
+const SIDEBAR_PANEL_OPTIONS = [
+  { key: "chat", label: "问导师" },
+  { key: "guide", label: "提示" },
+  { key: "notes", label: "笔记" },
+  { key: "items", label: "阅读项" },
+];
+
+function SidebarPanelTabs({ activePanel, onChange }) {
+  return (
+    <div className="grid grid-cols-4 rounded-lg bg-paper p-1">
+      {SIDEBAR_PANEL_OPTIONS.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          onClick={() => onChange(option.key)}
+          className={`rounded-md px-2 py-1.5 text-xs transition ${
+            activePanel === option.key
+              ? "bg-accent text-white"
+              : "text-ink-soft hover:bg-paper-card hover:text-ink"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -860,8 +1089,10 @@ function ChatPanel({
   messages,
   loading,
   error,
+  noteNotice,
   selectedQuoteDraft,
   onQuoteDraftUsed,
+  onAddMessageToNote,
   currentPage,
   currentPageHasText,
   disabled,
@@ -899,7 +1130,8 @@ function ChatPanel({
     if ((!text && !activeQuote) || loading || disabled) return;
     setDraft("");
     setActiveQuote(null);
-    onSend(buildChatMessageWithQuote(text, activeQuote));
+    const quote = activeQuote ? buildQuoteMeta(activeQuote) : null;
+    onSend(buildChatMessageWithQuote(text, activeQuote), { quote });
   }
 
   function handleSubmit(event) {
@@ -914,7 +1146,7 @@ function ChatPanel({
   }
 
   return (
-    <section className="flex min-h-0 flex-1 basis-0 flex-col rounded-xl border border-line bg-paper p-3">
+    <section className="flex h-[440px] min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-paper p-2 sm:h-[520px] sm:p-3 lg:h-auto lg:flex-1 lg:basis-0">
       <div className="flex shrink-0 items-center justify-between gap-3">
         <div>
           <p className="text-xs text-ink-soft">问导师</p>
@@ -936,6 +1168,12 @@ function ChatPanel({
         )}
       </div>
 
+      {noteNotice && (
+        <p className="mt-2 rounded-lg bg-paper-card px-3 py-2 text-xs text-accent">
+          {noteNotice}
+        </p>
+      )}
+
       <div
         ref={messagesRef}
         className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto rounded-lg bg-paper-card px-3 py-3"
@@ -943,17 +1181,19 @@ function ChatPanel({
         {messages.length === 0 ? (
           <AssistantWelcome />
         ) : (
-          messages.map((message, index) => (
-            <ChatMessage
-              key={message.id}
-              message={message}
-              latest={index === messages.length - 1}
-            />
-          ))
+          messages.map((message, index) =>
+            message.streaming && !toText(message.content).trim() ? null : (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                previousMessage={messages[index - 1]}
+                latest={index === messages.length - 1}
+                onAddToNote={onAddMessageToNote}
+              />
+            )
+          )
         )}
-        {loading && (
-          <ThinkingBubble />
-        )}
+        {loading && <ThinkingStatus />}
       </div>
 
       {error && <p className="mt-3 text-xs leading-5 text-red-600">{error}</p>}
@@ -999,6 +1239,87 @@ function ChatPanel({
   );
 }
 
+function FloatingNoteComposer({ draft, onSave, onCancel }) {
+  return (
+    <div className="fixed inset-x-4 bottom-4 z-40 sm:inset-x-auto sm:left-1/2 sm:w-[560px] sm:-translate-x-1/2 lg:left-auto lg:right-[460px] lg:w-[560px] lg:translate-x-0">
+      <NoteComposer draft={draft} onSave={onSave} onCancel={onCancel} floating />
+    </div>
+  );
+}
+
+function ReplaceSourceBanner({ note, onCancel }) {
+  return (
+    <div className="fixed inset-x-4 bottom-4 z-40 sm:inset-x-auto sm:left-1/2 sm:w-[520px] sm:-translate-x-1/2 lg:left-auto lg:right-[460px] lg:w-[520px] lg:translate-x-0">
+      <div className="rounded-xl border border-line bg-paper-card p-3 text-sm leading-6 text-ink shadow-2xl ring-1 ring-line/70">
+        <p className="font-medium">正在重新选择原文</p>
+        <p className="mt-1 line-clamp-2 text-xs text-ink-soft">
+          为「{note.text || note.note || "这条笔记"}」重新划一段文字，然后点浮层里的「添加笔记」。
+        </p>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper"
+        >
+          取消重新选择
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NoteComposer({ draft, onSave, onCancel, floating = false }) {
+  const [noteText, setNoteText] = useState("");
+
+  useEffect(() => {
+    setNoteText("");
+  }, [draft?.id]);
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    onSave(noteText);
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className={`rounded-xl border border-line bg-paper-card p-3 shadow-sm ${
+        floating ? "shadow-2xl ring-1 ring-line/70" : "mt-3"
+      }`}
+    >
+      <div className="rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-medium text-ink">添加高亮笔记</p>
+          <p className="text-[11px] text-ink-soft">支持 Markdown</p>
+        </div>
+        <p className="mt-1 line-clamp-3">“{draft.text}”</p>
+        {draft.pageNumber && <p className="mt-1">第 {draft.pageNumber} 页</p>}
+      </div>
+      <textarea
+        value={noteText}
+        onChange={(event) => setNoteText(event.target.value)}
+        rows={floating ? 5 : 3}
+        placeholder="写一点你的理解、疑问，或留空只保存高亮。"
+        className="mt-2 w-full resize-none rounded-lg border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
+      />
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper"
+        >
+          取消
+        </button>
+        <button
+          type="submit"
+          className="rounded-lg bg-accent px-3 py-2 text-sm text-white hover:opacity-90"
+        >
+          保存笔记
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function AssistantWelcome() {
   return (
     <article className="flex items-start gap-2">
@@ -1010,18 +1331,13 @@ function AssistantWelcome() {
   );
 }
 
-function ThinkingBubble() {
+function ThinkingStatus() {
   return (
-    <article className="flex items-start gap-2">
-      <Avatar label="导" />
-      <div className="rounded-2xl rounded-tl-sm bg-paper px-4 py-3 text-xs leading-5 text-ink-soft shadow-sm">
-        导师正在根据当前章节整理回答…
-      </div>
-    </article>
+    <p className="px-2 text-xs leading-5 text-ink-soft">导师正在整理回答…</p>
   );
 }
 
-function ChatMessage({ message, latest = false }) {
+function ChatMessage({ message, previousMessage, latest = false, onAddToNote }) {
   const isUser = message.role === "user";
   const latestAssistant = !isUser && latest;
 
@@ -1041,6 +1357,15 @@ function ChatMessage({ message, latest = false }) {
           <CollapsibleMarkdownText value={message.content} forceExpanded={latestAssistant} />
         )}
         {!isUser && !message.streaming && <ChatMessageUsage message={message} />}
+        {!isUser && !message.streaming && (
+          <button
+            type="button"
+            onClick={() => onAddToNote?.(message, previousMessage)}
+            className="mt-2 rounded-full border border-line px-3 py-1 text-xs text-ink-soft hover:bg-paper-card hover:text-accent"
+          >
+            记到笔记
+          </button>
+        )}
       </div>
       {isUser && <Avatar label="你" muted />}
     </article>
@@ -1231,8 +1556,12 @@ function ChatMessageUsage({ message }) {
   );
 }
 
-function SidebarTools({
+function SidebarPanel({
+  activePanel,
   guide,
+  loading,
+  startedAt,
+  error,
   activeGuideTab,
   onTabChange,
   onAsk,
@@ -1240,72 +1569,409 @@ function SidebarTools({
   currentIndex,
   planItems,
   completed,
+  notes,
+  onUpdateNote,
+  onDeleteNote,
+  onClearNoteHighlight,
+  onStartReplaceNoteSource,
+  noteSourceTarget,
+  pendingNoteDraft,
+  onSavePendingNote,
+  onCancelPendingNote,
+  onGenerate,
   onJump,
   onMarkUnfinished,
 }) {
-  return (
-    <details className="mt-3 shrink-0 rounded-xl border border-line bg-paper">
-      <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-ink">
-        阅读提示与操作
-      </summary>
-      <div className="space-y-4 border-t border-line px-4 pb-4 pt-3">
-        {guide && (
-          <GuideInsightPanel
-            guide={guide}
-            activeTab={activeGuideTab}
-            onTabChange={onTabChange}
-            onAsk={onAsk}
-            disabled={disabled}
-          />
-        )}
-
-        <div>
-          <p className="text-xs font-medium text-ink-soft">阅读项</p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+  if (activePanel === "guide") {
+    return (
+      <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
+        <div className="shrink-0">
+          <p className="text-xs text-ink-soft">阅读提示</p>
+          <h3 className="mt-1 text-sm font-medium text-ink">带着目标读这一段</h3>
+        </div>
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+          {loading && <GuideLoading startedAt={startedAt} compact />}
+          {error && <p className="text-sm leading-6 text-red-600">{error}</p>}
+          {!guide && !loading && (
             <button
-              onClick={() => onJump(currentIndex - 1)}
-              disabled={currentIndex === 0}
-              className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card disabled:opacity-40"
+              onClick={onGenerate}
+              disabled={disabled}
+              className="w-full rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper-card disabled:opacity-50"
             >
-              上一项
-            </button>
-            <button
-              onClick={() => onJump(currentIndex + 1)}
-              disabled={currentIndex >= planItems.length - 1}
-              className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card disabled:opacity-40"
-            >
-              下一项
-            </button>
-          </div>
-          {completed && (
-            <button
-              onClick={onMarkUnfinished}
-              className="mt-2 w-full rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper-card"
-            >
-              标记未完成
+              生成阅读目标
             </button>
           )}
+          {guide && (
+            <GuideInsightPanel
+              guide={guide}
+              activeTab={activeGuideTab}
+              onTabChange={onTabChange}
+              onAsk={onAsk}
+              disabled={disabled}
+              showTitle={false}
+            />
+          )}
         </div>
+      </section>
+    );
+  }
+
+  if (activePanel === "notes") {
+    return (
+      <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
+        <div className="shrink-0">
+          <p className="text-xs text-ink-soft">本章笔记</p>
+          <h3 className="mt-1 text-sm font-medium text-ink">高亮、摘录和导师回答</h3>
+        </div>
+        <div className="mt-3 min-h-0 flex-1">
+          <NotesPanel
+            notes={notes}
+            showTitle={false}
+            pendingNoteDraft={pendingNoteDraft}
+            noteSourceTarget={noteSourceTarget}
+            onUpdateNote={onUpdateNote}
+            onDeleteNote={onDeleteNote}
+            onClearNoteHighlight={onClearNoteHighlight}
+            onStartReplaceNoteSource={onStartReplaceNoteSource}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
+      <div className="shrink-0">
+        <p className="text-xs text-ink-soft">阅读项</p>
+        <h3 className="mt-1 text-sm font-medium text-ink">切换当天的阅读内容</h3>
       </div>
-    </details>
+      <ReadingItemsPanel
+        currentIndex={currentIndex}
+        planItems={planItems}
+        completed={completed}
+        onJump={onJump}
+        onMarkUnfinished={onMarkUnfinished}
+      />
+    </section>
   );
 }
 
-function GuideInsightPanel({ guide, activeTab, onTabChange, onAsk, disabled }) {
+function ReadingItemsPanel({ currentIndex, planItems, completed, onJump, onMarkUnfinished }) {
+  return (
+    <div className="mt-3 flex min-h-0 flex-1 flex-col">
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          onClick={() => onJump(currentIndex - 1)}
+          disabled={currentIndex === 0}
+          className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card disabled:opacity-40"
+        >
+          上一项
+        </button>
+        <button
+          onClick={() => onJump(currentIndex + 1)}
+          disabled={currentIndex >= planItems.length - 1}
+          className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card disabled:opacity-40"
+        >
+          下一项
+        </button>
+      </div>
+      <ol className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+        {planItems.map((planItem, index) => (
+          <li key={planItem.key || `${planItem.title}-${index}`}>
+            <button
+              type="button"
+              onClick={() => onJump(index)}
+              className={`w-full rounded-lg px-3 py-2 text-left text-xs leading-5 transition ${
+                index === currentIndex
+                  ? "bg-accent text-white"
+                  : "bg-paper-card text-ink-soft hover:text-accent"
+              }`}
+            >
+              <span className="block text-[11px] opacity-80">Day {planItem.day}</span>
+              <span className="line-clamp-2">{planItem.title}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      {completed && (
+        <button
+          onClick={onMarkUnfinished}
+          className="mt-3 w-full shrink-0 rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper-card"
+        >
+          标记未完成
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NotesPanel({
+  notes,
+  showTitle = true,
+  pendingNoteDraft,
+  noteSourceTarget,
+  onUpdateNote,
+  onDeleteNote,
+  onClearNoteHighlight,
+  onStartReplaceNoteSource,
+}) {
+  const [selectedNoteId, setSelectedNoteId] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const selectedNote = notes.find((note) => note.id === selectedNoteId) || null;
+
+  useEffect(() => {
+    if (!pendingNoteDraft?.text) return;
+    setSelectedNoteId(null);
+    setEditing(false);
+  }, [pendingNoteDraft]);
+
+  useEffect(() => {
+    if (selectedNoteId && !notes.some((note) => note.id === selectedNoteId)) {
+      setSelectedNoteId(null);
+      setEditing(false);
+    }
+  }, [notes, selectedNoteId]);
+
+  useEffect(() => {
+    if (!selectedNote || !editing) return;
+    setDraft(selectedNote.note || "");
+  }, [selectedNote, editing]);
+
+  function openNote(note) {
+    setSelectedNoteId(note.id);
+    setEditing(false);
+  }
+
+  function startEditing() {
+    if (!selectedNote) return;
+    setDraft(selectedNote.note || "");
+    setEditing(true);
+  }
+
+  async function saveNoteEdit(event) {
+    event.preventDefault();
+    if (!selectedNote || !onUpdateNote) return;
+    await onUpdateNote(selectedNote.id, { note: draft });
+    setEditing(false);
+  }
+
+  return (
+    <section className="flex h-full min-h-0 flex-col">
+      {showTitle && <p className="text-xs font-medium text-ink-soft">本章笔记</p>}
+      {pendingNoteDraft && (
+        <p className="mb-2 shrink-0 rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-ink-soft">
+          正在为选中的原文添加笔记，编辑框已浮在阅读页上。
+        </p>
+      )}
+      {noteSourceTarget && (
+        <p className="mb-2 shrink-0 rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-accent">
+          正在重新选择「{noteSourceTarget.text || noteSourceTarget.note || "这条笔记"}」的原文。
+        </p>
+      )}
+      {notes.length === 0 ? (
+        <p className="mt-2 rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
+          选中 PDF 原文后可以添加高亮笔记；导师回答也可以一键记到这里。
+        </p>
+      ) : selectedNote ? (
+        <NoteDetail
+          note={selectedNote}
+          editing={editing}
+          draft={draft}
+          onDraftChange={setDraft}
+          onBack={() => {
+            setSelectedNoteId(null);
+            setEditing(false);
+          }}
+          onEdit={startEditing}
+          onCancel={() => setEditing(false)}
+          onSave={saveNoteEdit}
+          onDelete={() => onDeleteNote?.(selectedNote.id)}
+          onClearHighlight={() => onClearNoteHighlight?.(selectedNote.id)}
+          onReplaceSource={() => onStartReplaceNoteSource?.(selectedNote)}
+          editable={Boolean(onUpdateNote)}
+        />
+      ) : (
+        <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          {notes.map((note) => (
+            <li key={note.id}>
+              <button
+                type="button"
+                onClick={() => openNote(note)}
+                className="w-full rounded-lg bg-paper-card px-3 py-3 text-left text-xs leading-5 transition hover:bg-paper hover:shadow-sm"
+              >
+                <p className="line-clamp-2 text-ink">“{note.text || "AI 导师回答"}”</p>
+                <p className="mt-1 line-clamp-3 text-ink-soft">
+                  {note.note || note.assistantContent || "未填写笔记"}
+                </p>
+                <p className="mt-2 text-[11px] text-ink-soft">
+                  {note.pageNumber ? `第 ${note.pageNumber} 页 · ` : ""}
+                  {formatReadingTime(note.createdAt)}
+                </p>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function NoteDetail({
+  note,
+  editing,
+  draft,
+  onDraftChange,
+  onBack,
+  onEdit,
+  onCancel,
+  onSave,
+  onDelete,
+  onClearHighlight,
+  onReplaceSource,
+  editable,
+}) {
+  const hasHighlight = Boolean(note.text && !note.highlightDisabled);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-soft hover:bg-paper-card"
+        >
+          返回列表
+        </button>
+        {!editing && editable && (
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:opacity-90"
+            >
+              编辑
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+            >
+              删除
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        {note.text && (
+          <section className="rounded-lg bg-paper-card px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-ink-soft">
+                原文摘录{note.pageNumber ? ` · 第 ${note.pageNumber} 页` : ""}
+                {note.highlightDisabled ? " · 高亮已取消" : ""}
+              </p>
+            </div>
+            <blockquote className="mt-2 border-l-4 border-line pl-3 text-sm leading-6 text-ink">
+              {note.text}
+            </blockquote>
+            {!editing && editable && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={onReplaceSource}
+                  className="rounded-lg border border-line px-3 py-2 text-xs text-ink-soft hover:bg-paper"
+                >
+                  重新划原文
+                </button>
+                <button
+                  type="button"
+                  onClick={onClearHighlight}
+                  disabled={!hasHighlight}
+                  className="rounded-lg border border-line px-3 py-2 text-xs text-ink-soft hover:bg-paper disabled:opacity-40"
+                >
+                  取消高亮
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className="rounded-lg bg-paper-card px-3 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-ink-soft">我的笔记</p>
+            <p className="text-[11px] text-ink-soft">支持 Markdown</p>
+          </div>
+          {editing ? (
+            <form onSubmit={onSave} className="mt-2">
+              <textarea
+                value={draft}
+                onChange={(event) => onDraftChange(event.target.value)}
+                rows={8}
+                placeholder="用 Markdown 写下你的理解、疑问或延伸。"
+                className="w-full resize-none rounded-lg border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-accent px-3 py-2 text-sm text-white hover:opacity-90"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          ) : note.note ? (
+            <div className="mt-2 text-sm leading-6 text-ink">
+              <MarkdownText value={note.note} />
+            </div>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-ink-soft">还没有写自己的笔记。</p>
+          )}
+        </section>
+
+        {note.assistantContent && (
+          <section className="rounded-lg bg-paper-card px-3 py-3">
+            <p className="text-[11px] text-ink-soft">AI 导师回答</p>
+            <div className="mt-2 text-sm leading-6 text-ink">
+              <MarkdownText value={note.assistantContent} />
+            </div>
+          </section>
+        )}
+
+        <p className="px-1 text-[11px] leading-5 text-ink-soft">
+          {note.pageNumber ? `第 ${note.pageNumber} 页 · ` : ""}
+          创建于 {formatReadingTime(note.createdAt)}
+          {note.updatedAt && note.updatedAt !== note.createdAt
+            ? ` · 更新于 ${formatReadingTime(note.updatedAt)}`
+            : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function GuideInsightPanel({ guide, activeTab, onTabChange, onAsk, disabled, showTitle = true }) {
   const activeOption =
     GUIDE_TAB_OPTIONS.find((option) => option.key === activeTab) || GUIDE_TAB_OPTIONS[0];
-  const items = toList(guide?.[activeOption.key]).slice(0, 3);
+  const items = toList(guide?.[activeOption.key]).slice(0, 2);
 
   return (
     <section>
-      <p className="text-xs font-medium text-ink-soft">阅读提示</p>
-      <div className="mt-2">
-        <div className="flex rounded-lg bg-paper-card p-1">
+      {showTitle && <p className="text-xs font-medium text-ink-soft">阅读提示</p>}
+      <div className={showTitle ? "mt-2" : ""}>
+        <div className="grid grid-cols-3 rounded-lg bg-paper-card p-1">
           {GUIDE_TAB_OPTIONS.map((option) => (
             <button
               key={option.key}
               onClick={() => onTabChange(option.key)}
-              className={`rounded-md px-2.5 py-1 text-xs transition ${
+              className={`rounded-md px-2 py-1 text-xs transition ${
                 activeTab === option.key
                   ? "bg-accent text-white"
                   : "text-ink-soft hover:bg-paper"
@@ -1386,17 +2052,51 @@ function buildReflectionPrompts(guide, item) {
   ].slice(0, 4);
 }
 
-function buildSelectedTextPrompt(selection, item) {
-  const text = toText(selection?.text).trim();
-  const pageNumber = selection?.pageNumber ? `第 ${selection.pageNumber} 页` : "当前页";
-  const title = item?.title ? `「${item.title}」` : "当前章节";
+function buildPendingNoteFromSelection(selection) {
+  return {
+    id: `note-draft-${Date.now()}`,
+    pageNumber: selection?.pageNumber || null,
+    text: toText(selection?.text).trim(),
+    rects: normalizeHighlightRects(selection?.rects),
+  };
+}
 
-  return [
-    `我在${pageNumber}选中了这句/这段：`,
-    `> ${text}`,
-    "",
-    `请用通俗的话解释它是什么意思，并说明它和${title}的关系。`,
-  ].join("\n");
+function buildQuoteMeta(quote) {
+  if (!quote?.text) return null;
+  return {
+    pageNumber: quote.pageNumber || null,
+    text: toText(quote.text).trim(),
+    rects: normalizeHighlightRects(quote.rects),
+  };
+}
+
+function normalizeHighlightRects(rects) {
+  if (!Array.isArray(rects)) return [];
+  return rects
+    .map((rect) => ({
+      x: clampRatio(rect.x),
+      y: clampRatio(rect.y),
+      width: clampRatio(rect.width),
+      height: clampRatio(rect.height),
+    }))
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+function clampRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
+}
+
+function extractQuoteFromChatContent(content) {
+  const text = toText(content);
+  const pageMatch = text.match(/我在第\s*(\d+)\s*页选中/);
+  const quoteMatch = text.match(/^>\s*(.+)$/m);
+
+  return {
+    pageNumber: pageMatch ? Number(pageMatch[1]) : null,
+    text: quoteMatch ? quoteMatch[1].trim() : "",
+  };
 }
 
 function clampIndex(index, length) {

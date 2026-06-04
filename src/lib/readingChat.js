@@ -33,6 +33,7 @@ export async function sendReadingChatMessage({
   guide,
   messages,
   content,
+  quote,
   onDelta,
 }) {
   const text = toText(content).trim();
@@ -43,6 +44,7 @@ export async function sendReadingChatMessage({
     id: makeId("chat-user"),
     role: "user",
     content: text,
+    quote: normalizeQuote(quote),
     createdAt: new Date().toISOString(),
   };
 
@@ -152,9 +154,37 @@ function normalizeMessages(value) {
       id: toText(message.id) || makeId("chat"),
       role: message.role === "assistant" ? "assistant" : "user",
       content: toText(message.content).trim(),
+      quote: normalizeQuote(message.quote),
       createdAt: message.createdAt || new Date().toISOString(),
     }))
     .filter((message) => message.content);
+}
+
+function normalizeQuote(quote) {
+  if (!quote?.text) return null;
+  return {
+    pageNumber: Number(quote.pageNumber) || null,
+    text: toText(quote.text).trim(),
+    rects: normalizeRects(quote.rects),
+  };
+}
+
+function normalizeRects(rects) {
+  if (!Array.isArray(rects)) return [];
+  return rects
+    .map((rect) => ({
+      x: clampRatio(rect.x),
+      y: clampRatio(rect.y),
+      width: clampRatio(rect.width),
+      height: clampRatio(rect.height),
+    }))
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+}
+
+function clampRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
 }
 
 function estimateChatCost(settings, result) {

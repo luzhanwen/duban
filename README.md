@@ -32,7 +32,8 @@
 - 手动生成 AI 章节导读，并显示 token 和估算费用。
 - AI 章节导读支持受限 Markdown：只渲染加粗和引用，普通换行会被压回自然文本。
 - 在阅读 sidebar 中基于当前可见页和当前阅读项进行伴读问答，允许适度发散后收束回本书。
-- 在 PDF 原版页中选中文字后显示跟随式按钮：可一键解释选中句子，也可把引用作为输入框上方的引子，再向导师追问。
+- 在 PDF 原版页中选中文字后显示跟随式按钮：可把引用作为输入框上方的引子向导师追问，也可添加高亮笔记。
+- 导师回答可一键记到本章笔记；有原文引用时会尽量挂回对应页的高亮。
 - 将导读、伴读聊天等 prompt 文件化，并共享统一导师人格。
 
 ## 技术栈
@@ -106,6 +107,7 @@ src/
     pricing.js            token 费用估算和美元格式化
     readingGuides.js      章节导读生成、解析、保存
     readingChat.js        阅读 sidebar 伴读问答、保存和费用统计
+    notes.js              PDF 高亮和本章笔记的读写
     promptTemplates.js    Markdown prompt 模板加载和变量替换
 
   prompts/
@@ -144,6 +146,7 @@ docs/
 - `book:{id}:pages`：分页文本数组。
 - `book:{id}:questions:{planItemKey}`：某个阅读项的章节导读。
 - `book:{id}:chat`：伴读聊天记录，内部按阅读项 key 分组。
+- `book:{id}:notes`：高亮和笔记，内部按阅读项 key 分组。
 - `book:{id}:formatted-text:{planItemKey}`：某个阅读项的 AI 排版 Markdown 文本。
 - `progress:{id}`：阅读进度、当前阅读项、每个阅读项的最近页码和打卡日期。
 

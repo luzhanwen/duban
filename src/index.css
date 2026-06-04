@@ -65,6 +65,21 @@ body {
   background: color-mix(in srgb, AccentColor, transparent 75%);
 }
 
+.textLayer .reading-highlight {
+  background: color-mix(in srgb, #f2c94c, transparent 48%);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 70%);
+}
+
+.textLayer .reading-highlight-mark {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 2px;
+  background: color-mix(in srgb, #f2c94c, transparent 44%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 72%);
+}
+
 .textLayer br::selection {
   background: transparent;
 }

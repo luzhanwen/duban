@@ -10,6 +10,7 @@ export default function PdfReader({
   startPage,
   endPage,
   initialPage,
+  highlights = [],
   onCurrentPageChange,
   onAskSelection,
 }) {
@@ -27,6 +28,15 @@ export default function PdfReader({
     const end = Math.min(pdf.numPages, Math.max(start, Number(endPage) || start));
     return Array.from({ length: end - start + 1 }, (_, index) => start + index);
   }, [pdf, startPage, endPage]);
+
+  const highlightsByPage = useMemo(() => {
+    return highlights.reduce((groups, highlight) => {
+      const pageNumber = Number(highlight.pageNumber);
+      if (!Number.isFinite(pageNumber)) return groups;
+      groups[pageNumber] = [...(groups[pageNumber] || []), highlight];
+      return groups;
+    }, {});
+  }, [highlights]);
 
   useEffect(() => {
     onCurrentPageChangeRef.current = onCurrentPageChange;
@@ -159,7 +169,9 @@ export default function PdfReader({
         return;
       }
 
-      const textLayer = findClosestElement(range.commonAncestorContainer, ".textLayer");
+      const textLayer =
+        findClosestElement(range.commonAncestorContainer, ".textLayer") ||
+        findClosestElement(range.startContainer, ".textLayer");
       if (!textLayer && !findClosestElement(range.startContainer, ".textLayer")) {
         setSelectionToolbar(null);
         return;
@@ -175,6 +187,7 @@ export default function PdfReader({
       setSelectionToolbar({
         text,
         pageNumber,
+        rects: getSelectionHighlightRects(range, textLayer),
         top: Math.max(12, rect.top - 44),
         left: clamp(rect.left + rect.width / 2, 112, window.innerWidth - 112),
       });
@@ -187,6 +200,7 @@ export default function PdfReader({
       action,
       text: selectionToolbar.text,
       pageNumber: selectionToolbar.pageNumber,
+      rects: selectionToolbar.rects,
     });
     setSelectionToolbar(null);
     window.getSelection?.()?.removeAllRanges?.();
@@ -220,6 +234,7 @@ export default function PdfReader({
               pdf={pdf}
               pageNumber={pageNumber}
               containerWidth={containerWidth}
+              highlights={highlightsByPage[pageNumber] || []}
             />
           ))}
         </div>
@@ -233,17 +248,17 @@ export default function PdfReader({
         >
           <button
             type="button"
-            onClick={() => handleSelectionAction("explain")}
+            onClick={() => handleSelectionAction("ask")}
             className="rounded-full bg-accent px-3 py-1.5 text-white hover:opacity-90"
           >
-            解释这句
+            问导师
           </button>
           <button
             type="button"
-            onClick={() => handleSelectionAction("ask")}
+            onClick={() => handleSelectionAction("note")}
             className="rounded-full px-3 py-1.5 text-ink-soft hover:bg-paper"
           >
-            问导师
+            添加笔记
           </button>
         </div>
       )}
@@ -271,6 +286,30 @@ function getUsefulSelectionRect(range) {
   return rects[0] || (range.getBoundingClientRect?.().width ? range.getBoundingClientRect() : null);
 }
 
+function getSelectionHighlightRects(range, textLayer) {
+  if (!range || !textLayer) return [];
+
+  const layerRect = textLayer.getBoundingClientRect();
+  if (!layerRect.width || !layerRect.height) return [];
+
+  return mergeHighlightRects(
+    Array.from(range.getClientRects())
+    .map((rect) => {
+      const left = clamp(rect.left - layerRect.left, 0, layerRect.width);
+      const right = clamp(rect.right - layerRect.left, 0, layerRect.width);
+      const top = clamp(rect.top - layerRect.top, 0, layerRect.height);
+      const bottom = clamp(rect.bottom - layerRect.top, 0, layerRect.height);
+      return {
+        x: left / layerRect.width,
+        y: top / layerRect.height,
+        width: (right - left) / layerRect.width,
+        height: (bottom - top) / layerRect.height,
+      };
+    })
+    .filter((rect) => rect.width > 0.001 && rect.height > 0.001)
+  );
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -296,7 +335,7 @@ function getScrollParent(node) {
   return null;
 }
 
-function PdfPage({ pdf, pageNumber, containerWidth }) {
+function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
   const canvasRef = useRef(null);
   const textLayerRef = useRef(null);
   const [pageSize, setPageSize] = useState(null);
@@ -363,6 +402,7 @@ function PdfPage({ pdf, pageNumber, containerWidth }) {
         endOfContent.className = "endOfContent";
         textLayerRef.current.append(endOfContent);
 
+        applyPageHighlights(textLayerRef.current, highlights);
         if (alive) setStatus("ready");
       } catch (e) {
         if (!alive || e?.name === "RenderingCancelledException") return;
@@ -378,6 +418,11 @@ function PdfPage({ pdf, pageNumber, containerWidth }) {
       textLayer?.cancel?.();
     };
   }, [pdf, pageNumber, containerWidth]);
+
+  useEffect(() => {
+    if (!textLayerRef.current || status !== "ready") return;
+    applyPageHighlights(textLayerRef.current, highlights);
+  }, [highlights, status]);
 
   return (
     <section
@@ -409,4 +454,125 @@ function PdfPage({ pdf, pageNumber, containerWidth }) {
       </div>
     </section>
   );
+}
+
+function applyPageHighlights(textLayerNode, highlights) {
+  if (!textLayerNode) return;
+
+  textLayerNode.querySelectorAll(".reading-highlight-mark").forEach((mark) => mark.remove());
+
+  const spans = Array.from(textLayerNode.querySelectorAll("span")).filter((span) =>
+    normalizeForHighlight(span.textContent)
+  );
+
+  for (const span of spans) {
+    span.classList.remove("reading-highlight");
+  }
+
+  const index = buildTextLayerIndex(spans);
+  for (const highlight of highlights) {
+    if (highlight.highlightDisabled) continue;
+
+    if (Array.isArray(highlight.rects) && highlight.rects.length > 0) {
+      renderHighlightRects(textLayerNode, highlight.rects);
+      continue;
+    }
+
+    const text = normalizeForHighlight(highlight.text);
+    if (!text) continue;
+
+    const start = findHighlightStart(index.fullText, text);
+    if (start < 0) continue;
+
+    const end = start + text.length;
+    for (const item of index.ranges) {
+      if (item.end <= start || item.start >= end) continue;
+      item.span.classList.add("reading-highlight");
+    }
+  }
+}
+
+function renderHighlightRects(textLayerNode, rects) {
+  for (const rect of mergeHighlightRects(rects)) {
+    const mark = document.createElement("div");
+    mark.className = "reading-highlight-mark";
+    mark.style.left = `${clampRatio(rect.x) * 100}%`;
+    mark.style.top = `${clampRatio(rect.y) * 100}%`;
+    mark.style.width = `${clampRatio(rect.width) * 100}%`;
+    mark.style.height = `${clampRatio(rect.height) * 100}%`;
+    textLayerNode.append(mark);
+  }
+}
+
+function mergeHighlightRects(rects) {
+  const normalized = rects
+    .map((rect) => ({
+      x: clampRatio(rect.x),
+      y: clampRatio(rect.y),
+      width: clampRatio(rect.width),
+      height: clampRatio(rect.height),
+    }))
+    .filter((rect) => rect.width > 0.001 && rect.height > 0.001)
+    .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
+
+  const merged = [];
+  const lineTolerance = 0.006;
+  const gapTolerance = 0.008;
+
+  for (const rect of normalized) {
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      Math.abs(previous.y - rect.y) <= lineTolerance &&
+      Math.abs(previous.height - rect.height) <= lineTolerance &&
+      rect.x <= previous.x + previous.width + gapTolerance
+    ) {
+      const left = Math.min(previous.x, rect.x);
+      const right = Math.max(previous.x + previous.width, rect.x + rect.width);
+      const top = Math.min(previous.y, rect.y);
+      const bottom = Math.max(previous.y + previous.height, rect.y + rect.height);
+      previous.x = left;
+      previous.y = top;
+      previous.width = right - left;
+      previous.height = bottom - top;
+    } else {
+      merged.push({ ...rect });
+    }
+  }
+
+  return merged;
+}
+
+function clampRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
+}
+
+function buildTextLayerIndex(spans) {
+  let fullText = "";
+  const ranges = [];
+
+  for (const span of spans) {
+    const text = normalizeForHighlight(span.textContent);
+    if (!text) continue;
+    if (fullText) fullText += " ";
+    const start = fullText.length;
+    fullText += text;
+    ranges.push({ span, start, end: fullText.length });
+  }
+
+  return { fullText, ranges };
+}
+
+function findHighlightStart(fullText, selectedText) {
+  const direct = fullText.indexOf(selectedText);
+  if (direct >= 0) return direct;
+
+  const snippet = selectedText.slice(0, 80).trim();
+  return snippet ? fullText.indexOf(snippet) : -1;
+}
+
+function normalizeForHighlight(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
