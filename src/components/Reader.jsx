@@ -753,10 +753,8 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
       {guide && (
         <div className="space-y-5">
           {guide.overview && (
-            <div className="space-y-4 rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
-              {splitOverview(guide.overview).map((paragraph, index) => (
-                <p key={`overview-${index}`}>{paragraph}</p>
-              ))}
+            <div className="rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
+              <GuideMarkdownText value={guide.overview} />
             </div>
           )}
           <div className="grid gap-5 lg:grid-cols-2">
@@ -1557,7 +1555,7 @@ function GuideList({ title, items, compact = false }) {
               compact ? "px-3 py-2 text-xs leading-5" : "px-4 py-3 text-sm leading-6"
             }`}
           >
-            {item}
+            <GuideMarkdownText value={item} compact={compact} />
           </li>
         ))}
       </ul>
@@ -1565,38 +1563,111 @@ function GuideList({ title, items, compact = false }) {
   );
 }
 
-function splitOverview(value) {
-  const text = toText(value).trim();
-  if (!text) return [];
+function GuideMarkdownText({ value, compact = false }) {
+  const blocks = splitGuideMarkdownBlocks(value);
+  if (blocks.length === 0) return null;
 
-  const explicitParagraphs = text
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (explicitParagraphs.length > 1) return explicitParagraphs;
-  return splitLongChineseParagraph(text);
+  return (
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      {blocks.map((block, index) =>
+        block.type === "quote" ? (
+          <blockquote
+            key={`guide-md-${index}`}
+            className="border-l-4 border-line bg-paper-card px-4 py-3 text-ink-soft"
+          >
+            {block.lines.map((line, lineIndex) => (
+              <p key={`guide-md-${index}-${lineIndex}`}>
+                {renderGuideInlineMarkdown(line, `guide-${index}-${lineIndex}`)}
+              </p>
+            ))}
+          </blockquote>
+        ) : (
+          <p key={`guide-md-${index}`}>
+            {renderGuideInlineMarkdown(block.text, `guide-${index}`)}
+          </p>
+        )
+      )}
+    </div>
+  );
 }
 
-function splitLongChineseParagraph(text) {
-  if (text.length < 220) return [text];
+function splitGuideMarkdownBlocks(value) {
+  const lines = toText(value)
+    .replace(/\\n/g, "\n")
+    .split(/\n+/)
+    .map(cleanGuideMarkdownLine)
+    .filter(Boolean);
 
-  const sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
-  const paragraphs = [];
-  let current = "";
+  const blocks = [];
+  let paragraph = [];
+  let quote = [];
 
-  for (const sentence of sentences) {
-    const next = `${current}${sentence}`.trim();
-    if (current && next.length > 180 && paragraphs.length < 2) {
-      paragraphs.push(current.trim());
-      current = sentence.trim();
+  function flushParagraph() {
+    if (paragraph.length === 0) return;
+    blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+/g, " ").trim() });
+    paragraph = [];
+  }
+
+  function flushQuote() {
+    if (quote.length === 0) return;
+    blocks.push({ type: "quote", lines: quote });
+    quote = [];
+  }
+
+  for (const line of lines) {
+    if (line.startsWith(">")) {
+      flushParagraph();
+      quote.push(line.replace(/^>\s?/, "").trim());
     } else {
-      current = next;
+      flushQuote();
+      paragraph.push(line);
     }
   }
 
-  if (current) paragraphs.push(current.trim());
-  return paragraphs;
+  flushQuote();
+  flushParagraph();
+  return blocks;
+}
+
+function cleanGuideMarkdownLine(line) {
+  const text = line.trim();
+  if (!text || /^-{3,}$/.test(text)) return "";
+
+  return text
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+\.\s+/, "")
+    .replace(/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/, "")
+    .replace(/\s*\|\s*/g, "，")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function renderGuideInlineMarkdown(text, keyPrefix) {
+  const parts = [];
+  const pattern = /(\*\*([^*]+)\*\*|__([^_]+)__)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    parts.push(
+      <strong key={`${keyPrefix}-strong-${match.index}`} className="font-semibold">
+        {match[2] || match[3]}
+      </strong>
+    );
+
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
 }
 
 function useElapsedSeconds(startedAt) {
