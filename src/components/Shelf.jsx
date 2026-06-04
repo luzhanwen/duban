@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { createBookFromPdf, listBooks } from "../lib/books.js";
+import { IS_TEST_CHANNEL } from "../lib/appChannel.js";
+import { createBookFromPdf, getReadingProgress, listBooks } from "../lib/books.js";
 import { parsePdf } from "../lib/pdf.js";
 import { toText } from "../lib/text.js";
 
@@ -11,6 +12,7 @@ const TEST_BOOK = {
 export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   const inputRef = useRef(null);
   const [books, setBooks] = useState([]);
+  const [progressByBookId, setProgressByBookId] = useState({});
   const [uploadState, setUploadState] = useState(null);
   const [error, setError] = useState("");
 
@@ -20,7 +22,11 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
 
   async function refreshBooks() {
     const saved = await listBooks();
+    const progressEntries = await Promise.all(
+      saved.map(async (book) => [book.id, await getReadingProgress(book.id)])
+    );
     setBooks(saved);
+    setProgressByBookId(Object.fromEntries(progressEntries));
   }
 
   async function importPdfFile(file) {
@@ -99,7 +105,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         </div>
       </div>
 
-      {import.meta.env.DEV && (
+      {IS_TEST_CHANNEL && (
         <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -137,6 +143,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
             <BookCard
               key={book.id}
               book={book}
+              progress={progressByBookId[book.id]}
               onSetupBook={onSetupBook}
               onPlanBook={onPlanBook}
               onReadBook={onReadBook}
@@ -190,7 +197,7 @@ function EmptyShelf({ onUpload }) {
   );
 }
 
-function BookCard({ book, onSetupBook, onPlanBook, onReadBook }) {
+function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook }) {
   const sourceText = book.detectionSource === "outline" ? "PDF 目录" : "文本标题";
   const statusText =
     book.status === "planned"
@@ -201,6 +208,7 @@ function BookCard({ book, onSetupBook, onPlanBook, onReadBook }) {
   const roleCounts = countChapterRoles(book.chapters);
   const canPlan = book.status === "confirmed" || book.status === "planned";
   const canRead = book.status === "planned" && book.readingPlan?.items?.length > 0;
+  const readingStats = buildReadingStats(book, progress);
 
   return (
     <article className="rounded-xl border border-line bg-paper-card p-5 shadow-sm">
@@ -232,6 +240,9 @@ function BookCard({ book, onSetupBook, onPlanBook, onReadBook }) {
         <span className="rounded-full bg-paper px-3 py-1">忽略 {roleCounts.ignore}</span>
         <span className="rounded-full bg-paper px-3 py-1">附录 {roleCounts.appendix}</span>
       </div>
+      {canRead && (
+        <ReadingProgressSummary stats={readingStats} />
+      )}
       {canPlan ? (
         <>
           {canRead && (
@@ -239,7 +250,7 @@ function BookCard({ book, onSetupBook, onPlanBook, onReadBook }) {
               onClick={() => onReadBook(book.id)}
               className="mt-5 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:opacity-90"
             >
-              开始阅读
+              {readingStats.actionLabel}
             </button>
           )}
           <div className={`${canRead ? "mt-2" : "mt-5"} flex flex-wrap gap-2`}>
@@ -273,6 +284,36 @@ function BookCard({ book, onSetupBook, onPlanBook, onReadBook }) {
   );
 }
 
+function ReadingProgressSummary({ stats }) {
+  return (
+    <section className="mt-5 rounded-lg bg-paper px-4 py-3">
+      <div className="flex items-center justify-between gap-3 text-xs text-ink-soft">
+        <span>阅读进度</span>
+        <span>{stats.completedCount} / {stats.totalCount} 项 · {stats.percent}%</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-paper-card">
+        <div
+          className="h-full rounded-full bg-accent transition-all"
+          style={{ width: `${stats.percent}%` }}
+        />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-xs text-ink-soft">{stats.positionLabel}</p>
+          <p className="mt-1 truncate text-ink">{stats.positionText}</p>
+          {stats.lastReadText && (
+            <p className="mt-1 truncate text-xs text-ink-soft">{stats.lastReadText}</p>
+          )}
+        </div>
+        <div>
+          <p className="text-xs text-ink-soft">坚持打卡</p>
+          <p className="mt-1 text-ink">{stats.streakDays} 天</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function countChapterRoles(chapters) {
   return chapters.reduce(
     (counts, chapter) => {
@@ -282,4 +323,93 @@ function countChapterRoles(chapters) {
     },
     { ignore: 0, guide: 0, main: 0, appendix: 0 }
   );
+}
+
+function buildReadingStats(book, progress = {}) {
+  const items = book.readingPlan?.items || [];
+  const totalCount = items.length;
+  const completedKeys = progress.completedItemKeys || [];
+  const completedCount = completedKeys.length;
+  const percent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const currentIndex = clampIndex(progress.currentItemIndex || 0, totalCount);
+  const currentItem = items[currentIndex];
+  const currentKey = getPlanItemKey(currentItem, currentIndex);
+  const savedLocation = progress.currentPageByItemKey?.[currentKey] || null;
+  const pageNumber = savedLocation?.pageNumber;
+  const fallbackPage = currentItem?.startPage;
+  const pageText = pageNumber || fallbackPage ? `第 ${pageNumber || fallbackPage} 页` : "还没开始";
+  const itemText = currentItem?.title ? currentItem.title : "还没开始";
+  const currentCompleted = currentKey ? completedKeys.includes(currentKey) : false;
+  const hasSavedLocation = Boolean(savedLocation?.pageNumber);
+  const continuing = currentItem && !currentCompleted && hasSavedLocation;
+  const allCompleted = totalCount > 0 && completedCount >= totalCount;
+
+  return {
+    totalCount,
+    completedCount,
+    percent,
+    streakDays: calculateReadingStreak(progress.readingDays || []),
+    positionText: currentItem ? `${itemText} · ${pageText}` : "还没开始",
+    positionLabel: continuing ? "上次读到" : allCompleted ? "已完成" : "今日阅读",
+    lastReadText: continuing
+      ? `上次阅读 ${formatLastReadTime(savedLocation.updatedAt || progress.lastReadAt)}`
+      : progress.lastReadAt
+      ? `最近阅读 ${formatLastReadTime(progress.lastReadAt)}`
+      : "",
+    actionLabel: continuing ? "继续阅读" : allCompleted ? "回顾阅读" : "开始今日阅读",
+  };
+}
+
+function getPlanItemKey(item, index) {
+  return item?.id || `${item?.type || "item"}:${index}`;
+}
+
+function calculateReadingStreak(days) {
+  const normalized = [...new Set(days.filter(Boolean))].sort();
+  if (normalized.length === 0) return 0;
+
+  let streak = 1;
+  let cursor = parseLocalDate(normalized[normalized.length - 1]);
+
+  for (let index = normalized.length - 2; index >= 0; index -= 1) {
+    const previous = parseLocalDate(normalized[index]);
+    cursor.setDate(cursor.getDate() - 1);
+    if (formatLocalDate(previous) !== formatLocalDate(cursor)) break;
+    streak += 1;
+  }
+
+  return streak;
+}
+
+function parseLocalDate(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatLastReadTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = formatLocalDate(new Date());
+  const targetDay = formatLocalDate(date);
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (targetDay === today) return `今天 ${time}`;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (targetDay === formatLocalDate(yesterday)) return `昨天 ${time}`;
+
+  return `${targetDay} ${time}`;
+}
+
+function clampIndex(index, length) {
+  if (length <= 0) return 0;
+  return Math.max(0, Math.min(index, length - 1));
 }

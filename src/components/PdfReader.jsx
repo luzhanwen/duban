@@ -9,6 +9,7 @@ export default function PdfReader({
   bookId,
   startPage,
   endPage,
+  initialPage,
   onCurrentPageChange,
   onAskSelection,
 }) {
@@ -18,6 +19,7 @@ export default function PdfReader({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const onCurrentPageChangeRef = useRef(onCurrentPageChange);
 
   const pageNumbers = useMemo(() => {
     if (!pdf) return [];
@@ -25,6 +27,10 @@ export default function PdfReader({
     const end = Math.min(pdf.numPages, Math.max(start, Number(endPage) || start));
     return Array.from({ length: end - start + 1 }, (_, index) => start + index);
   }, [pdf, startPage, endPage]);
+
+  useEffect(() => {
+    onCurrentPageChangeRef.current = onCurrentPageChange;
+  }, [onCurrentPageChange]);
 
   useEffect(() => {
     let alive = true;
@@ -73,9 +79,10 @@ export default function PdfReader({
 
   useEffect(() => {
     const node = containerRef.current;
-    if (!node || pageNumbers.length === 0 || !onCurrentPageChange) return undefined;
+    if (!node || pageNumbers.length === 0 || !onCurrentPageChangeRef.current) return undefined;
 
-    onCurrentPageChange(pageNumbers[0]);
+    const firstVisiblePage = getInitialPageInRange(initialPage, pageNumbers);
+    onCurrentPageChangeRef.current(firstVisiblePage);
 
     const visiblePages = new Map();
     const root = getScrollParent(node);
@@ -93,7 +100,7 @@ export default function PdfReader({
         }
 
         const best = [...visiblePages.entries()].sort((a, b) => b[1] - a[1])[0];
-        if (best) onCurrentPageChange(best[0]);
+        if (best) onCurrentPageChangeRef.current?.(best[0]);
       },
       {
         root,
@@ -108,7 +115,20 @@ export default function PdfReader({
     pageNodes.forEach((pageNode) => observer.observe(pageNode));
 
     return () => observer.disconnect();
-  }, [pageNumbers, onCurrentPageChange]);
+  }, [pageNumbers, initialPage]);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || pageNumbers.length === 0 || !initialPage) return;
+
+    const pageNumber = getInitialPageInRange(initialPage, pageNumbers);
+    const target = node.querySelector(`[data-page-number="${pageNumber}"]`);
+    if (!target) return;
+
+    window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "start" });
+    });
+  }, [pageNumbers, initialPage]);
 
   useEffect(() => {
     setSelectionToolbar(null);
@@ -253,6 +273,15 @@ function getUsefulSelectionRect(range) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getInitialPageInRange(initialPage, pageNumbers) {
+  const fallback = pageNumbers[0];
+  const pageNumber = Number(initialPage);
+  if (!Number.isFinite(pageNumber)) return fallback;
+  const min = pageNumbers[0];
+  const max = pageNumbers[pageNumbers.length - 1];
+  return clamp(pageNumber, min, max);
 }
 
 function getScrollParent(node) {

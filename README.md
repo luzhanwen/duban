@@ -19,12 +19,15 @@
 - 将章节分为忽略、导读、正文、附录，避免版权页、目录、前言混入主阅读计划。
 - 选择阅读目标、节奏、开始日期和每周阅读日。
 - 生成本地阅读计划草稿。
+- 书架卡片展示阅读进度条、最近读到的位置和连续打卡天数。
 - 进入三段式阅读会话：
   - 读前导入：导师开场、章节导读、阅读目标和读前问题。
   - 正文阅读：左侧独立滚动阅读框默认渲染 PDF 原版页，右侧独立 sidebar。
   - 读后交流：导师式反思问题和笔记入口。
 - 正文区默认使用 PDF.js canvas 渲染当前章节页码范围，并叠加 PDF.js text layer，让原版页面文字可选中。
 - 每个 PDF 页面提供页码锚点，方便后续定位、引用和选句伴读。
+- 阅读器会自动保存当前阅读项和当前 PDF 页码，再次进入时回到上次读到的位置。
+- 如果当天阅读项未完成，再次打开会直接继续正文；如果已完成并进入下一项，会重新从导师导读开始。
 - AI 文本排版能力暂不作为主入口展示，底层生成与缓存能力保留为后续实验入口。
 - 手动生成 AI 章节导读，并显示 token 和估算费用。
 - 在阅读 sidebar 中基于当前可见页和当前阅读项进行伴读问答，允许适度发散后收束回本书。
@@ -60,8 +63,19 @@ http://localhost:5173
 
 ```bash
 npm run build
+npm run build:formal
+npm run build:test
 npm run preview
 ```
+
+## 版本通道
+
+读伴区分两个前端版本通道：
+
+- `test`：测试版。`npm run dev` 和 `npm run build:test` 使用这个通道，会显示书架里的「本地测试书」入口。
+- `formal`：正式版。`npm run build` 和 `npm run build:formal` 使用这个通道，不显示本地测试书入口，并在构建结束时移除 `dist/test-books`。
+
+本地测试 PDF 放在 `public/test-books/` 下，但 `*.pdf` 已被 `.gitignore` 忽略，避免把版权书误提交到仓库。
 
 ## 目录结构
 
@@ -85,6 +99,7 @@ src/
     pdf.js                PDF 解析、文本提取、outline/章节猜测
     text.js               PDF 元数据等非字符串内容的安全文本化
     ai.js                 统一 AI 调用入口，按供应商分发
+    appChannel.js         版本通道判断：test / formal
     claude.js             Anthropic Claude Messages API 调用
     openaiCompatible.js   OpenAI-compatible Chat Completions 调用
     pricing.js            token 费用估算和美元格式化
@@ -129,7 +144,7 @@ docs/
 - `book:{id}:questions:{planItemKey}`：某个阅读项的章节导读。
 - `book:{id}:chat`：伴读聊天记录，内部按阅读项 key 分组。
 - `book:{id}:formatted-text:{planItemKey}`：某个阅读项的 AI 排版 Markdown 文本。
-- `progress:{id}`：阅读进度。
+- `progress:{id}`：阅读进度、当前阅读项、每个阅读项的最近页码和打卡日期。
 
 注意：IndexedDB 适合 MVP 和个人本地试用，但不应视为长期大型书库的最终存储方案。后续可考虑导出/导入、桌面版本地文件系统或 SQLite。
 
@@ -164,6 +179,6 @@ OpenAI-compatible 可配置：
 - 更完整的选中文本批注、高亮和引用管理。
 - 读后 AI 反馈和追问。
 - AI 生成更完整的阅读计划。
-- 阅读位置保存、字号和行距设置。
+- 字号和行距设置。
 - 导出/导入书库。
 - 为长期使用探索 Tauri/Electron 桌面版或 SQLite 存储。

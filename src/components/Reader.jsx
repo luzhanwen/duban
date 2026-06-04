@@ -27,6 +27,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
   const [progress, setProgress] = useState({
     currentItemIndex: 0,
     completedItemKeys: [],
+    currentPageByItemKey: {},
+    readingDays: [],
+    lastReadAt: null,
   });
   const [sessionStage, setSessionStage] = useState(SESSION_STAGES.intro);
   const [reflectionAnswer, setReflectionAnswer] = useState("");
@@ -38,8 +41,14 @@ export default function Reader({ bookId, onBack, onPlan }) {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [currentPage, setCurrentPage] = useState(null);
+  const [initialReadingPage, setInitialReadingPage] = useState(null);
   const [selectedQuoteDraft, setSelectedQuoteDraft] = useState(null);
   const [loading, setLoading] = useState(true);
+  const progressRef = useRef(progress);
+
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
 
   useEffect(() => {
     let alive = true;
@@ -58,6 +67,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
       setProgress({
         currentItemIndex: savedProgress.currentItemIndex || 0,
         completedItemKeys: savedProgress.completedItemKeys || [],
+        currentPageByItemKey: savedProgress.currentPageByItemKey || {},
+        readingDays: savedProgress.readingDays || [],
+        lastReadAt: savedProgress.lastReadAt || null,
       });
       setLoading(false);
     }
@@ -74,6 +86,8 @@ export default function Reader({ bookId, onBack, onPlan }) {
   const currentKey = getPlanItemKey(currentItem, currentIndex);
   const completedKeys = progress.completedItemKeys || [];
   const completed = currentKey ? completedKeys.includes(currentKey) : false;
+  const savedLocation = getSavedLocationForCurrentItem(progress, currentKey, currentItem);
+  const shouldResumeReading = Boolean(savedLocation?.pageNumber) && !completed;
 
   const chapterSections = useMemo(() => {
     if (!book || !currentItem) return [];
@@ -99,9 +113,20 @@ export default function Reader({ bookId, onBack, onPlan }) {
     setChatError("");
     setChatLoading(false);
     setReflectionAnswer("");
-    setCurrentPage(Number(currentItem?.startPage) || null);
+    const savedLocationForItem = getSavedLocationForCurrentItem(
+      progressRef.current,
+      currentKey,
+      currentItem
+    );
+    const savedPage = savedLocationForItem?.pageNumber || normalizePageNumber(null, currentItem);
+    setCurrentPage(savedPage);
+    setInitialReadingPage(savedPage);
     setSelectedQuoteDraft(null);
-    setSessionStage(SESSION_STAGES.intro);
+    setSessionStage(
+      savedLocationForItem?.pageNumber && !completed
+        ? SESSION_STAGES.reading
+        : SESSION_STAGES.intro
+    );
     if (!book?.id || !currentKey) return;
 
     getReadingGuide(book.id, currentKey).then((saved) => {
@@ -114,7 +139,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
     return () => {
       alive = false;
     };
-  }, [book?.id, currentKey]);
+  }, [book?.id, currentKey, completed]);
 
   if (loading) {
     return (
@@ -162,7 +187,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
       ...progress,
       currentItemIndex: clampIndex(index, planItems.length),
     };
-    setProgress(next);
+    persistProgress(next);
     setSessionStage(SESSION_STAGES.intro);
     await saveReadingProgress(book.id, next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -170,6 +195,11 @@ export default function Reader({ bookId, onBack, onPlan }) {
 
   function startReading() {
     setSessionStage(SESSION_STAGES.reading);
+    recordReadingActivity({
+      pageNumber:
+        getSavedLocationForCurrentItem(progressRef.current, currentKey, currentItem)?.pageNumber ||
+        normalizePageNumber(null, currentItem),
+    });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -183,15 +213,16 @@ export default function Reader({ bookId, onBack, onPlan }) {
     const nextKeys = completedKeys.includes(key) ? completedKeys : [...completedKeys, key];
     const nextIndex = clampIndex(currentIndex + 1, planItems.length);
     const next = {
+      ...progressRef.current,
       completedItemKeys: nextKeys,
       currentItemIndex: nextIndex,
     };
-    setProgress(next);
+    persistProgress(addReadingDay(next));
     setReflectionAnswer("");
     setSessionStage(
       currentIndex >= planItems.length - 1 ? SESSION_STAGES.reflection : SESSION_STAGES.intro
     );
-    await saveReadingProgress(book.id, next);
+    await saveReadingProgress(book.id, progressRef.current);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -201,8 +232,41 @@ export default function Reader({ bookId, onBack, onPlan }) {
       ...progress,
       completedItemKeys: completedKeys.filter((itemKey) => itemKey !== key),
     };
-    setProgress(next);
+    persistProgress(next);
     await saveReadingProgress(book.id, next);
+  }
+
+  function persistProgress(next) {
+    progressRef.current = next;
+    setProgress(next);
+  }
+
+  function recordReadingActivity({ pageNumber } = {}) {
+    if (!book?.id || !currentKey || !currentItem) return;
+
+    const normalizedPage = normalizePageNumber(pageNumber, currentItem);
+    const now = new Date().toISOString();
+    const next = addReadingDay({
+      ...progressRef.current,
+      currentItemIndex: currentIndex,
+      currentPageByItemKey: {
+        ...(progressRef.current.currentPageByItemKey || {}),
+        [currentKey]: {
+          pageNumber: normalizedPage,
+          updatedAt: now,
+        },
+      },
+      lastReadAt: now,
+    });
+
+    persistProgress(next);
+    saveReadingProgress(book.id, next);
+  }
+
+  function handleCurrentPageChange(pageNumber) {
+    const normalizedPage = normalizePageNumber(pageNumber, currentItem);
+    setCurrentPage(normalizedPage);
+    recordReadingActivity({ pageNumber: normalizedPage });
   }
 
   async function handleGenerateGuide() {
@@ -300,6 +364,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
         completedKeys={completedKeys}
         completed={completed}
         chapterSections={chapterSections}
+        initialPage={initialReadingPage}
+        savedLocation={savedLocation}
+        continuing={shouldResumeReading}
         currentPage={currentPageContext?.pageNumber || null}
         currentPageHasText={Boolean(currentPageContext?.text)}
         guide={guide}
@@ -317,7 +384,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
         onGenerateGuide={handleGenerateGuide}
         onSendChat={handleSendChat}
         onAskSelection={handleAskSelection}
-        onCurrentPageChange={setCurrentPage}
+        onCurrentPageChange={handleCurrentPageChange}
         onJump={jumpTo}
         onMarkUnfinished={markUnfinished}
       />
@@ -468,6 +535,9 @@ function ReadingStage({
   completedKeys,
   completed,
   chapterSections,
+  initialPage,
+  savedLocation,
+  continuing,
   guide,
   guideLoading,
   guideStartedAt,
@@ -498,6 +568,12 @@ function ReadingStage({
               {toText(book.title)} · Day {item.day} · {item.date}
             </p>
             <h1 className="mt-1 font-serif text-2xl text-ink">{item.title}</h1>
+            {continuing && savedLocation?.pageNumber && (
+              <p className="mt-1 text-xs text-ink-soft">
+                继续上次：第 {savedLocation.pageNumber} 页
+                {savedLocation.updatedAt ? ` · ${formatReadingTime(savedLocation.updatedAt)}` : ""}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -510,7 +586,7 @@ function ReadingStage({
               onClick={onBack}
               className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card"
             >
-              退出
+              {completed ? "回到书架" : "中途离开"}
             </button>
             <button
               onClick={onReflection}
@@ -528,6 +604,7 @@ function ReadingStage({
             bookId={book.id}
             startPage={item.startPage}
             endPage={item.endPage}
+            initialPage={initialPage}
             onCurrentPageChange={onCurrentPageChange}
             onAskSelection={onAskSelection}
           />
@@ -1327,6 +1404,57 @@ function buildSelectedTextPrompt(selection, item) {
 function clampIndex(index, length) {
   if (length <= 0) return 0;
   return Math.max(0, Math.min(index, length - 1));
+}
+
+function getSavedLocationForCurrentItem(progress, key, item) {
+  const savedLocation = progress?.currentPageByItemKey?.[key];
+  if (!savedLocation?.pageNumber) return null;
+
+  return {
+    ...savedLocation,
+    pageNumber: normalizePageNumber(savedLocation.pageNumber, item),
+  };
+}
+
+function normalizePageNumber(pageNumber, item) {
+  const start = Number(item?.startPage) || 1;
+  const end = Math.max(start, Number(item?.endPage) || start);
+  const value = Number(pageNumber) || start;
+  return Math.max(start, Math.min(value, end));
+}
+
+function addReadingDay(progress) {
+  const today = formatLocalDate(new Date());
+  const readingDays = new Set(progress.readingDays || []);
+  readingDays.add(today);
+
+  return {
+    ...progress,
+    readingDays: [...readingDays].sort(),
+  };
+}
+
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatReadingTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const today = formatLocalDate(new Date());
+  const targetDay = formatLocalDate(date);
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (targetDay === today) return `今天 ${time}`;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (targetDay === formatLocalDate(yesterday)) return `昨天 ${time}`;
+
+  return `${targetDay} ${time}`;
 }
 
 function buildChatMessageWithQuote(question, quote) {

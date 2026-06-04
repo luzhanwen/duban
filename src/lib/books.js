@@ -18,16 +18,24 @@ export async function getBookFile(id) {
 }
 
 export async function getReadingProgress(id) {
-  return getItem(KEYS.progress(id), {
+  const saved = await getItem(KEYS.progress(id), {});
+  return {
     currentItemIndex: 0,
     completedItemKeys: [],
-  });
+    currentPageByItemKey: {},
+    readingDays: [],
+    lastReadAt: null,
+    ...saved,
+  };
 }
 
 export async function saveReadingProgress(id, progress) {
   return setItem(KEYS.progress(id), {
     currentItemIndex: 0,
     completedItemKeys: [],
+    currentPageByItemKey: {},
+    readingDays: [],
+    lastReadAt: null,
     ...progress,
     updatedAt: new Date().toISOString(),
   });
