@@ -140,7 +140,7 @@ function buildPrompt({
   const historyText =
     history.length > 0
       ? history
-          .map((message) => `${message.role === "user" ? "用户" : "导师"}：${message.content}`)
+          .map((message) => `${message.role === "user" ? "用户" : "读伴"}：${message.content}`)
           .join("\n")
       : "暂无读后交流历史。";
   const readingContextText = buildReadingContextText({
@@ -168,7 +168,7 @@ function buildReadingContextText({ chatMessages, notes }) {
     .filter((message) => message.role === "user" || message.role === "assistant")
     .slice(-MAX_READING_CHAT_MESSAGES)
     .map((message) => {
-      const role = message.role === "user" ? "用户伴读提问" : "导师伴读回答";
+      const role = message.role === "user" ? "用户伴读提问" : "读伴伴读回答";
       return `${role}：${message.content}`;
     });
   const noteText = normalizeReadingNotes(notes)
@@ -177,7 +177,7 @@ function buildReadingContextText({ chatMessages, notes }) {
       const page = note.pageNumber ? `第 ${note.pageNumber} 页，` : "";
       const quote = note.text ? `原文：“${note.text}”` : "";
       const userNote = note.note ? `笔记：${note.note}` : "";
-      const assistant = note.assistantContent ? `导师回答：${note.assistantContent}` : "";
+      const assistant = note.assistantContent ? `读伴回答：${note.assistantContent}` : "";
       return `笔记 ${index + 1}：${page}${[quote, userNote, assistant].filter(Boolean).join("；")}`;
     });
   const sections = [

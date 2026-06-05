@@ -126,7 +126,7 @@ function buildPrompt({
   const historyText =
     history.length > 0
       ? history
-          .map((message) => `${message.role === "user" ? "用户" : "导师"}：${message.content}`)
+          .map((message) => `${message.role === "user" ? "用户" : "读伴"}：${message.content}`)
           .join("\n")
       : "暂无历史对话。";
 

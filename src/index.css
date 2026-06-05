@@ -21,6 +21,186 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.brand-script {
+  font-family: "HanziPen SC", "Xingkai SC", "Kaiti SC", "STXingkai", "KaiTi", "Noto Serif SC", serif;
+  font-style: normal;
+  font-synthesis-weight: none;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+}
+
+.splash-screen {
+  animation: splash-enter 280ms ease-out both;
+}
+
+.splash-screen-leaving {
+  pointer-events: none;
+  animation: splash-leave 440ms ease-in both;
+}
+
+.splash-logo {
+  transform: translateY(-8px);
+}
+
+.splash-logo-mark {
+  filter: drop-shadow(0 14px 24px rgb(43 38 34 / 0.08));
+}
+
+.splash-logo-mark .logo-frame-fill {
+  animation: splash-mark-rise 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.splash-logo-mark .logo-frame-line {
+  stroke-dasharray: 190;
+  stroke-dashoffset: 190;
+  animation: splash-line-draw 760ms ease-out 120ms both;
+}
+
+.splash-logo-mark .logo-page-left {
+  transform-box: fill-box;
+  transform-origin: right center;
+  animation: splash-left-page 780ms cubic-bezier(0.18, 0.9, 0.22, 1) 240ms both;
+}
+
+.splash-logo-mark .logo-page-right {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation: splash-right-page 780ms cubic-bezier(0.18, 0.9, 0.22, 1) 240ms both;
+}
+
+.splash-logo-mark .logo-page-lines {
+  opacity: 0;
+  stroke-dasharray: 16;
+  stroke-dashoffset: 16;
+  animation: splash-line-draw 520ms ease-out 760ms both;
+}
+
+.splash-logo-mark .logo-bubble {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-bubble-pop 560ms cubic-bezier(0.2, 1.35, 0.32, 1) 880ms both;
+}
+
+.splash-logo-mark .logo-bubble-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: splash-dot-pop 280ms ease-out both;
+}
+
+.splash-logo-mark .logo-bubble-dot-1 {
+  animation-delay: 1180ms;
+}
+
+.splash-logo-mark .logo-bubble-dot-2 {
+  animation-delay: 1300ms;
+}
+
+.splash-logo-mark .logo-bubble-dot-3 {
+  animation-delay: 1420ms;
+}
+
+.splash-wordmark {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: splash-wordmark 560ms ease-out 1080ms both;
+}
+
+@keyframes splash-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes splash-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes splash-mark-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splash-line-draw {
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes splash-left-page {
+  from {
+    opacity: 0;
+    transform: rotateY(34deg) translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: rotateY(0) translateX(0);
+  }
+}
+
+@keyframes splash-right-page {
+  from {
+    opacity: 0;
+    transform: rotateY(-34deg) translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: rotateY(0) translateX(0);
+  }
+}
+
+@keyframes splash-bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.78);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes splash-dot-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes splash-wordmark {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-screen,
+  .splash-screen *,
+  .splash-screen-leaving {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+}
+
 /* PDF.js text layer: 叠在 canvas 上方，让原版 PDF 页面可以选中文字。 */
 .textLayer {
   position: absolute;

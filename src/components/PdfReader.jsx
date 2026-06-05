@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { getBookFile } from "../lib/books.js";
+import { BrandName } from "./BrandLogo.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -249,9 +250,9 @@ export default function PdfReader({
           <button
             type="button"
             onClick={() => handleSelectionAction("ask")}
-            className="rounded-full bg-accent px-3 py-1.5 text-white hover:opacity-90"
+            className="inline-flex items-baseline gap-1 rounded-full bg-accent px-3 py-1.5 text-white hover:opacity-90"
           >
-            问导师
+            问<BrandName />
           </button>
           <button
             type="button"
