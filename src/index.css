@@ -66,9 +66,10 @@ body {
 }
 
 .textLayer .reading-highlight {
-  background: color-mix(in srgb, #f2c94c, transparent 48%);
+  background: color-mix(in srgb, #f2c94c, transparent 62%);
   border-radius: 2px;
-  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 70%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 82%);
+  mix-blend-mode: multiply;
 }
 
 .textLayer .reading-highlight-mark {
@@ -76,8 +77,9 @@ body {
   z-index: 0;
   pointer-events: none;
   border-radius: 2px;
-  background: color-mix(in srgb, #f2c94c, transparent 44%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 72%);
+  background: color-mix(in srgb, #f2c94c, transparent 64%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f2c94c, transparent 84%);
+  mix-blend-mode: multiply;
 }
 
 .textLayer br::selection {

@@ -470,11 +470,12 @@ function applyPageHighlights(textLayerNode, highlights) {
   }
 
   const index = buildTextLayerIndex(spans);
+  const rectHighlights = [];
   for (const highlight of highlights) {
     if (highlight.highlightDisabled) continue;
 
     if (Array.isArray(highlight.rects) && highlight.rects.length > 0) {
-      renderHighlightRects(textLayerNode, highlight.rects);
+      rectHighlights.push(...highlight.rects);
       continue;
     }
 
@@ -490,18 +491,32 @@ function applyPageHighlights(textLayerNode, highlights) {
       item.span.classList.add("reading-highlight");
     }
   }
+
+  renderHighlightRects(textLayerNode, rectHighlights);
 }
 
 function renderHighlightRects(textLayerNode, rects) {
   for (const rect of mergeHighlightRects(rects)) {
+    const markRect = insetHighlightRect(rect);
     const mark = document.createElement("div");
     mark.className = "reading-highlight-mark";
-    mark.style.left = `${clampRatio(rect.x) * 100}%`;
-    mark.style.top = `${clampRatio(rect.y) * 100}%`;
-    mark.style.width = `${clampRatio(rect.width) * 100}%`;
-    mark.style.height = `${clampRatio(rect.height) * 100}%`;
+    mark.style.left = `${clampRatio(markRect.x) * 100}%`;
+    mark.style.top = `${clampRatio(markRect.y) * 100}%`;
+    mark.style.width = `${clampRatio(markRect.width) * 100}%`;
+    mark.style.height = `${clampRatio(markRect.height) * 100}%`;
     textLayerNode.append(mark);
   }
+}
+
+function insetHighlightRect(rect) {
+  const height = clampRatio(rect.height);
+  const verticalInset = Math.min(height * 0.2, 0.004);
+  return {
+    x: rect.x,
+    y: rect.y + verticalInset,
+    width: rect.width,
+    height: Math.max(0.001, height - verticalInset * 2),
+  };
 }
 
 function mergeHighlightRects(rects) {
@@ -516,16 +531,13 @@ function mergeHighlightRects(rects) {
     .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y));
 
   const merged = [];
-  const lineTolerance = 0.006;
+  const lineTolerance = 0.01;
   const gapTolerance = 0.008;
 
   for (const rect of normalized) {
-    const previous = merged[merged.length - 1];
+    const previous = findMergeTarget(merged, rect, lineTolerance, gapTolerance);
     if (
-      previous &&
-      Math.abs(previous.y - rect.y) <= lineTolerance &&
-      Math.abs(previous.height - rect.height) <= lineTolerance &&
-      rect.x <= previous.x + previous.width + gapTolerance
+      previous
     ) {
       const left = Math.min(previous.x, rect.x);
       const right = Math.max(previous.x + previous.width, rect.x + rect.width);
@@ -541,6 +553,23 @@ function mergeHighlightRects(rects) {
   }
 
   return merged;
+}
+
+function findMergeTarget(rects, rect, lineTolerance, gapTolerance) {
+  return rects.find((candidate) => {
+    const sameLine =
+      Math.abs(candidate.y - rect.y) <= lineTolerance ||
+      rangesOverlap(candidate.y, candidate.y + candidate.height, rect.y, rect.y + rect.height);
+    if (!sameLine) return false;
+
+    const candidateRight = candidate.x + candidate.width;
+    const rectRight = rect.x + rect.width;
+    return rect.x <= candidateRight + gapTolerance && rectRight + gapTolerance >= candidate.x;
+  });
+}
+
+function rangesOverlap(startA, endA, startB, endB) {
+  return Math.min(endA, endB) - Math.max(startA, startB) > 0;
 }
 
 function clampRatio(value) {

@@ -25,6 +25,7 @@ export const KEYS = {
   bookPages: (id) => `book:${id}:pages`, // 某本书按页提取后的文本数组
   bookCover: (id) => `book:${id}:cover`, // 某本书的封面缩略图 dataURL
   bookChat: (id) => `book:${id}:chat`, // 某本书的自由问答消息数组
+  bookReflection: (id) => `book:${id}:reflection`, // 某本书的读后交流消息，内部按阅读项分组
   bookNotes: (id) => `book:${id}:notes`, // 某本书的高亮和笔记，内部按阅读项分组
   bookQuestions: (id, chapterId) => `book:${id}:questions:${chapterId}`, // 某章导读问题
   bookFormattedText: (id, itemKey) => `book:${id}:formatted-text:${itemKey}`, // 某阅读项的 AI 排版文本

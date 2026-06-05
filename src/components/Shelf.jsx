@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { IS_TEST_CHANNEL } from "../lib/appChannel.js";
-import { createBookFromPdf, getReadingProgress, listBooks } from "../lib/books.js";
+import { createBookFromPdf, getReadingProgress, listBooks, saveReadingProgress } from "../lib/books.js";
 import { parsePdf } from "../lib/pdf.js";
 import { toText } from "../lib/text.js";
 
@@ -210,6 +210,16 @@ function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook }) {
   const canRead = book.status === "planned" && book.readingPlan?.items?.length > 0;
   const readingStats = buildReadingStats(book, progress);
 
+  async function handleReadBook() {
+    if (readingStats.canAdvanceToNext) {
+      await saveReadingProgress(book.id, {
+        ...(progress || {}),
+        currentItemIndex: readingStats.currentIndex + 1,
+      });
+    }
+    onReadBook(book.id);
+  }
+
   return (
     <article className="rounded-xl border border-line bg-paper-card p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
@@ -247,7 +257,7 @@ function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook }) {
         <>
           {canRead && (
             <button
-              onClick={() => onReadBook(book.id)}
+              onClick={handleReadBook}
               className="mt-5 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:opacity-90"
             >
               {readingStats.actionLabel}
@@ -343,20 +353,38 @@ function buildReadingStats(book, progress = {}) {
   const hasSavedLocation = Boolean(savedLocation?.pageNumber);
   const continuing = currentItem && !currentCompleted && hasSavedLocation;
   const allCompleted = totalCount > 0 && completedCount >= totalCount;
+  const canAdvanceToNext = Boolean(currentItem && currentCompleted && !allCompleted && currentIndex < totalCount - 1);
 
   return {
     totalCount,
     completedCount,
     percent,
+    currentIndex,
+    currentCompleted,
+    canAdvanceToNext,
     streakDays: calculateReadingStreak(progress.readingDays || []),
     positionText: currentItem ? `${itemText} · ${pageText}` : "还没开始",
-    positionLabel: continuing ? "上次读到" : allCompleted ? "已完成" : "今日阅读",
+    positionLabel: continuing
+      ? "上次读到"
+      : allCompleted
+      ? "已完成"
+      : currentCompleted
+      ? "今日已完成"
+      : "今日阅读",
     lastReadText: continuing
       ? `上次阅读 ${formatLastReadTime(savedLocation.updatedAt || progress.lastReadAt)}`
+      : currentCompleted && !allCompleted
+      ? "今天可以在这里停下，也可以提前读下一章"
       : progress.lastReadAt
       ? `最近阅读 ${formatLastReadTime(progress.lastReadAt)}`
       : "",
-    actionLabel: continuing ? "继续阅读" : allCompleted ? "回顾阅读" : "开始今日阅读",
+    actionLabel: continuing
+      ? "继续阅读"
+      : allCompleted
+      ? "回顾阅读"
+      : canAdvanceToNext
+      ? "提前开始下一章阅读"
+      : "开始今日阅读",
   };
 }
 

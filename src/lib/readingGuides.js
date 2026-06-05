@@ -21,7 +21,14 @@ export async function saveReadingGuide(bookId, itemKey, guide) {
   return setItem(KEYS.bookQuestions(bookId, itemKey), guide);
 }
 
-export async function generateReadingGuide({ book, item, itemKey, chapterSections }) {
+export async function generateReadingGuide({
+  book,
+  item,
+  itemKey,
+  chapterSections,
+  currentIndex = 0,
+  planItems = [],
+}) {
   const settings = await getSettings();
   const chapterText = chapterSections
     .map(
@@ -30,7 +37,7 @@ export async function generateReadingGuide({ book, item, itemKey, chapterSection
     )
     .join("\n\n---\n\n")
     .slice(0, MAX_CONTEXT_CHARS);
-  const prompts = buildPrompt({ book, item, chapterText });
+  const prompts = buildPrompt({ book, item, chapterText, currentIndex, planItems });
 
   const result = await callModelDetailed({
     settings,
@@ -74,9 +81,10 @@ function estimateGuideCost(settings, result) {
   return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
 }
 
-function buildPrompt({ book, item, chapterText }) {
+function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
   const purpose = book.readingProfile?.purpose || "study";
   const pace = book.readingProfile?.pace || "standard";
+  const continuity = buildGuideContinuity({ item, currentIndex, planItems });
   return buildReadingGuidePrompts({
     bookTitle: toText(book.title),
     bookAuthor: toText(book.author) || "未知",
@@ -87,8 +95,33 @@ function buildPrompt({ book, item, chapterText }) {
     itemType: item.type === "guide" ? "开始前准备/导读" : "正文章节",
     startPage: item.startPage,
     endPage: item.endPage,
+    readingPosition: continuity.position,
+    previousItemTitle: continuity.previousTitle,
+    nextItemTitle: continuity.nextTitle,
+    continuityStrategy: continuity.strategy,
     chapterText,
   });
+}
+
+function buildGuideContinuity({ item, currentIndex, planItems }) {
+  const items = Array.isArray(planItems) ? planItems : [];
+  const safeIndex = Number.isFinite(currentIndex) ? currentIndex : Math.max(0, (item?.day || 1) - 1);
+  const total = items.length || Math.max(item?.day || 1, safeIndex + 1);
+  const previous = safeIndex > 0 ? items[safeIndex - 1] : null;
+  const next = safeIndex < items.length - 1 ? items[safeIndex + 1] : null;
+  const position = `第 ${safeIndex + 1} / ${total} 个阅读项`;
+  const previousTitle = previous ? toText(previous.title) : "无，这是本轮阅读的第一项";
+  const nextTitle = next ? toText(next.title) : "无，当前项可能是最后一项";
+  const firstItem = safeIndex === 0;
+
+  return {
+    position,
+    previousTitle,
+    nextTitle,
+    strategy: firstItem
+      ? "这是第一项导读：可以先建立整本书坐标，再进入当前阅读项。overview 建议使用“先看整本书”和“今天这章的位置”两个主体标题，中间用一行 --- 分隔。"
+      : `这是连续阅读中的后续导读：必须承上启下，先接住上一项「${previousTitle}」留下的问题、概念或叙事推进，再说明今天这一项如何继续推进。overview 不要再使用“先看整本书”这类像重新开书的标题，建议使用“接上一次阅读”和“今天往哪里推进”两个主体标题，中间用一行 --- 分隔。不要在 overview 里写“带着什么问题读”小节。`,
+  };
 }
 
 function parseGuide(raw) {
@@ -147,7 +180,7 @@ function parseGuideFields(text) {
 
 function extractStringField(text, field) {
   const match = text.match(new RegExp(`["']${field}["']\\s*:\\s*["']([\\s\\S]*?)["']\\s*,?\\s*(?=["'](?:goals|concepts|questions|focus)["']|})`));
-  return match ? cleanupJsonishText(match[1]) : "";
+  return match ? cleanupJsonishText(match[1], { preserveLineBreaks: field === "overview" }) : "";
 }
 
 function extractArrayField(text, field) {
@@ -190,12 +223,16 @@ function stripOuterQuote(value) {
   return text;
 }
 
-function cleanupJsonishText(value) {
-  return toText(value)
+function cleanupJsonishText(value, { preserveLineBreaks = false } = {}) {
+  const text = toText(value)
     .replace(/\\"/g, "\"")
-    .replace(/\\n/g, "\n")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/\\n/g, "\n");
+
+  if (preserveLineBreaks) {
+    return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function hasGuideContent(guide) {

@@ -78,6 +78,7 @@ function normalizeNote(note = {}) {
     highlightDisabled: Boolean(note.highlightDisabled),
     note: toText(note.note).trim(),
     assistantContent: toText(note.assistantContent).trim(),
+    sourceMessageId: toText(note.sourceMessageId).trim(),
     source: note.source || "selection",
     createdAt: note.createdAt || new Date().toISOString(),
     updatedAt: note.updatedAt || note.createdAt || new Date().toISOString(),

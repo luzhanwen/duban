@@ -1,6 +1,7 @@
 import mentorPersona from "../prompts/mentorPersona.md?raw";
 import readingChatPrompt from "../prompts/readingChat.md?raw";
 import readingGuidePrompt from "../prompts/readingGuide.md?raw";
+import readingReflectionPrompt from "../prompts/readingReflection.md?raw";
 import readingTextFormatPrompt from "../prompts/readingTextFormat.md?raw";
 
 export function buildReadingGuidePrompts(values) {
@@ -9,6 +10,10 @@ export function buildReadingGuidePrompts(values) {
 
 export function buildReadingChatPrompts(values) {
   return splitPromptSections(renderPrompt(readingChatPrompt, values));
+}
+
+export function buildReadingReflectionPrompts(values) {
+  return splitPromptSections(renderPrompt(readingReflectionPrompt, values));
 }
 
 export function buildReadingTextFormatPrompts(values) {

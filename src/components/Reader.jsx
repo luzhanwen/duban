@@ -13,6 +13,12 @@ import {
 } from "../lib/readingGuides.js";
 import { getReadingChat, sendReadingChatMessage } from "../lib/readingChat.js";
 import {
+  buildInitialReflectionMessage,
+  getReadingReflection,
+  saveReadingReflection,
+  sendReadingReflectionMessage,
+} from "../lib/readingReflection.js";
+import {
   addReadingNote,
   deleteReadingNote,
   getReadingNotes,
@@ -25,6 +31,7 @@ const SESSION_STAGES = {
   intro: "intro",
   reading: "reading",
   reflection: "reflection",
+  completed: "completed",
 };
 
 export default function Reader({ bookId, onBack, onPlan }) {
@@ -38,7 +45,10 @@ export default function Reader({ bookId, onBack, onPlan }) {
     lastReadAt: null,
   });
   const [sessionStage, setSessionStage] = useState(SESSION_STAGES.intro);
-  const [reflectionAnswer, setReflectionAnswer] = useState("");
+  const [reflectionMessages, setReflectionMessages] = useState([]);
+  const [reflectionLoading, setReflectionLoading] = useState(false);
+  const [reflectionError, setReflectionError] = useState("");
+  const [includeReflectionContext, setIncludeReflectionContext] = useState(true);
   const [guide, setGuide] = useState(null);
   const [guideLoading, setGuideLoading] = useState(false);
   const [guideError, setGuideError] = useState("");
@@ -115,6 +125,11 @@ export default function Reader({ bookId, onBack, onPlan }) {
     };
   }, [currentItem, currentPage, pages]);
 
+  const reflectionContextStats = useMemo(
+    () => buildReflectionContextStats(chatMessages, notes),
+    [chatMessages, notes]
+  );
+
   useEffect(() => {
     let alive = true;
     setGuide(null);
@@ -126,7 +141,10 @@ export default function Reader({ bookId, onBack, onPlan }) {
     setPendingNoteDraft(null);
     setNoteSourceTarget(null);
     setNoteNotice("");
-    setReflectionAnswer("");
+    setReflectionMessages([]);
+    setReflectionLoading(false);
+    setReflectionError("");
+    setIncludeReflectionContext(true);
     const savedLocationForItem = getSavedLocationForCurrentItem(
       progressRef.current,
       currentKey,
@@ -137,7 +155,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
     setInitialReadingPage(savedPage);
     setSelectedQuoteDraft(null);
     setSessionStage(
-      savedLocationForItem?.pageNumber && !completed
+      completed
+        ? SESSION_STAGES.completed
+        : savedLocationForItem?.pageNumber
         ? SESSION_STAGES.reading
         : SESSION_STAGES.intro
     );
@@ -148,6 +168,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
     });
     getReadingChat(book.id, currentKey).then((saved) => {
       if (alive) setChatMessages(saved);
+    });
+    getReadingReflection(book.id, currentKey).then((saved) => {
+      if (alive) setReflectionMessages(saved);
     });
     getReadingNotes(book.id, currentKey).then((saved) => {
       if (alive) setNotes(saved);
@@ -221,25 +244,50 @@ export default function Reader({ bookId, onBack, onPlan }) {
   }
 
   function openReflection() {
+    ensureReflectionStarted();
     setSessionStage(SESSION_STAGES.reflection);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function finishAndContinue() {
+  function ensureReflectionStarted() {
+    if (reflectionMessages.length > 0 || !currentItem) return;
+
+    const opening = buildInitialReflectionMessage({ item: currentItem, guide });
+    const nextMessages = [opening];
+    setReflectionMessages(nextMessages);
+    if (book?.id && currentKey) {
+      saveReadingReflection(book.id, currentKey, nextMessages);
+    }
+  }
+
+  async function finishToday() {
     const key = getPlanItemKey(currentItem, currentIndex);
     const nextKeys = completedKeys.includes(key) ? completedKeys : [...completedKeys, key];
-    const nextIndex = clampIndex(currentIndex + 1, planItems.length);
     const next = {
       ...progressRef.current,
       completedItemKeys: nextKeys,
-      currentItemIndex: nextIndex,
+      currentItemIndex: currentIndex,
     };
     persistProgress(addReadingDay(next));
-    setReflectionAnswer("");
-    setSessionStage(
-      currentIndex >= planItems.length - 1 ? SESSION_STAGES.reflection : SESSION_STAGES.intro
-    );
+    setSessionStage(SESSION_STAGES.completed);
     await saveReadingProgress(book.id, progressRef.current);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function startNextItemEarly() {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= planItems.length) {
+      onBack();
+      return;
+    }
+
+    const next = {
+      ...progressRef.current,
+      currentItemIndex: clampIndex(nextIndex, planItems.length),
+    };
+    persistProgress(next);
+    setSessionStage(SESSION_STAGES.intro);
+    await saveReadingProgress(book.id, next);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -296,6 +344,8 @@ export default function Reader({ bookId, onBack, onPlan }) {
         item: currentItem,
         itemKey: currentKey,
         chapterSections,
+        currentIndex,
+        planItems,
       });
       setGuide(generated);
     } catch (e) {
@@ -360,6 +410,62 @@ export default function Reader({ bookId, onBack, onPlan }) {
     }
   }
 
+  async function handleSendReflection(content) {
+    const text = toText(content).trim();
+    if (!text || reflectionLoading) return;
+
+    const openingMessages =
+      reflectionMessages.length > 0
+        ? reflectionMessages
+        : [buildInitialReflectionMessage({ item: currentItem, guide })];
+    const optimisticMessage = {
+      id: `reflection-local-${Date.now()}`,
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    const streamingMessage = {
+      id: `reflection-stream-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      streaming: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    setReflectionError("");
+    setReflectionLoading(true);
+    setReflectionMessages([...openingMessages, optimisticMessage, streamingMessage]);
+
+    try {
+      const result = await sendReadingReflectionMessage({
+        book,
+        item: currentItem,
+        itemKey: currentKey,
+        chapterSections,
+        guide,
+        readingChatMessages: includeReflectionContext ? chatMessages : [],
+        readingNotes: includeReflectionContext ? notes : [],
+        messages: openingMessages,
+        content: text,
+        onDelta: (delta) => {
+          setReflectionMessages((current) =>
+            current.map((message) =>
+              message.id === streamingMessage.id
+                ? { ...message, content: `${message.content}${delta}` }
+                : message
+            )
+          );
+        },
+      });
+      setReflectionMessages(result.messages);
+    } catch (e) {
+      setReflectionMessages(openingMessages);
+      setReflectionError(e.message || "导师暂时没有追问出来，请稍后再试。");
+    } finally {
+      setReflectionLoading(false);
+    }
+  }
+
   function handleAskSelection(selection) {
     if (selection?.action === "ask") {
       setSelectedQuoteDraft({
@@ -416,6 +522,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
       rects: quote.rects,
       note: "AI 导师回答",
       assistantContent: message.content,
+      sourceMessageId: message.id,
       source: "chat",
     });
     setNotes(saved);
@@ -524,11 +631,30 @@ export default function Reader({ bookId, onBack, onPlan }) {
         planItems={planItems}
         completed={completed}
         guide={guide}
-        reflectionAnswer={reflectionAnswer}
-        onReflectionChange={setReflectionAnswer}
+        messages={reflectionMessages}
+        loading={reflectionLoading}
+        error={reflectionError}
+        includeReadingContext={includeReflectionContext}
+        readingContextStats={reflectionContextStats}
+        onIncludeReadingContextChange={setIncludeReflectionContext}
         onBack={onBack}
         onReading={startReading}
-        onComplete={finishAndContinue}
+        onSend={handleSendReflection}
+        onComplete={finishToday}
+      />
+    );
+  }
+
+  if (sessionStage === SESSION_STAGES.completed) {
+    return (
+      <DailyCompleteStage
+        book={book}
+        item={currentItem}
+        currentIndex={currentIndex}
+        planItems={planItems}
+        completedCount={completedKeys.length}
+        onBack={onBack}
+        onStartNext={startNextItemEarly}
       />
     );
   }
@@ -812,22 +938,53 @@ function ReflectionStage({
   currentIndex,
   planItems,
   completed,
-  guide,
-  reflectionAnswer,
-  onReflectionChange,
+  messages,
+  loading,
+  error,
+  includeReadingContext,
+  readingContextStats,
+  onIncludeReadingContextChange,
   onBack,
   onReading,
+  onSend,
   onComplete,
 }) {
-  const prompts = buildReflectionPrompts(guide, item);
+  const [draft, setDraft] = useState("");
+  const messagesRef = useRef(null);
   const lastItem = currentIndex >= planItems.length - 1;
   const completeLabel = lastItem
     ? completed
       ? "已经完成这本书"
       : "完成这本书"
     : completed
-    ? "进入下一次阅读"
-    : "完成并进入下一次";
+    ? "今天已完成"
+    : "完成今天的阅读";
+  const answered = messages.some((message) => message.role === "user");
+  const hasReadingContext = readingContextStats.total > 0;
+
+  useEffect(() => {
+    const node = messagesRef.current;
+    if (!node) return;
+
+    window.requestAnimationFrame(() => {
+      node.scrollTop = node.scrollHeight;
+    });
+  }, [messages, loading]);
+
+  function submitAnswer(event) {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || loading) return;
+    setDraft("");
+    onSend(text);
+  }
+
+  function handleTextareaKeyDown(event) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) return;
+    event.preventDefault();
+    const form = event.currentTarget.form;
+    if (form) form.requestSubmit();
+  }
 
   return (
     <div className="min-h-screen bg-paper px-6 py-8">
@@ -846,29 +1003,89 @@ function ReflectionStage({
           读完以后，先停一下
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          这一章不急着合上。真正有价值的部分，往往是在你试着用自己的话复述、挑出疑惑、把它和经验连接起来的时候出现。
+          这一章不急着合上。先和导师聊几轮，把你的理解、疑惑和章节里的细节接起来。
         </p>
 
-        <section className="mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm">
-          <h2 className="font-serif text-2xl text-ink">导师想问你的几个问题</h2>
-          <ul className="mt-5 space-y-3">
-            {prompts.map((prompt, index) => (
-              <li key={`reflection-${index}`} className="rounded-lg bg-paper px-4 py-3 text-sm leading-6 text-ink">
-                {prompt}
-              </li>
-            ))}
-          </ul>
+        <section className="mt-10 flex min-h-[520px] flex-col rounded-xl border border-line bg-paper-card p-4 shadow-sm sm:p-5">
+          <div className="flex shrink-0 flex-col gap-1 border-b border-line pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-serif text-2xl text-ink">导师追问</h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                {answered ? "继续顺着你的回答往下想。" : "先回答导师的第一个问题。"}
+              </p>
+            </div>
+            <div className="mt-3 flex flex-col items-start gap-2 sm:mt-0 sm:items-end">
+              {loading && (
+                <div className="flex w-fit items-center gap-1 rounded-full bg-paper px-3 py-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
+                </div>
+              )}
+              <label
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                  hasReadingContext
+                    ? "cursor-pointer border-line bg-paper text-ink-soft"
+                    : "cursor-not-allowed border-line bg-paper text-ink-soft opacity-60"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={hasReadingContext && includeReadingContext}
+                  disabled={!hasReadingContext || loading}
+                  onChange={(event) => onIncludeReadingContextChange(event.target.checked)}
+                  className="sr-only"
+                />
+                <span
+                  className={`flex h-4 w-7 items-center rounded-full p-0.5 transition-colors ${
+                    hasReadingContext && includeReadingContext ? "bg-accent" : "bg-line"
+                  }`}
+                >
+                  <span
+                    className={`h-3 w-3 rounded-full bg-white transition-transform ${
+                      hasReadingContext && includeReadingContext ? "translate-x-3" : ""
+                    }`}
+                  />
+                </span>
+                <span>参考伴读记录和笔记</span>
+                <span className="text-[11px] text-ink-soft">
+                  {hasReadingContext
+                    ? `${readingContextStats.chatCount} 提问 · ${readingContextStats.noteCount} 笔记`
+                    : "暂无"}
+                </span>
+              </label>
+            </div>
+          </div>
 
-          <label className="mt-6 block text-sm font-medium text-ink">
-            你的回答或笔记
+          <div ref={messagesRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 py-5">
+            {messages.map((message) =>
+              message.streaming && !toText(message.content).trim() ? null : (
+                <ReflectionMessage key={message.id} message={message} />
+              )
+            )}
+            {loading && <ThinkingStatus />}
+          </div>
+
+          {error && <p className="mb-3 text-sm leading-6 text-red-600">{error}</p>}
+
+          <form onSubmit={submitAnswer} className="shrink-0 border-t border-line pt-4">
             <textarea
-              value={reflectionAnswer}
-              onChange={(event) => onReflectionChange(event.target.value)}
-              rows={6}
-              placeholder="用自己的话写几句：这一章讲了什么？哪里让你有感觉？哪里还没想明白？"
-              className="mt-2 w-full resize-y rounded-lg border border-line bg-paper px-4 py-3 font-normal leading-7 text-ink outline-none focus:border-accent"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleTextareaKeyDown}
+              rows={3}
+              disabled={loading}
+              placeholder="用自己的话回答导师。Enter 发送，Shift+Enter 换行。"
+              className="w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent disabled:opacity-60"
             />
-          </label>
+            <button
+              type="submit"
+              disabled={!draft.trim() || loading}
+              className="mt-3 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {loading ? "等待追问…" : "回答导师"}
+            </button>
+          </form>
         </section>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -880,10 +1097,89 @@ function ReflectionStage({
           </button>
           <button
             onClick={onComplete}
-            disabled={completed && lastItem}
+            disabled={loading || (completed && lastItem)}
             className="rounded-lg bg-accent px-5 py-2 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-50"
           >
             {completeLabel}
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function ReflectionMessage({ message }) {
+  const isUser = message.role === "user";
+
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={`max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${
+          isUser
+            ? "rounded-tr-sm bg-accent text-white"
+            : "rounded-tl-sm bg-paper text-ink"
+        }`}
+      >
+        {isUser ? <p className="whitespace-pre-wrap">{message.content}</p> : <MarkdownText value={message.content} />}
+        {!isUser && !message.streaming && <ChatMessageUsage message={message} />}
+      </div>
+    </div>
+  );
+}
+
+function DailyCompleteStage({
+  book,
+  item,
+  currentIndex,
+  planItems,
+  completedCount,
+  onBack,
+  onStartNext,
+}) {
+  const nextItem = planItems[currentIndex + 1];
+  const hasNext = Boolean(nextItem);
+
+  return (
+    <div className="min-h-screen bg-paper px-6 py-8">
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
+        <p className="text-sm text-ink-soft">今日阅读完成</p>
+        <button onClick={onBack} className="text-sm text-accent underline">
+          退回书架
+        </button>
+      </div>
+
+      <main className="mx-auto flex max-w-4xl flex-col justify-center py-16 lg:min-h-[calc(100vh-96px)]">
+        <p className="text-sm text-ink-soft">
+          {toText(book.title)} · Day {item.day}
+        </p>
+        <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
+          恭喜，今天的阅读任务完成了
+        </h1>
+        <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
+          你已经读完「{item.title}」。今天可以在这里停下，让这一章慢慢沉淀；也可以选择提前进入下一章，但它会被视为额外阅读。
+        </p>
+
+        <section className="mt-10 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Stat label="今日完成" value={`Day ${item.day}`} />
+            <Stat label="累计进度" value={`${completedCount} / ${planItems.length} 项`} />
+            <Stat label="下一阅读项" value={hasNext ? nextItem.title : "已经没有下一项"} />
+          </div>
+        </section>
+
+        <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <button
+            onClick={onBack}
+            className="rounded-lg border border-line px-5 py-3 text-sm text-ink-soft hover:bg-paper-card"
+          >
+            退回书架
+          </button>
+          <button
+            onClick={onStartNext}
+            disabled={!hasNext}
+            className="rounded-lg bg-accent px-5 py-3 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-50"
+          >
+            {hasNext ? "提前开始下一章阅读" : "已经完成全部阅读"}
           </button>
         </div>
       </main>
@@ -918,7 +1214,7 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
         </div>
       )}
 
-      {guide && (
+      {guide && !loading && (
         <div className="space-y-5">
           {guide.overview && (
             <div className="rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
@@ -1001,6 +1297,7 @@ function TutorSidebar({
           <ChatPanel
             guide={guide}
             messages={chatMessages}
+            notes={notes}
             loading={chatLoading}
             error={chatError}
             noteNotice={noteNotice}
@@ -1087,6 +1384,7 @@ const LONG_ANSWER_CHARS = 100;
 function ChatPanel({
   guide,
   messages,
+  notes,
   loading,
   error,
   noteNotice,
@@ -1102,6 +1400,7 @@ function ChatPanel({
   const [activeQuote, setActiveQuote] = useState(null);
   const textareaRef = useRef(null);
   const messagesRef = useRef(null);
+  const savedChatNotes = useMemo(() => buildSavedChatNoteLookup(notes), [notes]);
 
   useEffect(() => {
     if (!selectedQuoteDraft?.text) return;
@@ -1188,6 +1487,7 @@ function ChatPanel({
                 message={message}
                 previousMessage={messages[index - 1]}
                 latest={index === messages.length - 1}
+                savedToNote={isChatMessageSavedToNote(message, savedChatNotes)}
                 onAddToNote={onAddMessageToNote}
               />
             )
@@ -1337,7 +1637,13 @@ function ThinkingStatus() {
   );
 }
 
-function ChatMessage({ message, previousMessage, latest = false, onAddToNote }) {
+function ChatMessage({
+  message,
+  previousMessage,
+  latest = false,
+  savedToNote = false,
+  onAddToNote,
+}) {
   const isUser = message.role === "user";
   const latestAssistant = !isUser && latest;
 
@@ -1348,7 +1654,9 @@ function ChatMessage({ message, previousMessage, latest = false, onAddToNote }) 
         className={`max-w-[86%] px-4 py-3 text-sm leading-6 shadow-sm ${
           isUser
             ? "rounded-2xl rounded-tr-sm bg-accent text-white"
-            : "rounded-2xl rounded-tl-sm bg-paper text-ink"
+            : savedToNote
+              ? "rounded-2xl rounded-tl-sm border border-accent/30 bg-[#fff9ed] text-ink ring-1 ring-accent/10"
+              : "rounded-2xl rounded-tl-sm bg-paper text-ink"
         }`}
       >
         {isUser ? (
@@ -1360,16 +1668,45 @@ function ChatMessage({ message, previousMessage, latest = false, onAddToNote }) 
         {!isUser && !message.streaming && (
           <button
             type="button"
+            disabled={savedToNote}
             onClick={() => onAddToNote?.(message, previousMessage)}
-            className="mt-2 rounded-full border border-line px-3 py-1 text-xs text-ink-soft hover:bg-paper-card hover:text-accent"
+            className={`mt-2 inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              savedToNote
+                ? "cursor-default border border-accent/30 bg-paper-card text-accent"
+                : "bg-accent text-white shadow-sm hover:opacity-90"
+            }`}
           >
-            记到笔记
+            {savedToNote ? "已记到笔记" : "记到笔记"}
           </button>
         )}
       </div>
       {isUser && <Avatar label="你" muted />}
     </article>
   );
+}
+
+function buildSavedChatNoteLookup(notes) {
+  const messageIds = new Set();
+  const contents = new Set();
+
+  (Array.isArray(notes) ? notes : []).forEach((note) => {
+    if (note?.source !== "chat" && !note?.assistantContent) return;
+    if (note.sourceMessageId) messageIds.add(note.sourceMessageId);
+    const content = normalizeComparableText(note.assistantContent);
+    if (content) contents.add(content);
+  });
+
+  return { messageIds, contents };
+}
+
+function isChatMessageSavedToNote(message, lookup) {
+  if (message?.role !== "assistant" || message.streaming) return false;
+  if (lookup.messageIds.has(message.id)) return true;
+  return lookup.contents.has(normalizeComparableText(message.content));
+}
+
+function normalizeComparableText(value) {
+  return toText(value).replace(/\s+/g, " ").trim();
 }
 
 function CollapsibleMarkdownText({ value, forceExpanded = false }) {
@@ -1601,7 +1938,7 @@ function SidebarPanel({
               生成阅读目标
             </button>
           )}
-          {guide && (
+          {guide && !loading && (
             <GuideInsightPanel
               guide={guide}
               activeTab={activeGuideTab}
@@ -2043,15 +2380,6 @@ function buildReadingBridge({ book, item, currentIndex, planItems }) {
   return `上一项你读的是「${previous?.title || "前一部分"}」。今天这一章会接着往前走：你可以一边回想上一章留下的问题，一边观察作者这次是补充背景、推进概念，还是开始给出方法。`;
 }
 
-function buildReflectionPrompts(guide, item) {
-  const questions = (guide?.questions || []).slice(0, 2);
-  return [
-    `如果只用一句话概括「${item.title}」，你会怎么说？`,
-    ...questions,
-    "这一章里有没有一个概念，可以立刻和你的经验、工作或生活连接起来？",
-  ].slice(0, 4);
-}
-
 function buildPendingNoteFromSelection(selection) {
   return {
     id: `note-draft-${Date.now()}`,
@@ -2067,6 +2395,21 @@ function buildQuoteMeta(quote) {
     pageNumber: quote.pageNumber || null,
     text: toText(quote.text).trim(),
     rects: normalizeHighlightRects(quote.rects),
+  };
+}
+
+function buildReflectionContextStats(chatMessages, notes) {
+  const chatCount = (Array.isArray(chatMessages) ? chatMessages : []).filter(
+    (message) => message.role === "user" && toText(message.content).trim()
+  ).length;
+  const noteCount = (Array.isArray(notes) ? notes : []).filter(
+    (note) => toText(note.text || note.note || note.assistantContent).trim()
+  ).length;
+
+  return {
+    chatCount,
+    noteCount,
+    total: chatCount + noteCount,
   };
 }
 
@@ -2170,39 +2513,127 @@ function buildChatMessageWithQuote(question, quote) {
 
 function GuideLoading({ startedAt, compact = false }) {
   const elapsed = useElapsedSeconds(startedAt);
-  const waitingMessage = WAITING_MESSAGES[Math.floor(elapsed / 4) % WAITING_MESSAGES.length];
+  const activeStepIndex = Math.min(Math.floor(elapsed / 5), GUIDE_LOADING_STEPS.length - 1);
+  const activeStep = GUIDE_LOADING_STEPS[activeStepIndex];
+  const progressWidth = `${Math.min(88, 18 + activeStepIndex * 22 + (elapsed % 5) * 4)}%`;
+
+  if (compact) {
+    return (
+      <div role="status" aria-live="polite" className="mt-5 rounded-lg border border-line bg-paper-card px-3 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-medium text-ink">正在整理提示</p>
+          <p className="shrink-0 text-[11px] text-ink-soft">{elapsed} 秒</p>
+        </div>
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+          <span
+            className="block h-full rounded-full bg-accent transition-all duration-500"
+            style={{ width: progressWidth }}
+          />
+        </div>
+        <p className="mt-2 text-xs leading-5 text-ink-soft">{activeStep.title}</p>
+      </div>
+    );
+  }
 
   return (
-    <div className={`${compact ? "mt-5" : "mt-0"} rounded-xl border border-line bg-paper p-5`}>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div role="status" aria-live="polite" className="overflow-hidden rounded-xl border border-line bg-paper-card px-5 py-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-ink">AI 正在准备导读</p>
-          <p className="mt-1 text-xs text-ink-soft">
-            已等待 {elapsed} 秒。长章节会稍慢一些，页面可以保持打开。
+          <p className="text-xs font-medium text-ink-soft">导读生成中</p>
+          <h3 className="mt-1 font-serif text-xl text-ink">导师正在整理今天的阅读入口</h3>
+          <p className="mt-2 text-sm leading-6 text-ink-soft">
+            会先抓住整本书的位置，再整理目标、问题和留意点。长章节可能需要多想一会儿。
           </p>
         </div>
-        <div className="rounded-lg bg-paper-card px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-accent" />
-          </div>
-        </div>
-      </div>
-      {!compact && (
-        <p className="mt-4 rounded-lg bg-paper-card px-4 py-3 text-sm text-ink">
-          {waitingMessage}
+        <p className="inline-flex w-fit shrink-0 rounded-full border border-line bg-paper px-3 py-1 text-xs text-ink-soft">
+          已等待 {elapsed} 秒
         </p>
-      )}
+      </div>
+      <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line">
+        <span
+          className="block h-full rounded-full bg-accent transition-all duration-500"
+          style={{ width: progressWidth }}
+        />
+      </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_230px]">
+        <GuideLoadingPreview />
+        <ol className="space-y-3 border-l border-line pl-4">
+          {GUIDE_LOADING_STEPS.map((step, index) => {
+            const active = index === activeStepIndex;
+            const done = index < activeStepIndex;
+
+            return (
+              <li key={step.title} className="relative">
+                <span
+                  className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ${
+                    active || done ? "bg-accent" : "bg-line"
+                  }`}
+                >
+                  {active && <span className="absolute inset-0 animate-ping rounded-full bg-accent/30" />}
+                </span>
+                <p className={`text-sm font-medium ${active ? "text-ink" : "text-ink-soft"}`}>
+                  {step.title}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-ink-soft">{step.description}</p>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }
 
-const WAITING_MESSAGES = [
-  "正在阅读当前章节上下文",
-  "正在提炼本章的阅读目标",
-  "正在整理关键概念和读前问题",
-  "正在把导读组织成清晰结构",
+function GuideLoadingPreview() {
+  return (
+    <div className="space-y-5">
+      <GuideLoadingSkeletonSection headingWidth="w-28" lines={["w-full", "w-11/12", "w-4/5"]} />
+      <GuideLoadingSkeletonSection headingWidth="w-36" lines={["w-10/12", "w-8/12"]} />
+      <div className="space-y-3">
+        <span className="block h-3 w-32 animate-pulse rounded-full bg-line" />
+        <div className="space-y-2 pl-4">
+          <span className="block h-2.5 w-10/12 animate-pulse rounded-full bg-line" />
+          <span className="block h-2.5 w-9/12 animate-pulse rounded-full bg-line" />
+          <span className="block h-2.5 w-7/12 animate-pulse rounded-full bg-line" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuideLoadingSkeletonSection({ headingWidth, lines }) {
+  return (
+    <div className="space-y-3">
+      <span className={`block h-3 ${headingWidth} animate-pulse rounded-full bg-accent/25`} />
+      <div className="space-y-2">
+        {lines.map((width, index) => (
+          <span
+            key={`${headingWidth}-${index}`}
+            className={`block h-2.5 ${width} animate-pulse rounded-full bg-line`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const GUIDE_LOADING_STEPS = [
+  {
+    title: "读取章节上下文",
+    description: "先看这一段在全书里的位置。",
+  },
+  {
+    title: "提炼阅读入口",
+    description: "把背景、作者眼光和今天的章节连起来。",
+  },
+  {
+    title: "整理目标和问题",
+    description: "准备读完后要抓住的能力与疑问。",
+  },
+  {
+    title: "排版成导读",
+    description: "把内容拆成短标题、段落和提示点。",
+  },
 ];
 
 function GuideUsage({ guide }) {
@@ -2269,38 +2700,73 @@ function GuideMarkdownText({ value, compact = false }) {
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
-      {blocks.map((block, index) =>
-        block.type === "quote" ? (
-          <blockquote
-            key={`guide-md-${index}`}
-            className="border-l-4 border-line bg-paper-card px-4 py-3 text-ink-soft"
-          >
-            {block.lines.map((line, lineIndex) => (
-              <p key={`guide-md-${index}-${lineIndex}`}>
-                {renderGuideInlineMarkdown(line, `guide-${index}-${lineIndex}`)}
-              </p>
-            ))}
-          </blockquote>
-        ) : (
-          <p key={`guide-md-${index}`}>
-            {renderGuideInlineMarkdown(block.text, `guide-${index}`)}
-          </p>
-        )
-      )}
+      {blocks.map((block, index) => (
+        <GuideMarkdownBlock
+          key={`guide-md-${index}`}
+          block={block}
+          blockIndex={index}
+          compact={compact}
+        />
+      ))}
     </div>
   );
+}
+
+function GuideMarkdownBlock({ block, blockIndex, compact }) {
+  if (block.type === "divider") {
+    return <hr className="my-3 border-line" />;
+  }
+
+  if (block.type === "heading") {
+    return (
+      <h3 className={compact ? "text-xs font-semibold text-ink" : "text-sm font-semibold text-ink"}>
+        {renderGuideInlineMarkdown(block.text, `guide-${blockIndex}-heading`)}
+      </h3>
+    );
+  }
+
+  if (block.type === "quote") {
+    return (
+      <blockquote className="border-l-4 border-line bg-paper-card px-4 py-3 text-ink-soft">
+        {block.lines.map((line, lineIndex) => (
+          <p key={`guide-md-${blockIndex}-${lineIndex}`}>
+            {renderGuideInlineMarkdown(line, `guide-${blockIndex}-${lineIndex}`)}
+          </p>
+        ))}
+      </blockquote>
+    );
+  }
+
+  if (block.type === "ul" || block.type === "ol") {
+    const ListTag = block.type === "ul" ? "ul" : "ol";
+    const markerClass = block.type === "ul" ? "list-disc" : "list-decimal";
+
+    return (
+      <ListTag className={`${markerClass} ${compact ? "space-y-1 pl-4" : "space-y-1.5 pl-5"}`}>
+        {block.lines.map((line, lineIndex) => (
+          <li key={`guide-md-${blockIndex}-${lineIndex}`}>
+            {renderGuideInlineMarkdown(line, `guide-${blockIndex}-${lineIndex}`)}
+          </li>
+        ))}
+      </ListTag>
+    );
+  }
+
+  return <p>{renderGuideInlineMarkdown(block.text, `guide-${blockIndex}`)}</p>;
 }
 
 function splitGuideMarkdownBlocks(value) {
   const lines = toText(value)
     .replace(/\\n/g, "\n")
-    .split(/\n+/)
-    .map(cleanGuideMarkdownLine)
-    .filter(Boolean);
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map(cleanGuideMarkdownLine);
 
   const blocks = [];
   let paragraph = [];
   let quote = [];
+  let listType = null;
+  let list = [];
 
   function flushParagraph() {
     if (paragraph.length === 0) return;
@@ -2314,30 +2780,82 @@ function splitGuideMarkdownBlocks(value) {
     quote = [];
   }
 
-  for (const line of lines) {
-    if (line.startsWith(">")) {
-      flushParagraph();
-      quote.push(line.replace(/^>\s?/, "").trim());
-    } else {
-      flushQuote();
-      paragraph.push(line);
-    }
+  function flushList() {
+    if (list.length === 0) return;
+    blocks.push({ type: listType, lines: list });
+    listType = null;
+    list = [];
   }
 
-  flushQuote();
-  flushParagraph();
+  function flushTextBlocks() {
+    flushQuote();
+    flushList();
+    flushParagraph();
+  }
+
+  for (const line of lines) {
+    if (!line) {
+      flushTextBlocks();
+      continue;
+    }
+
+    if (/^-{3,}$/.test(line)) {
+      flushTextBlocks();
+      blocks.push({ type: "divider" });
+      continue;
+    }
+
+    const heading = line.match(/^#{1,4}\s+(.+)$/);
+    if (heading) {
+      flushTextBlocks();
+      blocks.push({ type: "heading", text: heading[1].trim() });
+      continue;
+    }
+
+    if (line.startsWith(">")) {
+      flushParagraph();
+      flushList();
+      quote.push(line.replace(/^>\s?/, "").trim());
+      continue;
+    }
+
+    const unorderedItem = line.match(/^[-*]\s+(.+)$/);
+    if (unorderedItem) {
+      flushQuote();
+      flushParagraph();
+      if (listType && listType !== "ul") flushList();
+      listType = "ul";
+      list.push(unorderedItem[1].trim());
+      continue;
+    }
+
+    const orderedItem = line.match(/^\d+\.\s+(.+)$/);
+    if (orderedItem) {
+      flushQuote();
+      flushParagraph();
+      if (listType && listType !== "ol") flushList();
+      listType = "ol";
+      list.push(orderedItem[1].trim());
+      continue;
+    }
+
+    if (quote.length > 0 || list.length > 0) {
+      flushQuote();
+      flushList();
+    }
+
+    paragraph.push(line);
+  }
+
+  flushTextBlocks();
   return blocks;
 }
 
 function cleanGuideMarkdownLine(line) {
   const text = line.trim();
-  if (!text || /^-{3,}$/.test(text)) return "";
+  if (!text || /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(text)) return "";
 
   return text
-    .replace(/^#{1,6}\s+/, "")
-    .replace(/^[-*]\s+/, "")
-    .replace(/^\d+\.\s+/, "")
-    .replace(/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/, "")
     .replace(/\s*\|\s*/g, "，")
     .replace(/\s+/g, " ")
     .trim();
