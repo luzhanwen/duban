@@ -1,0 +1,44 @@
+# 读伴 AI 批量配置模板
+# 保存为 .txt 后，在「设置 -> AI 批量配置」里导入。
+#
+# 最省事的用法：
+# 1. 找到你要用的供应商。
+# 2. 只把这一段的 apiKey 填上。
+# 3. 导入 TXT，读伴会自动填好 provider、Base URL、模型名和价格。
+#
+# 如果你填了多个 API Key，可以把下一行改成当前要默认使用的供应商：
+# provider = deepseek
+#
+# provider 可选：anthropic、openai、deepseek、kimi、openai-compatible。
+# API Key 只会保存到本机浏览器 IndexedDB。
+
+[anthropic]
+apiKey =
+model = claude-sonnet-4-6
+
+[openai]
+apiKey =
+baseUrl = https://api.openai.com/v1
+model = gpt-5.4-mini
+inputPricePerMTok = 0.75
+outputPricePerMTok = 4.5
+
+[deepseek]
+apiKey =
+baseUrl = https://api.deepseek.com
+model = deepseek-v4-flash
+inputPricePerMTok = 0.14
+outputPricePerMTok = 0.28
+
+[kimi]
+apiKey =
+baseUrl = https://api.moonshot.cn/v1
+model = kimi-k2.6
+inputPricePerMTok =
+outputPricePerMTok =
+
+# 也可以继续使用完整 key 写法：
+# provider = openai-compatible
+# openaiCompatible.apiKey =
+# openaiCompatible.baseUrl = https://api.openai.com/v1
+# openaiCompatible.model = gpt-5.4-mini

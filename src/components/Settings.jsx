@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { testModelConnection } from "../lib/ai.js";
+import { buildAiConfigText, parseAiConfigText } from "../lib/aiConfigImport.js";
 import {
   clearAll,
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
   getSettings,
+  normalizeSettings,
   PROVIDERS,
   saveSettings,
 } from "../lib/storage.js";
@@ -111,6 +113,7 @@ function findModelOption(baseUrl, model) {
 }
 
 export default function Settings() {
+  const configInputRef = useRef(null);
   const [provider, setProvider] = useState(PROVIDERS.anthropic);
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_MODEL);
@@ -122,27 +125,34 @@ export default function Settings() {
   const [showKey, setShowKey] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [testMsg, setTestMsg] = useState(null);
+  const [configMsg, setConfigMsg] = useState(null);
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     getSettings().then((settings) => {
-      setProvider(settings.provider);
-      setAnthropicApiKey(settings.anthropic.apiKey);
-      setAnthropicModel(settings.anthropic.model);
-      setOpenaiApiKey(settings.openaiCompatible.apiKey);
-      setOpenaiBaseUrl(settings.openaiCompatible.baseUrl);
-      setOpenaiModel(settings.openaiCompatible.model);
-      setInputPricePerMTok(settings.openaiCompatible.inputPricePerMTok);
-      setOutputPricePerMTok(settings.openaiCompatible.outputPricePerMTok);
+      applySettingsToForm(settings);
     });
   }, []);
 
-  function buildSettings() {
-    return {
-      provider,
+  function applySettingsToForm(settings) {
+    const normalized = normalizeSettings(settings);
+    setProvider(normalized.provider);
+    setAnthropicApiKey(normalized.anthropic.apiKey);
+    setAnthropicModel(normalized.anthropic.model);
+    setOpenaiApiKey(normalized.openaiCompatible.apiKey);
+    setOpenaiBaseUrl(normalized.openaiCompatible.baseUrl);
+    setOpenaiModel(normalized.openaiCompatible.model);
+    setInputPricePerMTok(normalized.openaiCompatible.inputPricePerMTok);
+    setOutputPricePerMTok(normalized.openaiCompatible.outputPricePerMTok);
+  }
+
+  function buildSettings(overrides = {}) {
+    return normalizeSettings({
+      provider: overrides.provider || provider,
       anthropic: {
         apiKey: anthropicApiKey.trim(),
         model: anthropicModel.trim(),
+        ...(overrides.anthropic || {}),
       },
       openaiCompatible: {
         apiKey: openaiApiKey.trim(),
@@ -150,14 +160,58 @@ export default function Settings() {
         model: openaiModel.trim(),
         inputPricePerMTok: inputPricePerMTok.trim(),
         outputPricePerMTok: outputPricePerMTok.trim(),
+        ...(overrides.openaiCompatible || {}),
       },
-    };
+    });
   }
 
   async function handleSave() {
     await saveSettings(buildSettings());
     setSaveMsg({ type: "ok", text: "已保存到本地。" });
     setTimeout(() => setSaveMsg(null), 2000);
+  }
+
+  async function handleConfigFileChange(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setConfigMsg(null);
+    setSaveMsg(null);
+    setTestMsg(null);
+
+    try {
+      const parsed = parseAiConfigText(await file.text());
+      const nextSettings = buildSettings(parsed.settings);
+      applySettingsToForm(nextSettings);
+      await saveSettings(nextSettings);
+
+      const warningText = parsed.warnings.length
+        ? `，另有 ${parsed.warnings.length} 行已跳过`
+        : "";
+      setConfigMsg({
+        type: "ok",
+        text: `已从 ${file.name} 导入并保存 ${parsed.appliedKeys.length} 项配置${warningText}。`,
+      });
+    } catch (e) {
+      setConfigMsg({
+        type: "error",
+        text: e.message || "配置文档读取失败，请检查 TXT 格式。",
+      });
+    }
+  }
+
+  function handleDownloadCurrentConfig() {
+    const configText = buildAiConfigText(buildSettings());
+    const date = new Date().toISOString().slice(0, 10);
+    downloadTextFile({
+      fileName: `duban-ai-config-${date}.txt`,
+      text: configText,
+    });
+    setConfigMsg({
+      type: "ok",
+      text: "已生成当前 AI 配置 TXT。这个文件包含 API Key，请妥善保存。",
+    });
   }
 
   async function handleTest() {
@@ -246,6 +300,51 @@ export default function Settings() {
         <p className="mt-2 text-xs leading-5 text-ink-soft">
           {PROVIDER_OPTIONS.find((option) => option.value === provider)?.desc}
         </p>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-ink">AI 批量配置</h3>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              模板已预填常用供应商，只需要粘贴要使用的 API Key。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={configInputRef}
+              type="file"
+              accept=".txt,text/plain"
+              className="hidden"
+              onChange={handleConfigFileChange}
+            />
+            <button
+              type="button"
+              onClick={() => configInputRef.current?.click()}
+              className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+            >
+              导入 TXT 配置
+            </button>
+            <a
+              href="/ai-config-template.txt"
+              download
+              className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+            >
+              下载模板
+            </a>
+            <button
+              type="button"
+              onClick={handleDownloadCurrentConfig}
+              className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+            >
+              下载当前配置
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-ink-soft">
+          导入会立即保存到本地。下载当前配置会包含 API Key，请只保存在可信位置。
+        </p>
+        {configMsg && <Hint msg={configMsg} />}
       </section>
 
       {provider === PROVIDERS.anthropic ? (
@@ -488,4 +587,16 @@ function Hint({ msg }) {
       ? "text-red-600"
       : "text-ink-soft";
   return <p className={`mt-3 text-sm ${color}`}>{msg.text}</p>;
+}
+
+function downloadTextFile({ fileName, text }) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

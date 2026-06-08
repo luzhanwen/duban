@@ -245,6 +245,8 @@ Prompt 不直接写在业务逻辑里，而是集中放在 `src/prompts/`。
 
 OpenAI-compatible 可配置 API Key、Base URL、模型名，以及输入/输出每百万 token 价格。模型清单中目前包含 OpenAI、Kimi、DeepSeek 的常用模型。
 
+设置页支持从 TXT 文档批量导入 AI 配置，模板见 `public/ai-config-template.txt`。模板已预填 Anthropic、OpenAI、DeepSeek、Kimi 等常用供应商；只填一个供应商的 API Key 时，会自动把它设为当前默认。设置页也可以把当前 AI 配置下载成可重新导入的 TXT，导出文件会包含 API Key，请妥善保管。
+
 API Key 只保存在本机 IndexedDB，不会写入代码仓库，也不会上传到项目自己的服务器。
 
 纯前端直连第三方 API 可能遇到 CORS 限制。如果某个供应商无法从浏览器直接调用，后续需要增加本地代理或后端代理。

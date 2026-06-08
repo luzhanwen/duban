@@ -54,10 +54,14 @@ body {
   height: 326px;
   font-family: var(--font-literary-ui);
   box-shadow: 0 18px 46px rgb(43 38 34 / 0.055);
+  transition:
+    height 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms ease,
+    box-shadow 220ms ease;
 }
 
 .book-card-expanded {
-  height: auto;
+  height: 560px;
 }
 
 .book-card-header {
@@ -65,21 +69,26 @@ body {
 }
 
 .book-card-details {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
   margin-top: 0;
-  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-6px);
   transition:
-    max-height 260ms ease,
-    margin-top 260ms ease,
-    opacity 180ms ease,
-    transform 220ms ease;
+    grid-template-rows 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease 70ms,
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.book-card-details-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .book-card-expanded .book-card-details {
-  max-height: 380px;
+  grid-template-rows: 1fr;
   margin-top: 16px;
   opacity: 1;
   pointer-events: auto;
@@ -133,7 +142,7 @@ body {
   }
 
   .book-card-details {
-    max-height: none;
+    display: block;
     margin-top: 16px;
     opacity: 1;
     pointer-events: auto;
@@ -147,7 +156,7 @@ body {
   }
 
   .book-card-details {
-    max-height: none;
+    display: block;
     margin-top: 16px;
     opacity: 1;
     pointer-events: auto;

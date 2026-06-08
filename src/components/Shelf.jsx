@@ -203,7 +203,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
                 book={book}
                 progress={progressByBookId[book.id]}
                 menuOpen={menuBookId === book.id}
-                expanded={expandedBookId === book.id || menuBookId === book.id}
+                expanded={expandedBookId === book.id}
                 deleting={deletingBookId === book.id}
                 onSetupBook={onSetupBook}
                 onPlanBook={onPlanBook}
@@ -332,16 +332,7 @@ function BookCard({
 
   return (
     <article
-      onMouseEnter={() => onExpandBook(book.id)}
-      onMouseLeave={() => {
-        if (!menuOpen) onCollapseBook(book.id);
-      }}
-      onFocus={() => onExpandBook(book.id)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget) && !menuOpen) {
-          onCollapseBook(book.id);
-        }
-      }}
+      onMouseLeave={() => onCollapseBook(book.id)}
       className={`book-card relative flex flex-col rounded-lg border border-line bg-paper-card p-6 transition duration-200 hover:-translate-y-1 focus-within:shadow-md ${
         expanded ? "book-card-expanded" : ""
       } ${
@@ -352,7 +343,38 @@ function BookCard({
         "--book-accent-soft": accent.soft,
       }}
     >
-      <div className="book-card-header">
+      <div className="absolute right-6 top-6 z-10" data-book-menu>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label={`打开《${titleText}》操作菜单`}
+          onClick={() => onToggleMenu(book.id)}
+          disabled={deleting}
+          className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-paper-card text-lg leading-none text-ink-soft transition hover:bg-paper hover:text-ink disabled:opacity-50"
+        >
+          ⋯
+        </button>
+        {menuOpen && (
+          <BookActionMenu
+            book={book}
+            canPlan={canPlan}
+            canRead={canRead}
+            deleting={deleting}
+            onSetupBook={onSetupBook}
+            onPlanBook={onPlanBook}
+            onOpenDirectory={onOpenDirectory}
+            onDeleteBook={onDeleteBook}
+            onCloseMenu={onCloseMenu}
+          />
+        )}
+      </div>
+
+      <div
+        className="book-card-expand-zone"
+        onMouseEnter={() => onExpandBook(book.id)}
+      >
+        <div className="book-card-header pr-12">
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -363,32 +385,6 @@ function BookCard({
                 {pageCountText}
               </span>
             </div>
-            <div className="relative shrink-0" data-book-menu>
-              <button
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-label={`打开《${titleText}》操作菜单`}
-                onClick={() => onToggleMenu(book.id)}
-                disabled={deleting}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-paper-card text-lg leading-none text-ink-soft transition hover:bg-paper hover:text-ink disabled:opacity-50"
-              >
-                ⋯
-              </button>
-              {menuOpen && (
-                <BookActionMenu
-                  book={book}
-                  canPlan={canPlan}
-                  canRead={canRead}
-                  deleting={deleting}
-                  onSetupBook={onSetupBook}
-                  onPlanBook={onPlanBook}
-                  onOpenDirectory={onOpenDirectory}
-                  onDeleteBook={onDeleteBook}
-                  onCloseMenu={onCloseMenu}
-                />
-              )}
-            </div>
           </div>
           <h3 className="mt-5 line-clamp-2 text-[26px] font-medium leading-snug text-ink">
             {titleText}
@@ -397,32 +393,35 @@ function BookCard({
             <p className="mt-2 truncate text-base text-ink-soft">{authorText}</p>
           )}
         </div>
-      </div>
-
-      {canRead && <CompactReadingHint stats={readingStats} />}
-
-      <div className="book-card-details">
-        <dl className="grid grid-cols-3 gap-2.5 text-sm">
-          <div className="rounded-lg bg-paper/70 px-4 py-3">
-            <dt className="text-xs font-medium text-ink-soft">{pageUnitLabel}</dt>
-            <dd className="mt-1.5 text-base font-medium text-ink">{book.totalPages}</dd>
-          </div>
-          <div className="rounded-lg bg-paper/70 px-4 py-3">
-            <dt className="text-xs font-medium text-ink-soft">章节</dt>
-            <dd className="mt-1.5 text-base font-medium text-ink">{book.chapters.length}</dd>
-          </div>
-          <div className="rounded-lg bg-paper/70 px-4 py-3">
-            <dt className="text-xs font-medium text-ink-soft">识别</dt>
-            <dd className="mt-1.5 truncate text-base font-medium text-ink">{sourceText}</dd>
-          </div>
-        </dl>
-        <div className="mt-3.5 flex flex-wrap gap-2 text-xs font-medium text-ink-soft">
-          <span className="rounded-full bg-paper px-3 py-1.5">正文 {roleCounts.main}</span>
-          <span className="rounded-full bg-paper px-3 py-1.5">导读 {roleCounts.guide}</span>
-          <span className="rounded-full bg-paper px-3 py-1.5">忽略 {roleCounts.ignore}</span>
-          <span className="rounded-full bg-paper px-3 py-1.5">附录 {roleCounts.appendix}</span>
         </div>
-        {canRead && <ReadingProgressSummary stats={readingStats} />}
+
+        {canRead && <CompactReadingHint stats={readingStats} />}
+
+        <div className="book-card-details">
+          <div className="book-card-details-inner">
+            <dl className="grid grid-cols-3 gap-2 text-sm">
+              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
+                <dt className="text-xs font-medium text-ink-soft">{pageUnitLabel}</dt>
+                <dd className="mt-1 text-sm font-medium text-ink">{book.totalPages}</dd>
+              </div>
+              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
+                <dt className="text-xs font-medium text-ink-soft">章节</dt>
+                <dd className="mt-1 text-sm font-medium text-ink">{book.chapters.length}</dd>
+              </div>
+              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
+                <dt className="text-xs font-medium text-ink-soft">识别</dt>
+                <dd className="mt-1 truncate text-sm font-medium text-ink">{sourceText}</dd>
+              </div>
+            </dl>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-ink-soft">
+              <span className="rounded-full bg-paper px-3 py-1.5">正文 {roleCounts.main}</span>
+              <span className="rounded-full bg-paper px-3 py-1.5">导读 {roleCounts.guide}</span>
+              <span className="rounded-full bg-paper px-3 py-1.5">忽略 {roleCounts.ignore}</span>
+              <span className="rounded-full bg-paper px-3 py-1.5">附录 {roleCounts.appendix}</span>
+            </div>
+            {canRead && <ReadingDetailSummary stats={readingStats} />}
+          </div>
+        </div>
       </div>
 
       <div className="mt-auto pt-5">
@@ -746,20 +745,10 @@ function buildDirectoryStatus({ completed, hasSavedLocation, isCurrent, isPast }
   };
 }
 
-function ReadingProgressSummary({ stats }) {
+function ReadingDetailSummary({ stats }) {
   return (
     <section className="mt-5 rounded-lg bg-paper/70 px-4 py-4">
-      <div className="flex items-center justify-between gap-3 text-xs font-medium text-ink-soft">
-        <span>阅读进度</span>
-        <span>{stats.completedCount} / {stats.totalCount} 项 · {stats.percent}%</span>
-      </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-paper-card">
-        <div
-          className="h-full rounded-full bg-ink-soft/40 transition-all"
-          style={{ width: `${stats.percent}%` }}
-        />
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+      <div className="grid grid-cols-2 gap-4 text-sm">
         <div>
           <p className="text-xs font-medium text-ink-soft">{stats.positionLabel}</p>
           <p className="mt-1.5 truncate font-medium text-ink">{stats.positionText}</p>

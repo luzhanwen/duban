@@ -4,7 +4,7 @@
 
 这份文档用于维护「读伴」的产品路线图。它关注项目接下来要往哪里走、哪些事情优先做、每个阶段完成到什么程度算达标。
 
-更细的需求背景、架构共识和开发日志见 [PROJECT_NOTES.md](./PROJECT_NOTES.md)。
+文档分工见 [README.md](./README.md)。更细的需求背景、架构共识和开发日志见 [PROJECT_NOTES.md](./PROJECT_NOTES.md)，界面与交互演进见 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 
 ## 产品定位
 
@@ -25,6 +25,7 @@
 - 正文阅读默认渲染 PDF 原版页，并叠加可选中文字层。
 - 阅读位置、完成状态、聊天记录、导读、高亮和笔记都保存到 IndexedDB。
 - AI 调用采用 BYOK 模式，支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
+- 设置页支持从预设 TXT 模板批量导入 AI 供应商、模型、Base URL、API Key 和价格配置，也支持把当前 AI 配置导出为 TXT。
 - 已支持手动生成章节导读、当前章节伴读问答、选中文字追问、高亮笔记、笔记管理和读后交流追问。
 
 ## 路线原则

@@ -4,6 +4,8 @@
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
+文档分工见 [docs/README.md](./README.md)。简单来说：本文件记录项目总上下文和完整开发日志；路线优先级写入 [ROADMAP.md](./ROADMAP.md)；具体 UI 与交互改动写入 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+
 ## 产品愿景
 
 读伴不是普通 PDF 阅读器，而是一个带教学节奏的 AI 伴读应用。
@@ -374,6 +376,7 @@ readingProfile: {
   - OpenAI-compatible API Key、Base URL、模型名配置
   - OpenAI-compatible 模型清单下拉框，覆盖 OpenAI、Kimi、DeepSeek
   - OpenAI-compatible 自定义输入/输出 token 价格
+  - TXT 批量导入/导出 AI 配置：模板预填 Anthropic、OpenAI、DeepSeek、Kimi 等常用供应商，读取默认供应商、API Key、模型、Base URL 和价格字段，并保存到 IndexedDB；当前配置也可导出为可重新导入的 TXT
   - API Key 显示/隐藏
   - 保存设置到 IndexedDB
   - 测试当前供应商连接
@@ -728,6 +731,14 @@ readingProfile: {
   - 明确少用晦涩抽象词，必要概念必须先用白话解释；界面展示句尽量直接对“你”说，减少“用户/读者”式旁观口吻。
   - 用户填写的阅读意图被视为本书读伴契约，必须写入 overview、fullOverview、difficultyMap.supportStrategy 和 companionFocusOptions。
   - 前端对旧导读里的“读伴帮用户...”做展示清洗，避免出现“读伴会帮你：读伴帮用户...”这种重复表达。
+- 设置页新增 AI 批量配置：
+  - 新增 `src/lib/aiConfigImport.js`，支持解析 TXT 文档里的 `key = value` 或 `key: value` 配置行。
+  - 支持 `[anthropic]`、`[openai]`、`[deepseek]`、`[kimi]`、`[openai-compatible]` 分组，也支持 `anthropic.apiKey`、`openaiCompatible.baseUrl` 等完整 key。
+  - 设置页新增「AI 批量配置」区域，可上传 TXT 并立即合并保存到 IndexedDB。
+  - 新增 `public/ai-config-template.txt` 作为可下载模板，预填 Anthropic、OpenAI、DeepSeek、Kimi 的 Base URL、模型名和可用价格字段。
+  - 只填一个 OpenAI-compatible 供应商的 API Key 时，会自动选择该供应商并写入对应 Base URL、模型和价格；填多个 Key 时可用 `provider` 指定默认。
+  - 导入时只覆盖文档里写了值的字段，空值和无法识别的行会跳过，避免半份模板清空已有配置。
+  - 新增当前配置导出能力，导出的 TXT 复用导入格式并包含当前 API Key，页面提示用户妥善保存。
 
 ## 当前已知限制
 
