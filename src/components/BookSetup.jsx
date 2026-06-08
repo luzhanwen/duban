@@ -275,7 +275,7 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
           disabled={saving}
           className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-60"
         >
-          {saving ? "保存中…" : "保存并进入阅读节奏"}
+          {saving ? "保存中…" : "保存并进入开书分析"}
         </button>
         <button
           onClick={onBack}

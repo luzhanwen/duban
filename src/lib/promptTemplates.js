@@ -3,6 +3,7 @@ import readingChatPrompt from "../prompts/readingChat.md?raw";
 import readingGuidePrompt from "../prompts/readingGuide.md?raw";
 import readingReflectionPrompt from "../prompts/readingReflection.md?raw";
 import readingTextFormatPrompt from "../prompts/readingTextFormat.md?raw";
+import wholeBookGuidePrompt from "../prompts/wholeBookGuide.md?raw";
 
 export function buildReadingGuidePrompts(values) {
   return splitPromptSections(renderPrompt(readingGuidePrompt, values));
@@ -18,6 +19,10 @@ export function buildReadingReflectionPrompts(values) {
 
 export function buildReadingTextFormatPrompts(values) {
   return splitPromptSections(renderPrompt(readingTextFormatPrompt, values));
+}
+
+export function buildWholeBookGuidePrompts(values) {
+  return splitPromptSections(renderPrompt(wholeBookGuidePrompt, values));
 }
 
 function renderPrompt(template, values = {}) {

@@ -1,6 +1,6 @@
 # 读伴项目记录
 
-> 最后更新：2026-06-05
+> 最后更新：2026-06-08
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
@@ -8,18 +8,19 @@
 
 读伴不是普通 PDF 阅读器，而是一个带教学节奏的 AI 伴读应用。
 
-用户上传自己的 PDF 书籍后，应用先在本地解析书籍结构，再帮助用户确认章节、选择阅读目标与节奏，后续由 AI 像读伴一样陪伴阅读：每章开始前提出阅读目标和关键问题，阅读过程中支持基于当前章节提问，章节结束后用开放式追问测试理解。
+用户上传自己的 PDF 书籍后，应用先在本地解析书籍结构，再由 AI 读伴为整本书建立入口地图：这本书在解决什么问题、结构如何展开、适合怎样读。用户再和读伴一起确定阅读节奏，以及本书读伴应该重点帮自己解决什么问题。后续每章导读、阅读中问答和读后交流，都要带着这份“开书契约”推进。
 
 ## 核心流程
 
 1. 用户上传 PDF。
 2. 应用在本地提取文本、识别目录或章节标题。
 3. 用户确认书籍信息、作者、章节页码和章节用途。
-4. 用户选择阅读目标、阅读节奏、开始日期和每周阅读日。
-5. 应用基于正文/导读章节生成本地阅读计划草稿。
-6. 用户进入文本阅读器，按阅读计划逐项阅读并标记完成。
-7. 用户可在阅读器中手动生成当前章节导读。
-8. 后续接入 AI 生成更细的整体阅读计划、当前章节 sidebar 问答和读伴式测验。
+4. 用户点击「让读伴分析这本书」，AI 生成整本书导读 `wholeBookGuide`。
+5. 读伴基于整本书导读，询问用户希望用什么节奏读，以及本书读伴要重点帮用户解决什么问题。
+6. 应用保存新的 `readingProfile`，其中包含阅读节奏和 `companionFocus`。
+7. 应用基于整本书导读、章节结构、阅读节奏和读伴侧重点生成阅读计划。
+8. 用户进入文本阅读器，按阅读计划逐项阅读并标记完成。
+9. 每章导读、阅读中问答和读后交流都带入 `wholeBookGuide` 与 `companionFocus`。
 
 ## 已确认需求
 
@@ -47,17 +48,39 @@
 - Appendix、Glossary、References、Index、附录、术语表、参考文献等 -> 附录
 - 其他默认 -> 正文
 
-### 阅读目标与计划
+### 开书分析与阅读计划
 
-- 上传后先展示确认书籍信息/章节的页面。
-- 确认后再询问用户阅读目标与节奏。
-- 阅读计划主要按章节和阅读日安排，第一版默认一天一个阅读单元。
-- 用户可以选择：
-  - 阅读目的：快速了解、系统学习、深度精读、写作研究
-  - 阅读节奏：轻松、标准、深入
-  - 开始日期
-  - 每周阅读日
+阅读计划设置不应该是一个孤立表单，而应该是上传一本书后的“开书分析流程”。
+
+目标流程：
+
+- 上传并确认章节后，用户不再先填阅读目标表单，而是点击「让读伴分析这本书」。
+- AI 先生成整本书导读 `wholeBookGuide`，帮助用户理解这本书的核心问题、结构地图、阅读难点和可选读法。
+- `wholeBookGuide` 生成后，读伴再引导用户确认两件事：
+  - 阅读节奏：每次读多久、每周读几天、是否要拆长章节、是否有期望完成时间。
+  - 读伴侧重点：这本书的读伴更应该帮用户抓主线、补背景、拆论证、联系现实、辅助输出，还是解决用户自定义的问题。
+- 用户确认后，应用生成 `readingProfile` 和 `readingPlan`。
+- 之后每个阅读项的导读、问答、读后交流都必须带入 `readingProfile.companionFocus`，让读伴始终围绕用户真实目的工作。
+
+`wholeBookGuide` 不是整本书摘要，也不是每章导读的合集。它更像开书前的地图，应该回答：
+
+- 这本书主要想解决什么问题？
+- 作者用怎样的结构推进？
+- 哪些章节是关键转折？
+- 哪些地方读者最容易卡住？
+- 这本书适合哪几种读法？
+- 如果只带一个问题读完整本书，应该是什么？
+- 读伴建议用户选择哪些侧重点？
+
+当前实现：
+
+- 保存书籍信息后进入 `ReadingPlanSetup.jsx` 开书分析页。
+- 用户可以点击「让读伴分析这本书」，调用 `wholeBookGuide.md` 生成 `wholeBookGuide`，并保存到书籍元数据。
+- 开书分析页展示整本书导读、核心问题、结构地图、阅读难点和生成消耗。
+- 用户基于整本书导读选择阅读节奏、开始日期、每周阅读日、是否拆分长章节，以及本书读伴侧重点。
+- 本地按章节和节奏生成计划草稿；长章节可按当前节奏拆分为多个阅读日。
 - 计划生成时，导读章节合并为「开始前准备」，正文进入主计划，忽略和附录不进入主计划。
+- 当前阅读计划仍是本地生成，尚未由 AI 直接生成每日计划。
 
 ### AI 伴读
 
@@ -105,6 +128,7 @@
 当前 prompt 已从业务代码中抽出，集中放在 `src/prompts/`：
 
 - `mentorPersona.md`：共享读伴人格与整体表达风格，导读、伴读聊天等功能共同使用。
+- `wholeBookGuide.md`：整本书开书导读 prompt，生成全书地图、阅读难点、建议读法和读伴侧重点选项。
 - `readingGuide.md`：章节读前导读 prompt。
 - `readingChat.md`：阅读中 sidebar 伴读问答 prompt。
 - `readingReflection.md`：读后交流 prompt，负责读完后的开放式追问和连续追问。
@@ -153,6 +177,182 @@
 - `source`
 - `role`
 
+### 目标数据结构：开书分析
+
+下一阶段引入 `wholeBookGuide` 和新版 `readingProfile`。第一版可以先放在书籍元数据中，后续如果内容变大，再迁移到独立 key，例如 `book:{id}:wholeBookGuide`，书籍元数据只保留摘要和状态。
+
+#### `wholeBookGuide`
+
+`wholeBookGuide` 是整本书导读，生成时机在用户确认章节之后、生成阅读计划之前。
+
+建议结构：
+
+```js
+wholeBookGuide: {
+  schemaVersion: 1,
+  status: "ready", // idle | generating | ready | failed
+  generatedAt: "2026-06-08T00:00:00.000Z",
+  model: "claude-...",
+  usage: {
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCostUsd: 0
+  },
+  source: {
+    strategy: "chapters_and_samples",
+    chapterCount: 0,
+    pageRanges: [],
+    note: "用章节列表、导读章节和正文抽样生成，不默认塞入整本书全文。"
+  },
+  overview: "Markdown：压缩版开书导读，默认展示给用户。",
+  fullOverview: "Markdown：完整开书导读底稿，供展开查看和后续读伴参考。",
+  coreQuestion: "如果只带一个问题读完整本书，这个问题是什么。",
+  bookProblem: "这本书主要试图解决的核心问题。",
+  structureMap: [
+    {
+      title: "结构单元标题",
+      role: "这一部分在全书中的作用",
+      chapterIds: [],
+      pageRange: "15-62",
+      summary: "这一部分大概在推进什么。",
+      readingHint: "读这一部分时要留心什么。"
+    }
+  ],
+  keyTurns: [
+    {
+      title: "关键转折",
+      chapterIds: [],
+      whyItMatters: "为什么它改变了后面的阅读。"
+    }
+  ],
+  difficultyMap: [
+    {
+      topic: "容易卡住的概念/背景/论证",
+      where: "出现在哪些章节或页码段",
+      whyHard: "为什么容易卡住",
+      supportStrategy: "读伴后续应该怎样帮用户跨过去"
+    }
+  ],
+  suggestedReadingPaths: [
+    {
+      id: "steady",
+      title: "稳定推进",
+      bestFor: "适合什么样的读者",
+      description: "这条读法怎么读",
+      paceHint: "节奏建议",
+      companionFocusSuggestions: ["mainline", "background"]
+    }
+  ],
+  companionFocusOptions: [
+    {
+      type: "mainline",
+      label: "帮我抓主线",
+      description: "减少被细节带走，持续提醒这段和全书问题的关系。",
+      promptInstruction: "后续回答要优先收束到全书主线和当前章节位置。"
+    }
+  ],
+  planAdvice: {
+    recommendedPace: "standard",
+    recommendedMinutesPerSession: 40,
+    splitLongChapters: true,
+    riskNotes: ["哪些章节可能需要拆开读或多留时间"]
+  }
+}
+```
+
+设计原则：
+
+- `overview` 面向用户默认展示，是压缩后的快速入口，可以使用 Markdown。
+- `fullOverview` 保留完整开书底稿，用户需要时再展开，后续计划和读伴行为也可以引用。
+- `structureMap` 服务后续计划生成和章节导读，帮助每个阅读项知道自己在全书中的位置。
+- `difficultyMap` 服务后续读伴问答和读后交流，提醒读伴主动补背景或拆论证。
+- `companionFocusOptions` 不是固定死的全局选项，而是 AI 根据这本书生成的推荐侧重点。
+- `source.strategy` 必须记录生成依据，避免以后误以为整本书全文都被模型读过。
+
+#### `readingProfile.companionFocus`
+
+`companionFocus` 是用户和这本书的读伴契约，后续 prompt 必须带入。
+
+建议结构：
+
+```js
+readingProfile: {
+  schemaVersion: 2,
+  onboardingMode: "ai_book_opening",
+  pace: {
+    mode: "standard", // light | standard | deep | custom
+    minutesPerSession: 40,
+    sessionsPerWeek: 5,
+    weekdays: [1, 2, 3, 4, 5],
+    startDate: "2026-06-08",
+    targetFinishDate: null,
+    splitLongChapters: true,
+    maxPagesPerSession: null
+  },
+  companionFocus: {
+    schemaVersion: 1,
+    type: "mainline", // mainline | background | argument | application | output | custom
+    label: "帮我抓主线",
+    userText: "我读这本书，主要想看懂它如何解释一个时代的运转。",
+    aiSummary: "用户希望读伴持续帮他把人物、制度和历史叙事收束到全书主线。",
+    promptInstruction: "后续导读、问答和读后追问都要优先帮助用户抓住主线，避免只堆背景知识。",
+    selectedFromWholeBookGuide: true,
+    updatedAt: "2026-06-08T00:00:00.000Z"
+  },
+  wholeBookGuide: {
+    status: "ready",
+    generatedAt: "2026-06-08T00:00:00.000Z"
+  },
+  legacy: null
+}
+```
+
+`companionFocus.type` 建议先支持这些基础类型：
+
+- `mainline`：帮我抓主线，不要迷失在细节里。
+- `background`：帮我解释历史背景、概念和上下文。
+- `argument`：帮我追问作者的论证是否成立。
+- `application`：帮我联系现实、工作、生活或其他知识。
+- `output`：帮我沉淀成文章、讲稿、读书笔记或可复用表达。
+- `custom`：用户自己写一句“我读这本书主要想解决……”
+
+后续 prompt 使用规则：
+
+- 章节导读：根据 `companionFocus` 决定今天的提醒重点，不只是概括章节。
+- 阅读中问答：回答可以发散，但最后要收束回用户选择的侧重点。
+- 读后交流：追问不只检查理解，还要检查用户是否靠近自己的阅读目标。
+- 笔记建议：如果用户偏 `output`，读伴应更主动提示可沉淀的表达、结构和素材。
+
+#### 旧数据兼容
+
+已有书籍可能只有旧版 `readingProfile`：
+
+```js
+readingProfile: {
+  purpose: "study",
+  pace: "standard",
+  startDate: "2026-06-08",
+  weekdays: [1, 2, 3, 4, 5]
+}
+```
+
+兼容策略：
+
+- 不迁移也能继续读：旧书保持现有 `readingPlan.items` 和 `progress:{id}`，阅读器不因缺少 `wholeBookGuide` 阻塞。
+- 进入旧书的开书设置页时，提示可以「补生成整本书导读」。
+- 如果没有 `companionFocus`，后续 prompt 使用一个保守默认值：
+  - `purpose: overview` -> `mainline`
+  - `purpose: study` -> `background`
+  - `purpose: deep` -> `argument`
+  - `purpose: research` -> `output`
+- 旧版 `pace` 映射到新版 `pace`：
+  - `light` -> `minutesPerSession: 20`
+  - `standard` -> `minutesPerSession: 40`
+  - `deep` -> `minutesPerSession: 60`
+- `weekdays`、`startDate` 直接沿用。
+- 旧的 `readingPlan.items` 继续有效；新计划生成器可以为新 item 增加 `wholeBookRole`、`dailyGoal`、`difficulty`、`focusHint` 等字段，但不能要求旧 item 必须有这些字段。
+- 重新生成整本书导读或阅读计划时，默认保留已读进度、聊天、笔记和高亮，不覆盖 `progress:{id}`。
+
 ## 已实现功能
 
 ### 应用基础
@@ -194,18 +394,21 @@
 - 可编辑书名和作者。
 - 可编辑章节标题、用途、起始页、结束页。
 - 可新增/删除章节。
-- 保存后进入阅读目标与节奏选择页。
+- 保存后进入开书分析页。
 - 对 PDF 元数据里的非字符串 title/author 做了兼容处理。
 
-### 阅读目标与节奏
+### 开书分析与阅读计划
 
-- 新增阅读目标与节奏选择页。
-- 支持选择阅读目的、节奏、开始日期、每周阅读日。
-- 根据章节用途生成本地计划预览。
-- 保存 `readingProfile` 和本地 `readingPlan` 草稿。
+- `ReadingPlanSetup.jsx` 已从旧表单升级为开书分析页。
+- 支持点击「让读伴分析这本书」，调用 AI 生成整本书导读 `wholeBookGuide`。
+- 开书导读基于章节结构、导读章节和正文抽样生成，不默认塞入整本书全文。
+- 开书导读结果包含 overview、fullOverview、bookProblem、coreQuestion、structureMap、difficultyMap、suggestedReadingPaths、companionFocusOptions 和 planAdvice。
+- 支持选择阅读节奏、开始日期、每周阅读日和是否拆分长章节。
+- 支持选择本书读伴侧重点，并保存为 `readingProfile.companionFocus`。
+- 保存新版 `readingProfile` 和本地 `readingPlan` 草稿；同时保留 `purpose` 等旧字段兼容旧 prompt。
 - 书架卡片显示章节用途统计。
 - 书架卡片显示阅读进度条、最近读到的位置和连续打卡天数。
-- 待确认书籍只显示「完善信息」；已确认/已规划书籍显示「书籍信息」和「阅读节奏」。
+- 待确认书籍只显示「完善信息」；已确认/已规划书籍显示「书籍信息」和「开书设置」。
 
 ### 阅读会话
 
@@ -273,33 +476,45 @@
 - 阅读提示面板不再使用二级 tab，也不再展示“留意”内容；改为两组柔和卡片：「今天的收获」和「可以追的问题」。
 - 提示面板空状态从单个按钮改为说明 + 骨架预览 +「生成阅读提示」按钮，避免 sidebar 右侧大面积空白。
 
-## 待实现路线
+## 下一步计划
+
+### 本轮已完成
+
+1. 开书分析流程已经从旧表单升级为“读伴先分析整本书，再和用户商量阅读契约”。
+2. 新增 `wholeBookGuide.md` 和 `src/lib/wholeBookGuide.js`，支持基于章节列表、导读章节和正文抽样生成整本书导读。
+3. `ReadingPlanSetup.jsx` 已重做为开书分析页，覆盖整本书导读、阅读节奏、开始日期、每周阅读日、长章节拆分和读伴侧重点。
+4. 新版 `readingProfile` 已保存 `pace`、`companionFocus` 和 `wholeBookGuide` 状态，同时保留旧字段兼容。
+5. 开书导读展示已从字段卡片调整为三层地图：快速导读、阅读路线、读伴支援；完整导读底稿可展开查看。
+6. 解析失败、输出截断和重新生成旧内容残留的问题已做基础处理。
 
 ### 下一阶段建议
 
-1. AI 生成阅读计划增强：
-   - 基于书名、作者、章节列表和用户目标调用 Claude。
-   - 生成更自然的总体计划说明。
-   - 为每个正文章节生成阅读目标和关键问题。
-   - 保存 AI 生成结果。
+1. 把开书契约带进后续伴读：
+   - `readingGuide.md` 要带入 `wholeBookGuide` 的核心问题、当前阅读项在全书中的位置和 `companionFocus.promptInstruction`。
+   - `readingChat.md` 要带入用户选择的读伴侧重点，回答时围绕用户真实目的收束。
+   - `readingReflection.md` 要带入本书读伴契约和阅读中上下文，让读后追问不只是泛泛复盘。
+   - 增加上下文预算策略，避免把完整 `wholeBookGuide` 原样塞进每次 prompt。
 
-2. 当前章节 sidebar 问答增强：
-   - 支持更完整的选中文本批注、高亮和引用管理。
-   - 支持更清晰的引用来源和页码提示。
-   - 支持清空当前章节聊天记录。
+2. AI 生成阅读计划增强：
+   - 在当前本地计划草稿基础上，让 AI 基于 `wholeBookGuide`、章节结构、用户节奏和读伴侧重点生成更自然的总体计划说明。
+   - 为每个阅读项补充阅读目标、关键问题、难度提示和全书位置。
+   - 允许用户接受、编辑或重新生成计划，并确保不覆盖已有进度、聊天、笔记和高亮。
 
-3. 章节结束读伴式测验：
-   - 生成开放式关键问题。
-   - 根据用户回答进行追问、纠偏和反馈。
+3. 开书分析体验打磨：
+   - 生成导读时支持更清楚的进度、取消和重试。
+   - 用户修改阅读意图、节奏或读伴侧重点后，提示是否需要重新分析或重新生成计划。
+   - 对 JSON 解析失败保留更可读的诊断入口，方便后续排查 prompt 和模型问题。
 
-4. 文本阅读体验增强：
-   - 字号、行距、宽度等阅读设置。
-   - 更好的章节导航和长文本滚动体验。
+4. 当前阅读器增强：
+   - 支持清空当前阅读项聊天记录。
+   - 强化引用来源、页码和选中文字证据链。
+   - 增加字号、行距、宽度等阅读设置。
+   - 继续打磨高亮、批注、笔记导出和搜索。
 
 5. 数据可迁移能力：
-   - 导出书库。
-   - 导入书库。
-   - 为未来桌面版或数据库迁移保留接口。
+   - 导出书库元数据、阅读进度、导读、聊天、读后交流和笔记。
+   - 支持导入备份。
+   - 为未来桌面版、本地文件系统和 SQLite 预留迁移接口。
 
 ## 开发日志
 
@@ -477,6 +692,42 @@
   - 每轮改动后均执行 `npm run build`，构建通过。
   - 用本地测试环境 `http://127.0.0.1:5175/` 检查过 logo、开屏动画、品牌字体、阅读提示空状态和 sidebar 入口。
   - 自动化环境中 PDF text layer 的真实拖选不稳定，未能完整自动触发“选中文字 -> 添加笔记 -> 拖动浮窗”的端到端路径；但拖动能力本身已通过代码和构建验证，交互入口为浮窗顶部「拖动窗口」把手。
+
+### 2026-06-08
+
+- 开书分析流程需求设计：
+  - 将“阅读目标与节奏设置”从旧的表单式收集，升级为“读伴先分析整本书，再和用户商量阅读契约”的目标流程。
+  - 明确上传和确认章节后，下一步应由用户点击「让读伴分析这本书」，生成整本书导读 `wholeBookGuide`。
+  - 明确 `wholeBookGuide` 的作用不是摘要，而是开书地图：核心问题、结构地图、关键转折、阅读难点、建议读法和读伴侧重点建议。
+  - 明确 `readingProfile.companionFocus` 是本书读伴的长期行为参数，后续章节导读、阅读中问答、读后交流都必须带入。
+  - 明确新版 `readingProfile` 应包含 `pace`、`companionFocus` 和 `wholeBookGuide` 状态；旧版 `purpose` / `pace` / `weekdays` / `startDate` 需要兼容。
+  - 明确旧书不应因为缺少 `wholeBookGuide` 被阻塞；可以继续阅读，并在合适入口提示补生成整本书导读。
+  - 下一步实现前，需要先新增整本书导读 prompt，再改造 `ReadingPlanSetup.jsx` 为开书分析页。
+- 新增并接入 `src/prompts/wholeBookGuide.md`：
+  - prompt 输出整本书开书导读的内容字段，不让模型生成 `status`、`generatedAt`、`model`、`usage` 等运行时元数据。
+  - 输出结构覆盖 `overview`、`fullOverview`、`bookProblem`、`coreQuestion`、`structureMap`、`keyTurns`、`difficultyMap`、`suggestedReadingPaths`、`companionFocusOptions`、`planAdvice` 和 `sourceLimitations`。
+  - 明确要求模型基于章节结构、导读章节和正文抽样生成，不假装完整细读整本书全文。
+  - `promptTemplates.js` 新增 `buildWholeBookGuidePrompts`。
+  - 新增 `src/lib/wholeBookGuide.js`，负责组织章节列表、导读章节和正文抽样，调用模型，解析 JSON，并把结果保存到书籍元数据的 `wholeBookGuide`。
+  - `ReadingPlanSetup.jsx` 已改造为开书分析页：先生成整本书导读，再选择节奏和读伴侧重点，最后生成本地阅读计划草稿。
+  - `BookSetup`、书架和阅读器空计划入口文案同步从“阅读节奏”调整为“开书分析/开书设置”。
+- 修复整本书导读解析失败体验：
+  - 发现 `wholeBookGuide` 输出 token 正好打满 `maxTokens` 时，模型返回的 JSON 容易被截断，导致 `JSON.parse` 失败。
+  - 将整本书导读输出上限提高，并收紧 prompt 输出长度，避免结构化 JSON 过长。
+  - 解析失败时保存为 `status: "failed"` 诊断态，页面显示错误提示，不再把失败结果渲染成“已生成”的导读卡片。
+- 调整整本书导读展示层级：
+  - `wholeBookGuide.md` 要求先形成完整开书理解，再输出 `fullOverview` 完整底稿和 `overview` 压缩版入口。
+  - `ReadingPlanSetup.jsx` 默认只展示快速导读，完整导读放在「展开完整导读」里，避免用户一开始被长文压住。
+  - 旧数据如果只有长 `overview`，前端会自动把它作为 `fullOverview`，并生成短预览。
+- 优化整本书导读的“地图”展示：
+  - 原先直接把 `bookProblem`、`coreQuestion`、`structureMap`、`difficultyMap` 摆成多组卡片，视觉上像后台字段面板，用户不容易理解。
+  - 改为三个阅读层级：先抓住这本书的入口、阅读路线、读伴会多帮你的地方。
+  - 结构地图改为纵向路线，难点地图改为“为什么会卡 / 读伴怎么帮”的支援清单，减少并排卡片造成的扫读负担。
+- 更新整本书导读 prompt 的表达和个性化要求：
+  - `wholeBookGuide.md` 增加“先讲透，再结构化”的要求，强调读伴要给出能点醒人的入口，而不是堆字段或术语。
+  - 明确少用晦涩抽象词，必要概念必须先用白话解释；界面展示句尽量直接对“你”说，减少“用户/读者”式旁观口吻。
+  - 用户填写的阅读意图被视为本书读伴契约，必须写入 overview、fullOverview、difficultyMap.supportStrategy 和 companionFocusOptions。
+  - 前端对旧导读里的“读伴帮用户...”做展示清洗，避免出现“读伴会帮你：读伴帮用户...”这种重复表达。
 
 ## 当前已知限制
 

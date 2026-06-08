@@ -86,7 +86,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         <div>
           <h2 className="font-serif text-3xl text-ink">书架</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">
-            上传一本 PDF，先在本地提取文本与章节。确认书籍信息之后，再进入阅读目标和计划。
+            上传一本 PDF，先在本地提取文本与章节。确认书籍信息之后，再进入开书分析和阅读计划。
           </p>
         </div>
         <div>
@@ -301,7 +301,7 @@ function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook, onOpenD
                   : "bg-accent text-white hover:opacity-90"
               }`}
             >
-              阅读节奏
+              开书设置
             </button>
           </div>
         </>

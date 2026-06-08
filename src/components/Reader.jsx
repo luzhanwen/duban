@@ -234,13 +234,13 @@ export default function Reader({
         <section className="mt-8 rounded-xl border border-line bg-paper-card p-8 text-center shadow-sm">
           <h2 className="font-serif text-2xl text-ink">还没有阅读计划</h2>
           <p className="mt-3 text-sm text-ink-soft">
-            先选择阅读目标和节奏，再开始按章节阅读。
+            先完成开书分析和阅读计划，再开始按章节阅读。
           </p>
           <button
             onClick={() => onPlan(book.id)}
             className="mt-6 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
-            设置阅读节奏
+            前往开书设置
           </button>
         </section>
       </div>

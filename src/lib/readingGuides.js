@@ -82,8 +82,11 @@ function estimateGuideCost(settings, result) {
 }
 
 function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
-  const purpose = book.readingProfile?.purpose || "study";
-  const pace = book.readingProfile?.pace || "standard";
+  const purpose =
+    book.readingProfile?.purpose ||
+    book.readingProfile?.companionFocus?.label ||
+    "study";
+  const pace = formatReadingPace(book.readingProfile?.pace);
   const continuity = buildGuideContinuity({ item, currentIndex, planItems });
   return buildReadingGuidePrompts({
     bookTitle: toText(book.title),
@@ -101,6 +104,19 @@ function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
     continuityStrategy: continuity.strategy,
     chapterText,
   });
+}
+
+function formatReadingPace(pace) {
+  if (!pace) return "standard";
+  if (typeof pace === "string") return pace;
+  if (typeof pace === "object") {
+    const mode = pace.mode || "standard";
+    const minutes = pace.minutesPerSession ? `，每次约 ${pace.minutesPerSession} 分钟` : "";
+    const days = pace.sessionsPerWeek ? `，每周 ${pace.sessionsPerWeek} 天` : "";
+    const split = pace.splitLongChapters ? "，长章节可拆分" : "";
+    return `${mode}${minutes}${days}${split}`;
+  }
+  return "standard";
 }
 
 function buildGuideContinuity({ item, currentIndex, planItems }) {
