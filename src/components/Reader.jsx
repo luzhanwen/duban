@@ -35,9 +35,17 @@ const SESSION_STAGES = {
   completed: "completed",
 };
 
-export default function Reader({ bookId, onBack, onPlan }) {
+export default function Reader({
+  bookId,
+  initialItemIndex = null,
+  initialMode = "default",
+  requestId = 0,
+  onBack,
+  onPlan,
+}) {
   const [book, setBook] = useState(null);
   const [pages, setPages] = useState([]);
+  const [activeItemIndex, setActiveItemIndex] = useState(null);
   const [progress, setProgress] = useState({
     currentItemIndex: 0,
     completedItemKeys: [],
@@ -65,7 +73,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
   const [initialReadingPage, setInitialReadingPage] = useState(null);
   const [selectedQuoteDraft, setSelectedQuoteDraft] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [preserveCurrentItemIndex, setPreserveCurrentItemIndex] = useState(false);
   const progressRef = useRef(progress);
+  const pendingOpenModeRef = useRef("default");
 
   useEffect(() => {
     progressRef.current = progress;
@@ -83,8 +93,17 @@ export default function Reader({ bookId, onBack, onPlan }) {
       ]);
 
       if (!alive) return;
+      const savedPlanItems = savedBook?.readingPlan?.items || [];
+      const requestedIndex = Number.isInteger(initialItemIndex)
+        ? initialItemIndex
+        : savedProgress.currentItemIndex || 0;
+      const openMode = initialMode || "default";
+
+      pendingOpenModeRef.current = openMode;
+      setPreserveCurrentItemIndex(openMode === "review");
       setBook(savedBook);
       setPages(savedPages);
+      setActiveItemIndex(clampIndex(requestedIndex, savedPlanItems.length));
       setProgress({
         currentItemIndex: savedProgress.currentItemIndex || 0,
         completedItemKeys: savedProgress.completedItemKeys || [],
@@ -99,10 +118,10 @@ export default function Reader({ bookId, onBack, onPlan }) {
     return () => {
       alive = false;
     };
-  }, [bookId]);
+  }, [bookId, initialItemIndex, initialMode, requestId]);
 
   const planItems = book?.readingPlan?.items || [];
-  const currentIndex = clampIndex(progress.currentItemIndex, planItems.length);
+  const currentIndex = clampIndex(activeItemIndex ?? progress.currentItemIndex, planItems.length);
   const currentItem = planItems[currentIndex] || null;
   const currentKey = getPlanItemKey(currentItem, currentIndex);
   const completedKeys = progress.completedItemKeys || [];
@@ -152,16 +171,21 @@ export default function Reader({ bookId, onBack, onPlan }) {
       currentItem
     );
     const savedPage = savedLocationForItem?.pageNumber || normalizePageNumber(null, currentItem);
+    const openMode = pendingOpenModeRef.current || "default";
+    const forceReading = openMode === "review" || openMode === "reading";
     setCurrentPage(savedPage);
     setInitialReadingPage(savedPage);
     setSelectedQuoteDraft(null);
     setSessionStage(
-      completed
+      forceReading
+        ? SESSION_STAGES.reading
+        : completed
         ? SESSION_STAGES.completed
         : savedLocationForItem?.pageNumber
         ? SESSION_STAGES.reading
         : SESSION_STAGES.intro
     );
+    pendingOpenModeRef.current = "default";
     if (!book?.id || !currentKey) return;
 
     getReadingGuide(book.id, currentKey).then((saved) => {
@@ -223,15 +247,46 @@ export default function Reader({ bookId, onBack, onPlan }) {
     );
   }
 
-  async function jumpTo(index) {
-    const next = {
-      ...progress,
-      currentItemIndex: clampIndex(index, planItems.length),
-    };
-    persistProgress(next);
-    setSessionStage(SESSION_STAGES.intro);
-    await saveReadingProgress(book.id, next);
+  async function openPlanItem(index, mode = "default") {
+    const nextIndex = clampIndex(index, planItems.length);
+    const nextItem = planItems[nextIndex] || null;
+    const nextKey = getPlanItemKey(nextItem, nextIndex);
+    const nextCompleted = nextKey ? completedKeys.includes(nextKey) : false;
+    const savedLocationForItem = getSavedLocationForCurrentItem(
+      progressRef.current,
+      nextKey,
+      nextItem
+    );
+    const forceReading = mode === "review" || mode === "reading";
+    const preserveCurrent = mode === "review";
+
+    pendingOpenModeRef.current = mode;
+    setPreserveCurrentItemIndex(preserveCurrent);
+    setActiveItemIndex(nextIndex);
+    setSessionStage(
+      forceReading
+        ? SESSION_STAGES.reading
+        : nextCompleted
+        ? SESSION_STAGES.completed
+        : savedLocationForItem?.pageNumber
+        ? SESSION_STAGES.reading
+        : SESSION_STAGES.intro
+    );
+
+    if (!preserveCurrent) {
+      const next = {
+        ...progressRef.current,
+        currentItemIndex: nextIndex,
+      };
+      persistProgress(next);
+      await saveReadingProgress(book.id, next);
+    }
+
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function jumpTo(index, mode = "default") {
+    await openPlanItem(index, mode);
   }
 
   function startReading() {
@@ -267,7 +322,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
     const next = {
       ...progressRef.current,
       completedItemKeys: nextKeys,
-      currentItemIndex: currentIndex,
+      currentItemIndex: preserveCurrentItemIndex
+        ? progressRef.current.currentItemIndex
+        : currentIndex,
     };
     persistProgress(addReadingDay(next));
     setSessionStage(SESSION_STAGES.completed);
@@ -286,6 +343,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
       ...progressRef.current,
       currentItemIndex: clampIndex(nextIndex, planItems.length),
     };
+    pendingOpenModeRef.current = "default";
+    setPreserveCurrentItemIndex(false);
+    setActiveItemIndex(clampIndex(nextIndex, planItems.length));
     persistProgress(next);
     setSessionStage(SESSION_STAGES.intro);
     await saveReadingProgress(book.id, next);
@@ -314,7 +374,9 @@ export default function Reader({ bookId, onBack, onPlan }) {
     const now = new Date().toISOString();
     const next = addReadingDay({
       ...progressRef.current,
-      currentItemIndex: currentIndex,
+      currentItemIndex: preserveCurrentItemIndex
+        ? progressRef.current.currentItemIndex
+        : currentIndex,
       currentPageByItemKey: {
         ...(progressRef.current.currentPageByItemKey || {}),
         [currentKey]: {
@@ -587,6 +649,7 @@ export default function Reader({ bookId, onBack, onPlan }) {
         currentIndex={currentIndex}
         planItems={planItems}
         completedKeys={completedKeys}
+        itemLocations={progress.currentPageByItemKey || {}}
         completed={completed}
         chapterSections={chapterSections}
         initialPage={initialReadingPage}
@@ -659,9 +722,12 @@ export default function Reader({ bookId, onBack, onPlan }) {
         item={currentItem}
         currentIndex={currentIndex}
         planItems={planItems}
+        completedKeys={completedKeys}
+        itemLocations={progress.currentPageByItemKey || {}}
         completedCount={completedKeys.length}
         onBack={onBack}
         onStartNext={startNextItemEarly}
+        onOpenItem={openPlanItem}
       />
     );
   }
@@ -792,6 +858,7 @@ function ReadingStage({
   currentIndex,
   planItems,
   completedKeys,
+  itemLocations,
   completed,
   chapterSections,
   initialPage,
@@ -893,6 +960,7 @@ function ReadingStage({
           currentIndex={currentIndex}
           planItems={planItems}
           completedKeys={completedKeys}
+          itemLocations={itemLocations}
           completed={completed}
           guide={guide}
           loading={guideLoading}
@@ -1151,9 +1219,12 @@ function DailyCompleteStage({
   item,
   currentIndex,
   planItems,
+  completedKeys,
+  itemLocations,
   completedCount,
   onBack,
   onStartNext,
+  onOpenItem,
 }) {
   const nextItem = planItems[currentIndex + 1];
   const hasNext = Boolean(nextItem);
@@ -1201,6 +1272,25 @@ function DailyCompleteStage({
             {hasNext ? "提前开始下一章阅读" : "已经完成全部阅读"}
           </button>
         </div>
+
+        <section className="mt-10 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs text-ink-soft">阅读目录</p>
+              <h2 className="mt-1 font-serif text-2xl text-ink">回顾今天或以前的内容</h2>
+            </div>
+            <p className="text-xs text-ink-soft">已读和未读会分开标记</p>
+          </div>
+          <ReadingDirectoryList
+            currentIndex={currentIndex}
+            planItems={planItems}
+            completedKeys={completedKeys}
+            itemLocations={itemLocations}
+            onOpenItem={(index, itemCompleted) => {
+              onOpenItem(index, itemCompleted ? "review" : "default");
+            }}
+          />
+        </section>
       </main>
     </div>
   );
@@ -1264,6 +1354,8 @@ function TutorSidebar({
   item,
   currentIndex,
   planItems,
+  completedKeys,
+  itemLocations,
   completed,
   guide,
   loading,
@@ -1346,6 +1438,8 @@ function TutorSidebar({
             disabled={disabled || chatLoading}
             currentIndex={currentIndex}
             planItems={planItems}
+            completedKeys={completedKeys}
+            itemLocations={itemLocations}
             completed={completed}
             notes={notes}
             onUpdateNote={onUpdateNote}
@@ -2104,6 +2198,8 @@ function SidebarPanel({
   disabled,
   currentIndex,
   planItems,
+  completedKeys,
+  itemLocations,
   completed,
   notes,
   onUpdateNote,
@@ -2196,6 +2292,8 @@ function SidebarPanel({
       <ReadingItemsPanel
         currentIndex={currentIndex}
         planItems={planItems}
+        completedKeys={completedKeys}
+        itemLocations={itemLocations}
         completed={completed}
         onJump={onJump}
         onMarkUnfinished={onMarkUnfinished}
@@ -2204,7 +2302,15 @@ function SidebarPanel({
   );
 }
 
-function ReadingItemsPanel({ currentIndex, planItems, completed, onJump, onMarkUnfinished }) {
+function ReadingItemsPanel({
+  currentIndex,
+  planItems,
+  completedKeys,
+  itemLocations,
+  completed,
+  onJump,
+  onMarkUnfinished,
+}) {
   return (
     <div className="mt-3 flex min-h-0 flex-1 flex-col">
       <div className="grid grid-cols-2 gap-2">
@@ -2223,24 +2329,16 @@ function ReadingItemsPanel({ currentIndex, planItems, completed, onJump, onMarkU
           下一项
         </button>
       </div>
-      <ol className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-        {planItems.map((planItem, index) => (
-          <li key={planItem.key || `${planItem.title}-${index}`}>
-            <button
-              type="button"
-              onClick={() => onJump(index)}
-              className={`w-full rounded-lg px-3 py-2 text-left text-xs leading-5 transition ${
-                index === currentIndex
-                  ? "bg-accent text-white"
-                  : "bg-paper-card text-ink-soft hover:text-accent"
-              }`}
-            >
-              <span className="block text-[11px] opacity-80">Day {planItem.day}</span>
-              <span className="line-clamp-2">{planItem.title}</span>
-            </button>
-          </li>
-        ))}
-      </ol>
+      <ReadingDirectoryList
+        compact
+        currentIndex={currentIndex}
+        planItems={planItems}
+        completedKeys={completedKeys}
+        itemLocations={itemLocations}
+        onOpenItem={(index, itemCompleted) => {
+          onJump(index, itemCompleted ? "review" : "default");
+        }}
+      />
       {completed && (
         <button
           onClick={onMarkUnfinished}
@@ -2251,6 +2349,109 @@ function ReadingItemsPanel({ currentIndex, planItems, completed, onJump, onMarkU
       )}
     </div>
   );
+}
+
+function ReadingDirectoryList({
+  currentIndex,
+  planItems,
+  completedKeys = [],
+  itemLocations = {},
+  onOpenItem,
+  compact = false,
+}) {
+  const completedSet = new Set(completedKeys || []);
+
+  return (
+    <ol className={`${compact ? "mt-3 min-h-0 flex-1 pr-1" : "mt-4 max-h-[420px] pr-1"} space-y-2 overflow-y-auto`}>
+      {planItems.map((planItem, index) => {
+        const key = getPlanItemKey(planItem, index);
+        const itemCompleted = completedSet.has(key);
+        const savedLocation = itemLocations[key] || null;
+        const status = buildReaderDirectoryStatus({
+          completed: itemCompleted,
+          hasSavedLocation: Boolean(savedLocation?.pageNumber),
+          isCurrent: index === currentIndex,
+        });
+
+        return (
+          <li key={key}>
+            <button
+              type="button"
+              onClick={() => onOpenItem(index, itemCompleted)}
+              className={`w-full rounded-lg border text-left transition hover:-translate-y-0.5 ${
+                compact ? "px-3 py-2 text-xs leading-5" : "px-4 py-3 text-sm leading-6"
+              } ${status.cardClass}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className={`rounded-full px-2 py-0.5 ${status.badgeClass}`}>
+                      {status.label}
+                    </span>
+                    <span className="text-ink-soft">Day {planItem.day}</span>
+                    <span className="text-ink-soft">
+                      第 {planItem.startPage}-{planItem.endPage} 页
+                    </span>
+                  </div>
+                  <span className={`${compact ? "mt-1 line-clamp-2" : "mt-2"} block text-ink`}>
+                    {planItem.title}
+                  </span>
+                  {savedLocation?.pageNumber && (
+                    <span className="mt-1 block text-[11px] text-ink-soft">
+                      上次看到第 {savedLocation.pageNumber} 页
+                    </span>
+                  )}
+                </div>
+                <span className={`shrink-0 rounded-md px-2 py-1 text-xs ${status.actionClass}`}>
+                  {status.actionLabel}
+                </span>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function buildReaderDirectoryStatus({ completed, hasSavedLocation, isCurrent }) {
+  if (completed) {
+    return {
+      label: "已读",
+      actionLabel: "回顾",
+      cardClass: "border-emerald-200 bg-emerald-50/80",
+      badgeClass: "bg-emerald-100 text-emerald-700",
+      actionClass: "bg-white text-emerald-700",
+    };
+  }
+
+  if (hasSavedLocation) {
+    return {
+      label: "阅读中",
+      actionLabel: "继续",
+      cardClass: "border-amber-200 bg-amber-50/80",
+      badgeClass: "bg-amber-100 text-amber-700",
+      actionClass: "bg-white text-amber-700",
+    };
+  }
+
+  if (isCurrent) {
+    return {
+      label: "今日任务",
+      actionLabel: "开始",
+      cardClass: "border-accent/30 bg-paper",
+      badgeClass: "bg-accent/10 text-accent",
+      actionClass: "bg-accent text-white",
+    };
+  }
+
+  return {
+    label: "未读",
+    actionLabel: "开始",
+    cardClass: "border-line bg-paper-card",
+    badgeClass: "bg-paper text-ink-soft",
+    actionClass: "bg-paper text-ink-soft",
+  };
 }
 
 function NotesPanel({

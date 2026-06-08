@@ -13,6 +13,7 @@ import SplashScreen from "./components/SplashScreen.jsx";
 export default function App() {
   const [view, setView] = useState("shelf"); // 'shelf' 书架 | 'settings' 设置
   const [currentBookId, setCurrentBookId] = useState(null);
+  const [readerRequest, setReaderRequest] = useState(null);
   const [showSplash, setShowSplash] = useState(true);
   const [splashLeaving, setSplashLeaving] = useState(false);
   const inReader = view === "reader";
@@ -40,8 +41,14 @@ export default function App() {
     setView("readingPlan");
   }
 
-  function openReader(bookId) {
+  function openReader(bookId, options = {}) {
     setCurrentBookId(bookId);
+    setReaderRequest({
+      bookId,
+      itemIndex: Number.isInteger(options.itemIndex) ? options.itemIndex : null,
+      mode: options.mode || "default",
+      requestedAt: Date.now(),
+    });
     setView("reader");
   }
 
@@ -103,6 +110,13 @@ export default function App() {
         {view === "reader" && currentBookId && (
           <Reader
             bookId={currentBookId}
+            initialItemIndex={
+              readerRequest?.bookId === currentBookId ? readerRequest.itemIndex : null
+            }
+            initialMode={
+              readerRequest?.bookId === currentBookId ? readerRequest.mode : "default"
+            }
+            requestId={readerRequest?.requestedAt || 0}
             onBack={() => setView("shelf")}
             onPlan={openReadingPlan}
           />
