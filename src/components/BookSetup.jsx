@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { getBook, updateBook } from "../lib/books.js";
 import { guessChapterRole } from "../lib/pdf.js";
 import { toText } from "../lib/text.js";
@@ -17,6 +18,8 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
   const [chapters, setChapters] = useState([]);
   const [message, setMessage] = useState(null);
   const [saving, setSaving] = useState(false);
+  const pageUnitLabel = book ? getBookPageUnitLabel(book) : "页";
+  const rangeUnitLabel = pageUnitLabel === "页" ? "页码" : pageUnitLabel;
 
   useEffect(() => {
     getBook(bookId).then((saved) => {
@@ -35,13 +38,13 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
 
     for (const chapter of chapters) {
       if (!chapter.title.trim()) return "每个章节都需要标题。";
-      if (chapter.startPage < 1 || chapter.endPage < 1) return "页码不能小于 1。";
-      if (chapter.startPage > chapter.endPage) return "章节起始页不能大于结束页。";
-      if (chapter.endPage > book.totalPages) return `结束页不能超过 ${book.totalPages}。`;
+      if (chapter.startPage < 1 || chapter.endPage < 1) return `${rangeUnitLabel}不能小于 1。`;
+      if (chapter.startPage > chapter.endPage) return `章节起始${rangeUnitLabel}不能大于结束${rangeUnitLabel}。`;
+      if (chapter.endPage > book.totalPages) return `结束${rangeUnitLabel}不能超过 ${book.totalPages}。`;
     }
 
     return "";
-  }, [book, chapters, title]);
+  }, [book, chapters, rangeUnitLabel, title]);
 
   if (!book) {
     return (
@@ -144,7 +147,7 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
           <h2 className="mt-1 font-serif text-3xl text-ink">{book.title}</h2>
         </div>
         <div className="rounded-lg border border-line bg-paper-card px-4 py-2 text-sm text-ink-soft">
-          {book.totalPages} 页 · {book.chapters.length} 个识别章节
+          {book.totalPages} {pageUnitLabel} · {book.chapters.length} 个识别章节
         </div>
       </div>
 
@@ -175,7 +178,7 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
           <div>
             <h3 className="text-sm font-medium text-ink">章节与页码范围</h3>
             <p className="mt-1 text-xs leading-5 text-ink-soft">
-              先确认每章标题、用途和页码。后续阅读计划会优先按“正文”章节生成。
+              先确认每章标题、用途和{rangeUnitLabel}范围。后续阅读计划会优先按“正文”章节生成。
             </p>
           </div>
           <button
@@ -192,8 +195,8 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
               <tr>
                 <th className="px-3 font-normal">章节标题</th>
                 <th className="w-28 px-3 font-normal">用途</th>
-                <th className="w-28 px-3 font-normal">起始页</th>
-                <th className="w-28 px-3 font-normal">结束页</th>
+                <th className="w-28 px-3 font-normal">起始{pageUnitLabel}</th>
+                <th className="w-28 px-3 font-normal">结束{pageUnitLabel}</th>
                 <th className="w-24 px-3 font-normal">来源</th>
                 <th className="w-20 px-3 font-normal">操作</th>
               </tr>

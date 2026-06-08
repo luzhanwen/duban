@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandName, renderBrandNameText } from "./BrandLogo.jsx";
 import PdfReader from "./PdfReader.jsx";
+import TextBookReader from "./TextBookReader.jsx";
+import { getBookPageUnitLabel, isPdfBook } from "../lib/bookFormats.js";
 import {
   getBook,
   getBookPages,
@@ -530,10 +532,13 @@ export default function Reader({
   }
 
   function handleAskSelection(selection) {
+    const pageUnitLabel = getBookPageUnitLabel(book);
+
     if (selection?.action === "ask") {
       setSelectedQuoteDraft({
         id: `quote-${Date.now()}`,
         pageNumber: selection.pageNumber || null,
+        pageUnitLabel,
         text: toText(selection.text).trim(),
         rects: normalizeHighlightRects(selection.rects),
       });
@@ -546,7 +551,10 @@ export default function Reader({
         return;
       }
 
-      setPendingNoteDraft(buildPendingNoteFromSelection(selection));
+      setPendingNoteDraft({
+        ...buildPendingNoteFromSelection(selection),
+        pageUnitLabel,
+      });
     }
   }
 
@@ -586,6 +594,7 @@ export default function Reader({
     const quote = previousUserMessage?.quote || extractQuoteFromChatContent(previousUserMessage?.content);
     const saved = await addReadingNote(book.id, currentKey, {
       pageNumber: quote.pageNumber || currentPageContext?.pageNumber || null,
+      pageUnitLabel: quote.pageUnitLabel || getBookPageUnitLabel(book),
       text: quote.text,
       rects: quote.rects,
       note: "AI 回答",
@@ -626,7 +635,7 @@ export default function Reader({
     if (!note?.id) return;
     setPendingNoteDraft(null);
     setNoteSourceTarget(note);
-    showNoteNotice("请在 PDF 中重新划选原文，然后点“添加笔记”");
+    showNoteNotice("请在正文中重新划选原文，然后点“添加笔记”");
   }
 
   function handleCancelReplaceNoteSource() {
@@ -651,6 +660,7 @@ export default function Reader({
         completedKeys={completedKeys}
         itemLocations={progress.currentPageByItemKey || {}}
         completed={completed}
+        pages={pages}
         chapterSections={chapterSections}
         initialPage={initialReadingPage}
         savedLocation={savedLocation}
@@ -775,6 +785,7 @@ function IntroStage({
   onMarkUnfinished,
 }) {
   const bridge = buildReadingBridge({ book, item, currentIndex, planItems, completedKeys });
+  const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
     <div className="min-h-screen bg-paper px-6 py-8">
@@ -793,7 +804,7 @@ function IntroStage({
           {item.title}
         </h1>
         <p className="mt-4 text-sm text-ink-soft">
-          第 {item.startPage}-{item.endPage} 页 · 已完成 {completedKeys.length} /{" "}
+          {formatPageRange(item.startPage, item.endPage, pageUnitLabel)} · 已完成 {completedKeys.length} /{" "}
           {planItems.length} 个阅读日
         </p>
 
@@ -860,6 +871,7 @@ function ReadingStage({
   completedKeys,
   itemLocations,
   completed,
+  pages,
   chapterSections,
   initialPage,
   savedLocation,
@@ -902,6 +914,8 @@ function ReadingStage({
     () => (pendingNoteDraft ? [pendingNoteDraft, ...notes] : notes),
     [notes, pendingNoteDraft]
   );
+  const pdfBook = isPdfBook(book);
+  const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
@@ -914,7 +928,7 @@ function ReadingStage({
             <h1 className="mt-1 font-serif text-2xl text-ink">{item.title}</h1>
             {continuing && savedLocation?.pageNumber && (
               <p className="mt-1 text-xs text-ink-soft">
-                继续上次：第 {savedLocation.pageNumber} 页
+                继续上次：{formatPageLabel(savedLocation.pageNumber, pageUnitLabel)}
                 {savedLocation.updatedAt ? ` · ${formatReadingTime(savedLocation.updatedAt)}` : ""}
               </p>
             )}
@@ -944,15 +958,26 @@ function ReadingStage({
 
       <main className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
         <article className="min-h-[60vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-4 py-5 shadow-sm sm:px-10 sm:py-7 lg:min-h-0">
-          <PdfReader
-            bookId={book.id}
-            startPage={item.startPage}
-            endPage={item.endPage}
-            initialPage={initialPage}
-            highlights={visibleHighlights}
-            onCurrentPageChange={onCurrentPageChange}
-            onAskSelection={onAskSelection}
-          />
+          {pdfBook ? (
+            <PdfReader
+              bookId={book.id}
+              startPage={item.startPage}
+              endPage={item.endPage}
+              initialPage={initialPage}
+              highlights={visibleHighlights}
+              onCurrentPageChange={onCurrentPageChange}
+              onAskSelection={onAskSelection}
+            />
+          ) : (
+            <TextBookReader
+              pages={pages}
+              startPage={item.startPage}
+              endPage={item.endPage}
+              initialPage={initialPage}
+              onCurrentPageChange={onCurrentPageChange}
+              onAskSelection={onAskSelection}
+            />
+          )}
         </article>
 
         <TutorSidebar
@@ -984,6 +1009,7 @@ function ReadingStage({
           noteSourceTarget={noteSourceTarget}
           currentPage={currentPage}
           currentPageHasText={currentPageHasText}
+          pageUnitLabel={pageUnitLabel}
           disabled={chapterSections.length === 0 && !currentPageHasText}
           onGenerate={onGenerateGuide}
           onStartGuideNote={onStartGuideNote}
@@ -996,6 +1022,7 @@ function ReadingStage({
       {pendingNoteDraft && (
         <FloatingNoteComposer
           draft={pendingNoteDraft}
+          pageUnitLabel={pageUnitLabel}
           onSave={onSavePendingNote}
           onCancel={onCancelPendingNote}
         />
@@ -1228,6 +1255,7 @@ function DailyCompleteStage({
 }) {
   const nextItem = planItems[currentIndex + 1];
   const hasNext = Boolean(nextItem);
+  const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
     <div className="min-h-screen bg-paper px-6 py-8">
@@ -1286,6 +1314,7 @@ function DailyCompleteStage({
             planItems={planItems}
             completedKeys={completedKeys}
             itemLocations={itemLocations}
+            pageUnitLabel={pageUnitLabel}
             onOpenItem={(index, itemCompleted) => {
               onOpenItem(index, itemCompleted ? "review" : "default");
             }}
@@ -1379,6 +1408,7 @@ function TutorSidebar({
   noteSourceTarget,
   currentPage,
   currentPageHasText,
+  pageUnitLabel,
   disabled,
   onGenerate,
   onStartGuideNote,
@@ -1417,6 +1447,7 @@ function TutorSidebar({
             onAddMessageToNote={onAddChatMessageToNote}
             currentPage={currentPage}
             currentPageHasText={currentPageHasText}
+            pageUnitLabel={pageUnitLabel}
             disabled={disabled}
             onSend={onSendChat}
           />
@@ -1442,6 +1473,7 @@ function TutorSidebar({
             itemLocations={itemLocations}
             completed={completed}
             notes={notes}
+            pageUnitLabel={pageUnitLabel}
             onUpdateNote={onUpdateNote}
             onDeleteNote={onDeleteNote}
             onClearNoteHighlight={onClearNoteHighlight}
@@ -1519,6 +1551,7 @@ function ChatPanel({
   onAddMessageToNote,
   currentPage,
   currentPageHasText,
+  pageUnitLabel = "页",
   disabled,
   onSend,
 }) {
@@ -1578,11 +1611,11 @@ function ChatPanel({
             <span className="inline-flex items-baseline gap-1">问<BrandName /></span>
           </p>
           <h3 className="mt-1 text-sm font-medium text-ink">
-            {currentPage ? `第 ${currentPage} 页伴读` : "当前章节伴读"}
+            {currentPage ? `${formatPageLabel(currentPage, pageUnitLabel)}伴读` : "当前章节伴读"}
           </h3>
           {currentPage && (
             <p className="mt-1 text-[11px] leading-4 text-ink-soft">
-              {currentPageHasText ? "你问“这一页”时，我会优先看这一页。" : "这一页暂时没有提取到文本。"}
+              {currentPageHasText ? "你问当前这一段时，我会优先看这里。" : "这里暂时没有提取到文本。"}
             </p>
           )}
         </div>
@@ -1667,7 +1700,7 @@ function ChatPanel({
   );
 }
 
-function FloatingNoteComposer({ draft, onSave, onCancel }) {
+function FloatingNoteComposer({ draft, pageUnitLabel = "页", onSave, onCancel }) {
   const containerRef = useRef(null);
   const dragRef = useRef(null);
   const [position, setPosition] = useState(null);
@@ -1780,6 +1813,7 @@ function FloatingNoteComposer({ draft, onSave, onCancel }) {
     >
       <NoteComposer
         draft={draft}
+        pageUnitLabel={pageUnitLabel}
         onSave={onSave}
         onCancel={onCancel}
         floating
@@ -1828,6 +1862,7 @@ function ReplaceSourceBanner({ note, onCancel }) {
 
 function NoteComposer({
   draft,
+  pageUnitLabel = "页",
   onSave,
   onCancel,
   floating = false,
@@ -1872,7 +1907,9 @@ function NoteComposer({
           <p className="text-[11px] text-ink-soft">支持 Markdown</p>
         </div>
         <p className="mt-1 line-clamp-3">“{draft.text}”</p>
-        {draft.pageNumber && <p className="mt-1">第 {draft.pageNumber} 页</p>}
+        {draft.pageNumber && (
+          <p className="mt-1">{formatPageLabel(draft.pageNumber, pageUnitLabel)}</p>
+        )}
       </div>
       <textarea
         value={noteText}
@@ -2202,6 +2239,7 @@ function SidebarPanel({
   itemLocations,
   completed,
   notes,
+  pageUnitLabel,
   onUpdateNote,
   onDeleteNote,
   onClearNoteHighlight,
@@ -2271,6 +2309,7 @@ function SidebarPanel({
           <NotesPanel
             notes={notes}
             showTitle={false}
+            pageUnitLabel={pageUnitLabel}
             pendingNoteDraft={pendingNoteDraft}
             noteSourceTarget={noteSourceTarget}
             onUpdateNote={onUpdateNote}
@@ -2295,6 +2334,7 @@ function SidebarPanel({
         completedKeys={completedKeys}
         itemLocations={itemLocations}
         completed={completed}
+        pageUnitLabel={pageUnitLabel}
         onJump={onJump}
         onMarkUnfinished={onMarkUnfinished}
       />
@@ -2308,6 +2348,7 @@ function ReadingItemsPanel({
   completedKeys,
   itemLocations,
   completed,
+  pageUnitLabel = "页",
   onJump,
   onMarkUnfinished,
 }) {
@@ -2335,6 +2376,7 @@ function ReadingItemsPanel({
         planItems={planItems}
         completedKeys={completedKeys}
         itemLocations={itemLocations}
+        pageUnitLabel={pageUnitLabel}
         onOpenItem={(index, itemCompleted) => {
           onJump(index, itemCompleted ? "review" : "default");
         }}
@@ -2356,6 +2398,7 @@ function ReadingDirectoryList({
   planItems,
   completedKeys = [],
   itemLocations = {},
+  pageUnitLabel = "页",
   onOpenItem,
   compact = false,
 }) {
@@ -2390,7 +2433,7 @@ function ReadingDirectoryList({
                     </span>
                     <span className="text-ink-soft">Day {planItem.day}</span>
                     <span className="text-ink-soft">
-                      第 {planItem.startPage}-{planItem.endPage} 页
+                      {formatPageRange(planItem.startPage, planItem.endPage, pageUnitLabel)}
                     </span>
                   </div>
                   <span className={`${compact ? "mt-1 line-clamp-2" : "mt-2"} block text-ink`}>
@@ -2398,7 +2441,7 @@ function ReadingDirectoryList({
                   </span>
                   {savedLocation?.pageNumber && (
                     <span className="mt-1 block text-[11px] text-ink-soft">
-                      上次看到第 {savedLocation.pageNumber} 页
+                      上次看到{formatPageLabel(savedLocation.pageNumber, pageUnitLabel)}
                     </span>
                   )}
                 </div>
@@ -2457,6 +2500,7 @@ function buildReaderDirectoryStatus({ completed, hasSavedLocation, isCurrent }) 
 function NotesPanel({
   notes,
   showTitle = true,
+  pageUnitLabel = "页",
   pendingNoteDraft,
   noteSourceTarget,
   onUpdateNote,
@@ -2520,11 +2564,12 @@ function NotesPanel({
       )}
       {notes.length === 0 ? (
         <p className="mt-2 rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
-          选中 PDF 原文后可以添加高亮笔记；<BrandName />回答也可以一键记到这里。
+          选中正文原文后可以添加高亮笔记；<BrandName />回答也可以一键记到这里。
         </p>
       ) : selectedNote ? (
         <NoteDetail
           note={selectedNote}
+          pageUnitLabel={pageUnitLabel}
           editing={editing}
           draft={draft}
           onDraftChange={setDraft}
@@ -2554,7 +2599,7 @@ function NotesPanel({
                   {note.note || note.assistantContent || "未填写笔记"}
                 </p>
                 <p className="mt-2 text-[11px] text-ink-soft">
-                  {note.pageNumber ? `第 ${note.pageNumber} 页 · ` : ""}
+                  {note.pageNumber ? `${formatPageLabel(note.pageNumber, pageUnitLabel)} · ` : ""}
                   {formatReadingTime(note.createdAt)}
                 </p>
               </button>
@@ -2568,6 +2613,7 @@ function NotesPanel({
 
 function NoteDetail({
   note,
+  pageUnitLabel = "页",
   editing,
   draft,
   onDraftChange,
@@ -2617,7 +2663,7 @@ function NoteDetail({
           <section className="rounded-lg bg-paper-card px-3 py-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] text-ink-soft">
-                原文摘录{note.pageNumber ? ` · 第 ${note.pageNumber} 页` : ""}
+                原文摘录{note.pageNumber ? ` · ${formatPageLabel(note.pageNumber, pageUnitLabel)}` : ""}
                 {note.highlightDisabled ? " · 高亮已取消" : ""}
               </p>
             </div>
@@ -2697,7 +2743,7 @@ function NoteDetail({
         )}
 
         <p className="px-1 text-[11px] leading-5 text-ink-soft">
-          {note.pageNumber ? `第 ${note.pageNumber} 页 · ` : ""}
+          {note.pageNumber ? `${formatPageLabel(note.pageNumber, pageUnitLabel)} · ` : ""}
           创建于 {formatReadingTime(note.createdAt)}
           {note.updatedAt && note.updatedAt !== note.createdAt
             ? ` · 更新于 ${formatReadingTime(note.updatedAt)}`
@@ -2854,6 +2900,7 @@ function buildQuoteMeta(quote) {
   if (!quote?.text) return null;
   return {
     pageNumber: quote.pageNumber || null,
+    pageUnitLabel: quote.pageUnitLabel || "页",
     text: toText(quote.text).trim(),
     rects: normalizeHighlightRects(quote.rects),
   };
@@ -2894,11 +2941,11 @@ function clampRatio(value) {
 
 function extractQuoteFromChatContent(content) {
   const text = toText(content);
-  const pageMatch = text.match(/我在第\s*(\d+)\s*页选中/);
+  const pageMatch = text.match(/(?:我在第\s*(\d+)\s*页选中|我在文本页\s*(\d+)\s*选中)/);
   const quoteMatch = text.match(/^>\s*(.+)$/m);
 
   return {
-    pageNumber: pageMatch ? Number(pageMatch[1]) : null,
+    pageNumber: pageMatch ? Number(pageMatch[1] || pageMatch[2]) : null,
     text: quoteMatch ? quoteMatch[1].trim() : "",
   };
 }
@@ -2923,6 +2970,16 @@ function normalizePageNumber(pageNumber, item) {
   const end = Math.max(start, Number(item?.endPage) || start);
   const value = Number(pageNumber) || start;
   return Math.max(start, Math.min(value, end));
+}
+
+function formatPageRange(startPage, endPage, pageUnitLabel = "页") {
+  if (pageUnitLabel === "文本页") return `文本页 ${startPage}-${endPage}`;
+  return `第 ${startPage}-${endPage} 页`;
+}
+
+function formatPageLabel(pageNumber, pageUnitLabel = "页") {
+  if (pageUnitLabel === "文本页") return `文本页 ${pageNumber}`;
+  return `第 ${pageNumber} 页`;
 }
 
 function addReadingDay(progress) {
@@ -2963,7 +3020,9 @@ function buildChatMessageWithQuote(question, quote) {
   const text = toText(question).trim();
   if (!quote?.text) return text;
 
-  const pageNumber = quote.pageNumber ? `第 ${quote.pageNumber} 页` : "当前页";
+  const pageNumber = quote.pageNumber
+    ? formatPageLabel(quote.pageNumber, quote.pageUnitLabel || "页")
+    : "当前页";
   return [
     `我在${pageNumber}选中了这句/这段：`,
     `> ${toText(quote.text).trim()}`,

@@ -1,5 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
+import { BOOK_FORMATS } from "./bookFormats.js";
 import { cleanText } from "./text.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -49,6 +50,7 @@ export async function parsePdf(file, onProgress) {
     pages,
     chapters: buildChapterRanges(chapters, totalPages),
     detectionSource: outlineChapters.length > 0 ? "outline" : "text",
+    format: BOOK_FORMATS.pdf,
   };
 }
 

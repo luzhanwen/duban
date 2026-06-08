@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  一个本地优先的 AI 伴读应用：把 PDF 变成有节奏、有提问、有笔记、有复盘的阅读会话。
+  一个本地优先的 AI 伴读应用：把 PDF/MOBI 书籍变成有节奏、有提问、有笔记、有复盘的阅读会话。
 </p>
 
 读伴不是普通 PDF 阅读器。它会先在浏览器本地解析书籍结构，帮助用户确认章节，再由 AI 整理整本书的开书导读；用户基于这份导读确定阅读节奏和本书读伴侧重点。正式阅读时，读伴继续提供读前导读、阅读中问答、高亮笔记和读后追问。
 
 当前项目是纯前端 MVP：
 
-- 本地优先：PDF、分页文本、阅读进度、聊天记录、笔记和设置都保存在浏览器 IndexedDB。
+- 本地优先：原始书籍文件、分页文本、阅读进度、聊天记录、笔记和设置都保存在浏览器 IndexedDB。
 - BYOK：用户在设置页填写自己的模型 API Key。
 - 无项目后端：前端直接调用模型供应商接口。
 - 多供应商：支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
@@ -22,13 +22,13 @@
 ## 体验路径
 
 ```text
-上传 PDF
+上传 PDF 或 MOBI
   -> 确认书籍信息和章节结构
   -> 读伴分析整本书
   -> 选择阅读节奏和读伴侧重点
   -> 进入每日阅读
   -> 读前导读
-  -> PDF 原版阅读 + 读伴问答 + 高亮笔记
+  -> PDF 原版阅读 / MOBI 文本阅读 + 读伴问答 + 高亮笔记
   -> 读后交流
   -> 完成今日任务或提前进入下一章
 ```
@@ -37,8 +37,9 @@
 
 ### 书架与解析
 
-- 上传 PDF，并在浏览器本地提取分页文本。
-- 读取 PDF outline；没有 outline 时，根据标题规则猜测章节。
+- 上传 PDF 或 MOBI，并在浏览器本地提取分页文本。
+- PDF 读取 outline；没有 outline 时，根据标题规则猜测章节。
+- MOBI 读取 metadata、TOC/spine 和章节 HTML，并转换为可阅读文本页。
 - 支持编辑书名、作者、章节标题、起止页和章节用途。
 - 章节用途包括：忽略、导读、正文、附录。
 - 书架展示阅读进度、最近读到的位置、连续打卡天数和互动统计。
@@ -63,14 +64,15 @@ Reader 是三段式阅读会话：
 | 阶段 | 作用 |
 | --- | --- |
 | 读前导读 | 读伴说明今天读什么、接上一次阅读的位置，以及今天往哪里推进 |
-| 正文阅读 | 左侧 PDF 原版页阅读，右侧 sidebar 提供问答、提示、笔记和阅读项切换 |
+| 正文阅读 | 左侧 PDF 原版页或 MOBI 文本页阅读，右侧 sidebar 提供问答、提示、笔记和阅读项切换 |
 | 读后交流 | 用户点“我读完了”后，读伴用开放问题开始追问，并根据回答继续追问 |
 
 正文阅读能力：
 
-- 使用 PDF.js canvas 渲染当前阅读项页码范围。
-- 叠加 PDF.js text layer，让原版页面文字可选中。
-- 自动记录当前阅读项和最近 PDF 页码，再次进入时回到上次位置。
+- PDF 使用 PDF.js canvas 渲染当前阅读项页码范围。
+- PDF 叠加 PDF.js text layer，让原版页面文字可选中。
+- MOBI 使用文本阅读器展示解析后的文本页。
+- 自动记录当前阅读项和最近页码/文本页，再次进入时回到上次位置。
 - 阅读器识别当前可见页，读伴问答会优先带入当前页文本。
 - 阅读器 sidebar 的「阅读项」面板会标记已读、阅读中和未读；点击已读项会进入正文回顾。
 - 退出阅读器时隐藏全局导航，减少正式阅读时的干扰。
@@ -116,6 +118,7 @@ Reader 是三段式阅读会话：
 | 构建 | Vite |
 | UI | React + Tailwind CSS |
 | PDF | PDF.js (`pdfjs-dist`) |
+| MOBI | `@lingo-reader/mobi-parser` |
 | 本地存储 | localforage + IndexedDB |
 | AI | Anthropic Messages API, OpenAI-compatible Chat Completions |
 | Prompt | Markdown 模板 + Vite `?raw` |
@@ -166,17 +169,20 @@ src/
   components/
     BrandLogo.jsx         logo、品牌字形和动态文本品牌渲染
     SplashScreen.jsx      应用开屏动画
-    Shelf.jsx             书架页：上传 PDF、展示书籍和阅读状态
+    Shelf.jsx             书架页：上传 PDF/MOBI、展示书籍和阅读状态
     BookSetup.jsx         书籍信息确认：编辑书名、作者、章节和用途
     ReadingPlanSetup.jsx  开书分析：整本书导读、节奏、读伴侧重点和计划草稿
-    Reader.jsx            阅读会话：导读、PDF 阅读、sidebar、笔记、读后交流
+    Reader.jsx            阅读会话：导读、正文阅读、sidebar、笔记、读后交流
     PdfReader.jsx         PDF 原版页渲染：canvas 页面、text layer、选区、高亮
+    TextBookReader.jsx    MOBI 文本页阅读：文本分页、选区、当前页识别
     Settings.jsx          设置页：供应商、模型、API Key、价格和连接测试
 
   lib/
     storage.js            IndexedDB key、设置读写、通用本地存储封装
-    books.js              书籍、PDF、分页文本和阅读进度读写
+    books.js              书籍、原始文件、分页文本和阅读进度读写
+    bookFormats.js        书籍格式识别和格式相关展示文案
     pdf.js                PDF 解析、文本提取、outline/章节猜测
+    mobi.js               MOBI 解析、文本提取、TOC/spine 章节生成
     ai.js                 统一 AI 调用入口
     claude.js             Anthropic Claude 调用
     openaiCompatible.js   OpenAI-compatible 调用
@@ -209,8 +215,8 @@ docs/
 | --- | --- |
 | `settings` | 模型供应商、API Key、模型名、Base URL、价格配置 |
 | `books` | 书籍元数据列表 |
-| `book:{id}:file` | 原始 PDF Blob |
-| `book:{id}:pages` | 分页文本数组 |
+| `book:{id}:file` | 原始书籍 Blob |
+| `book:{id}:pages` | 分页/文本页文本数组 |
 | `book:{id}:questions:{planItemKey}` | 当前阅读项的章节导读缓存 |
 | `book:{id}:chat` | 伴读聊天记录，内部按阅读项 key 分组 |
 | `book:{id}:reflection` | 读后交流记录，内部按阅读项 key 分组 |

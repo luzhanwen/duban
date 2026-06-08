@@ -21,6 +21,15 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root {
+  --app-primary: #a06f45;
+  --app-primary-hover: #8f6039;
+  --surface-soft: rgb(255 253 248 / 0.82);
+  --surface-muted: rgb(248 244 237 / 0.72);
+  --font-literary: "Noto Serif SC", "Songti SC", "STSong", "Kaiti SC", "KaiTi", Georgia, serif;
+  --font-literary-ui: "Noto Serif SC", "Songti SC", "STSong", "PingFang SC", "Hiragino Sans GB", serif;
+}
+
 .brand-script {
   font-family: "HanziPen SC", "Xingkai SC", "Kaiti SC", "STXingkai", "KaiTi", "Noto Serif SC", serif;
   font-style: normal;
@@ -28,6 +37,137 @@ body {
   font-weight: 400;
   letter-spacing: 0;
   text-rendering: optimizeLegibility;
+}
+
+.literary-ui {
+  font-family: var(--font-literary-ui);
+  letter-spacing: 0;
+}
+
+.bookshelf-grid {
+  align-items: start;
+}
+
+.book-card {
+  isolation: isolate;
+  align-self: start;
+  height: 326px;
+  font-family: var(--font-literary-ui);
+  box-shadow: 0 18px 46px rgb(43 38 34 / 0.055);
+}
+
+.book-card-expanded {
+  height: auto;
+}
+
+.book-card-header {
+  min-height: 116px;
+}
+
+.book-card-details {
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition:
+    max-height 260ms ease,
+    margin-top 260ms ease,
+    opacity 180ms ease,
+    transform 220ms ease;
+}
+
+.book-card-expanded .book-card-details {
+  max-height: 380px;
+  margin-top: 16px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.book-card-summary {
+  background: var(--surface-muted);
+}
+
+.book-primary-button {
+  background: var(--app-primary);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--app-primary), transparent 78%);
+}
+
+.book-primary-button:hover {
+  background: var(--app-primary-hover);
+}
+
+.shelf-tool-button {
+  border: 1px solid rgb(230 221 207 / 0.9);
+  border-radius: 8px;
+  background: rgb(255 253 248 / 0.62);
+  color: theme("colors.ink-soft");
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-family: var(--font-literary-ui);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.shelf-tool-button:hover {
+  border-color: color-mix(in srgb, var(--app-primary), transparent 58%);
+  background: rgb(255 253 248 / 0.86);
+  color: theme("colors.ink");
+  box-shadow: 0 8px 18px rgb(43 38 34 / 0.04);
+}
+
+.shelf-tool-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+@media (hover: none) {
+  .book-card {
+    height: auto;
+  }
+
+  .book-card-details {
+    max-height: none;
+    margin-top: 16px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .book-card {
+    height: auto;
+  }
+
+  .book-card-details {
+    max-height: none;
+    margin-top: 16px;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
+
+.empty-shelf-illustration {
+  position: relative;
+}
+
+.empty-shelf-illustration::after {
+  content: "";
+  position: absolute;
+  right: 10%;
+  bottom: -10px;
+  left: 10%;
+  height: 2px;
+  border-radius: 999px;
+  background: rgb(230 221 207 / 0.86);
 }
 
 .splash-screen {

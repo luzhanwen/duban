@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { renderBrandNameText } from "./BrandLogo.jsx";
+import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { getBook, getBookPages, updateBook } from "../lib/books.js";
 import { formatUsd } from "../lib/pricing.js";
 import { toText } from "../lib/text.js";
@@ -136,6 +137,8 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
       </div>
     );
   }
+
+  const pageUnitLabel = getBookPageUnitLabel(book);
 
   function toggleWeekday(value) {
     setWeekdays((current) => {
@@ -301,7 +304,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
               key={option.value}
               active={paceMode === option.value}
               title={option.title}
-              desc={`${option.desc} · 建议单次不超过 ${option.maxPagesPerSession} 页`}
+              desc={`${option.desc} · 建议单次不超过 ${option.maxPagesPerSession} ${pageUnitLabel}`}
               onClick={() => setPaceMode(option.value)}
             />
           ))}
@@ -348,7 +351,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
           <span>
             <span className="block text-sm font-medium text-ink">长章节可以拆开读</span>
             <span className="mt-1 block text-xs leading-5 text-ink-soft">
-              如果单章页数明显超过当前节奏，会拆成多个阅读日，避免一天塞太满。
+              如果单章{pageUnitLabel}数明显超过当前节奏，会拆成多个阅读日，避免一天塞太满。
             </span>
           </span>
         </label>
@@ -412,8 +415,8 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
                 <p className="text-xs text-ink-soft">{item.date}</p>
               </div>
               <p className="mt-1 text-xs text-ink-soft">
-                {item.type === "guide" ? "准备阅读" : "正文章节"} · 第 {item.startPage}-
-                {item.endPage} 页
+                {item.type === "guide" ? "准备阅读" : "正文章节"} ·{" "}
+                {formatPlanPageRange(item.startPage, item.endPage, pageUnitLabel)}
                 {item.wholeBookRole ? ` · ${item.wholeBookRole}` : ""}
               </p>
             </li>
@@ -895,6 +898,11 @@ function formatDateTime(value) {
   return `${formatDate(date)} ${String(date.getHours()).padStart(2, "0")}:${String(
     date.getMinutes()
   ).padStart(2, "0")}`;
+}
+
+function formatPlanPageRange(startPage, endPage, pageUnitLabel = "页") {
+  if (pageUnitLabel === "文本页") return `文本页 ${startPage}-${endPage}`;
+  return `第 ${startPage}-${endPage} 页`;
 }
 
 function addDays(date, days) {

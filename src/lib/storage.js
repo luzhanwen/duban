@@ -1,7 +1,7 @@
 // ============================================================
 // 数据层：用 localforage 封装 IndexedDB，统一管理所有本地数据。
 // 为什么用 IndexedDB 而不是 localStorage？
-//   PDF 文件可能有几十 MB，localStorage 只能存几 MB 的字符串，放不下；
+//   书籍原文件可能有几十 MB，localStorage 只能存几 MB 的字符串，放不下；
 //   IndexedDB 能直接存二进制 Blob，容量也大得多。
 // localforage 帮我们把 IndexedDB 复杂的回调式 API 包装成简单的 Promise。
 // ============================================================
@@ -21,8 +21,8 @@ const store = localforage.createInstance({
 export const KEYS = {
   settings: "settings", // 全局设置：{ apiKey, model }
   books: "books", // 书籍数组（每本书的元数据）
-  bookFile: (id) => `book:${id}:file`, // 某本书的 PDF Blob
-  bookPages: (id) => `book:${id}:pages`, // 某本书按页提取后的文本数组
+  bookFile: (id) => `book:${id}:file`, // 某本书的原始文件 Blob
+  bookPages: (id) => `book:${id}:pages`, // 某本书按页/文本页提取后的文本数组
   bookCover: (id) => `book:${id}:cover`, // 某本书的封面缩略图 dataURL
   bookChat: (id) => `book:${id}:chat`, // 某本书的自由问答消息数组
   bookReflection: (id) => `book:${id}:reflection`, // 某本书的读后交流消息，内部按阅读项分组

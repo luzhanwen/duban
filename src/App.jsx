@@ -65,7 +65,7 @@ export default function App() {
             >
               <BrandLogo />
             </button>
-            <nav className="flex items-center gap-1 text-sm">
+            <nav className="literary-ui flex items-center gap-1 text-sm">
               <NavTab
                 active={view === "shelf"}
                 onClick={() => setView("shelf")}
@@ -132,7 +132,7 @@ function NavTab({ active, onClick, children }) {
     <button
       onClick={onClick}
       className={`rounded-lg px-3 py-1.5 transition-colors ${
-        active ? "bg-accent text-white" : "text-ink-soft hover:bg-paper"
+        active ? "bg-paper text-ink" : "text-ink-soft hover:bg-paper"
       }`}
     >
       {children}

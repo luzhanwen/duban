@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { IS_TEST_CHANNEL } from "../lib/appChannel.js";
-import { createBookFromPdf, getReadingProgress, listBooks, saveReadingProgress } from "../lib/books.js";
+import {
+  BOOK_FILE_ACCEPT,
+  BOOK_FORMATS,
+  getBookFormat,
+  getBookFormatLabel,
+  getBookPageUnitLabel,
+} from "../lib/bookFormats.js";
+import {
+  createBookFromParsedFile,
+  deleteBook,
+  getReadingProgress,
+  listBooks,
+  saveReadingProgress,
+} from "../lib/books.js";
+import { parseMobi } from "../lib/mobi.js";
 import { parsePdf } from "../lib/pdf.js";
 import { toText } from "../lib/text.js";
 
@@ -14,6 +28,9 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   const [books, setBooks] = useState([]);
   const [progressByBookId, setProgressByBookId] = useState({});
   const [directoryBookId, setDirectoryBookId] = useState(null);
+  const [menuBookId, setMenuBookId] = useState(null);
+  const [expandedBookId, setExpandedBookId] = useState(null);
+  const [deletingBookId, setDeletingBookId] = useState(null);
   const [uploadState, setUploadState] = useState(null);
   const [error, setError] = useState("");
   const directoryBook = books.find((book) => book.id === directoryBookId) || null;
@@ -21,6 +38,26 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   useEffect(() => {
     refreshBooks();
   }, []);
+
+  useEffect(() => {
+    if (!menuBookId) return undefined;
+
+    function closeMenu(event) {
+      if (event.target?.closest?.("[data-book-menu]")) return;
+      setMenuBookId(null);
+    }
+
+    function closeWithEscape(event) {
+      if (event.key === "Escape") setMenuBookId(null);
+    }
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("keydown", closeWithEscape);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("keydown", closeWithEscape);
+    };
+  }, [menuBookId]);
 
   async function refreshBooks() {
     const saved = await listBooks();
@@ -31,12 +68,21 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
     setProgressByBookId(Object.fromEntries(progressEntries));
   }
 
-  async function importPdfFile(file) {
+  async function importBookFile(file) {
+    const format = getBookFormat(file);
+    const formatLabel = getBookFormatLabel(format);
+
+    if (!format) {
+      setError("请上传 PDF 或 MOBI 文件。");
+      return;
+    }
+
     setError("");
-    setUploadState({ fileName: file.name, current: 0, total: 0, phase: "解析 PDF" });
+    setUploadState({ fileName: file.name, current: 0, total: 0, phase: `解析 ${formatLabel}` });
 
     try {
-      const parsed = await parsePdf(file, ({ current, total }) => {
+      const parser = format === BOOK_FORMATS.mobi ? parseMobi : parsePdf;
+      const parsed = await parser(file, ({ current, total }) => {
         setUploadState({ fileName: file.name, current, total, phase: "提取文本" });
       });
       setUploadState({
@@ -45,13 +91,13 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         total: parsed.totalPages,
         phase: "保存到本地",
       });
-      const book = await createBookFromPdf(file, parsed);
+      const book = await createBookFromParsedFile(file, parsed);
       await refreshBooks();
       setUploadState(null);
       onSetupBook(book.id);
     } catch (e) {
       setUploadState(null);
-      setError(e.message || "PDF 解析失败，请换一本书重试。");
+      setError(e.message || `${formatLabel} 解析失败，请换一本书重试。`);
     }
   }
 
@@ -59,12 +105,8 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setError("请上传 PDF 文件。");
-      return;
-    }
 
-    await importPdfFile(file);
+    await importBookFile(file);
   }
 
   async function handleImportTestBook() {
@@ -73,63 +115,76 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
       if (!response.ok) throw new Error("测试书文件读取失败。");
       const blob = await response.blob();
       const file = new File([blob], TEST_BOOK.fileName, { type: "application/pdf" });
-      await importPdfFile(file);
+      await importBookFile(file);
     } catch (e) {
       setUploadState(null);
       setError(e.message || "测试书导入失败，请稍后重试。");
     }
   }
 
+  async function handleDeleteBook(book) {
+    const title = toText(book.title) || "这本书";
+    setMenuBookId(null);
+
+    const confirmed = window.confirm(
+      `确定从书架删除《${title}》吗？\n\n原始文件、阅读计划、进度、笔记和问答记录都会从本地移除。`
+    );
+    if (!confirmed) return;
+
+    setError("");
+    setDeletingBookId(book.id);
+    try {
+      await deleteBook(book.id);
+      if (directoryBookId === book.id) setDirectoryBookId(null);
+      await refreshBooks();
+    } catch (e) {
+      setError(e.message || "删除失败，请稍后重试。");
+    } finally {
+      setDeletingBookId(null);
+    }
+  }
+
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+    <div className="literary-ui mx-auto max-w-5xl px-5 py-7 sm:px-6 sm:py-9">
+      <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-serif text-3xl text-ink">书架</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">
-            上传一本 PDF，先在本地提取文本与章节。确认书籍信息之后，再进入开书分析和阅读计划。
+          <h2 className="text-3xl font-medium leading-tight text-ink">书架</h2>
+          <p className="mt-1 text-sm leading-6 text-ink-soft">
+            {books.length > 0
+              ? `${books.length} 本书在这里，继续今天的阅读。`
+              : "上传一本 PDF 或 MOBI，先完成本地文本提取、目录识别和书籍信息确认。"}
           </p>
         </div>
-        <div>
+        <div className="flex flex-col gap-2 sm:flex-row">
           <input
             ref={inputRef}
             type="file"
-            accept="application/pdf,.pdf"
+            accept={BOOK_FILE_ACCEPT}
             className="hidden"
             onChange={handleFileChange}
           />
+          {IS_TEST_CHANNEL && (
+            <button
+              type="button"
+              onClick={handleImportTestBook}
+              disabled={Boolean(uploadState)}
+              className="shelf-tool-button"
+            >
+              导入测试书
+            </button>
+          )}
           <button
+            type="button"
             onClick={() => inputRef.current?.click()}
             disabled={Boolean(uploadState)}
-            className="rounded-lg bg-accent px-4 py-2 text-sm text-white shadow-sm transition hover:opacity-90 disabled:opacity-60"
+            className="shelf-tool-button"
           >
-            上传 PDF
+            上传书籍
           </button>
         </div>
       </div>
 
-      {IS_TEST_CHANNEL && (
-        <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium text-ink">本地测试书</p>
-              <p className="mt-1 text-sm text-ink-soft">
-                一键导入《万历十五年》，方便测试章节识别、PDF 渲染和伴读问答。
-              </p>
-            </div>
-            <button
-              onClick={handleImportTestBook}
-              disabled={Boolean(uploadState)}
-              className="shrink-0 rounded-lg border border-accent px-4 py-2 text-sm text-accent transition hover:bg-paper disabled:opacity-50"
-            >
-              导入测试书
-            </button>
-          </div>
-        </section>
-      )}
-
-      {uploadState && (
-        <UploadProgress uploadState={uploadState} />
-      )}
+      {uploadState && <UploadProgress uploadState={uploadState} />}
 
       {error && (
         <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
@@ -140,19 +195,37 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
       {books.length === 0 ? (
         <EmptyShelf onUpload={() => inputRef.current?.click()} />
       ) : (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {books.map((book) => (
-            <BookCard
-              key={book.id}
-              book={book}
-              progress={progressByBookId[book.id]}
-              onSetupBook={onSetupBook}
-              onPlanBook={onPlanBook}
-              onReadBook={onReadBook}
-              onOpenDirectory={setDirectoryBookId}
-            />
-          ))}
-        </div>
+        <section className="mt-8">
+          <div className="bookshelf-grid grid gap-5 lg:grid-cols-2">
+            {books.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                progress={progressByBookId[book.id]}
+                menuOpen={menuBookId === book.id}
+                expanded={expandedBookId === book.id || menuBookId === book.id}
+                deleting={deletingBookId === book.id}
+                onSetupBook={onSetupBook}
+                onPlanBook={onPlanBook}
+                onReadBook={onReadBook}
+                onOpenDirectory={setDirectoryBookId}
+                onDeleteBook={handleDeleteBook}
+                onExpandBook={setExpandedBookId}
+                onCollapseBook={(bookId) =>
+                  setExpandedBookId((currentBookId) =>
+                    currentBookId === bookId ? null : currentBookId
+                  )
+                }
+                onToggleMenu={(nextBookId) =>
+                  setMenuBookId((currentBookId) =>
+                    currentBookId === nextBookId ? null : nextBookId
+                  )
+                }
+                onCloseMenu={() => setMenuBookId(null)}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {directoryBook && (
@@ -177,7 +250,7 @@ function UploadProgress({ uploadState }) {
       : 8;
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
+    <section className="mt-6 rounded-lg border border-line bg-paper-card p-5 shadow-sm">
       <div className="flex items-center justify-between gap-4 text-sm">
         <div>
           <p className="font-medium text-ink">{uploadState.phase}</p>
@@ -187,7 +260,7 @@ function UploadProgress({ uploadState }) {
       </div>
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-paper">
         <div
-          className="h-full rounded-full bg-accent transition-all"
+          className="h-full rounded-full bg-ink-soft/40 transition-all"
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -197,33 +270,55 @@ function UploadProgress({ uploadState }) {
 
 function EmptyShelf({ onUpload }) {
   return (
-    <section className="mt-10 rounded-xl border border-dashed border-line bg-paper-card px-6 py-14 text-center">
+    <section className="mt-10 rounded-lg border border-dashed border-line bg-paper-card px-6 py-14 text-center shadow-sm">
+      <div className="empty-shelf-illustration mx-auto mb-7 flex h-28 max-w-sm items-end justify-center gap-2">
+        <span className="h-20 w-8 rounded-t-md bg-[#6f8f72]" />
+        <span className="h-24 w-9 rounded-t-md bg-[#8d83a8]" />
+        <span className="h-16 w-7 rounded-t-md bg-[#5b7f95]" />
+        <span className="h-[5.5rem] w-8 rounded-t-md bg-[#9a8d63]" />
+      </div>
       <h3 className="font-serif text-2xl text-ink">从第一本书开始</h3>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink-soft">
         当前阶段会先完成本地文本提取、目录猜测和章节确认。图片与表格暂时只作为文本上下文中的弱信息处理。
       </p>
       <button
+        type="button"
         onClick={onUpload}
-        className="mt-6 rounded-lg border border-accent px-4 py-2 text-sm text-accent transition hover:bg-paper"
+        className="shelf-tool-button mt-6"
       >
-        选择 PDF
+        选择书籍
       </button>
     </section>
   );
 }
 
-function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook, onOpenDirectory }) {
-  const sourceText = book.detectionSource === "outline" ? "PDF 目录" : "文本标题";
-  const statusText =
-    book.status === "planned"
-      ? "已规划"
-      : book.status === "confirmed"
-      ? "已确认"
-      : "待确认";
+function BookCard({
+  book,
+  progress,
+  menuOpen,
+  expanded,
+  deleting,
+  onSetupBook,
+  onPlanBook,
+  onReadBook,
+  onOpenDirectory,
+  onDeleteBook,
+  onExpandBook,
+  onCollapseBook,
+  onToggleMenu,
+  onCloseMenu,
+}) {
+  const sourceText = getDetectionSourceText(book);
+  const status = getBookStatus(book.status);
   const roleCounts = countChapterRoles(book.chapters);
   const canPlan = book.status === "confirmed" || book.status === "planned";
   const canRead = book.status === "planned" && book.readingPlan?.items?.length > 0;
   const readingStats = buildReadingStats(book, progress);
+  const titleText = toText(book.title) || "未命名书籍";
+  const authorText = toText(book.author);
+  const accent = getBookAccent(book.id);
+  const pageUnitLabel = getBookPageUnitLabel(book);
+  const pageCountText = `${book.totalPages} ${pageUnitLabel}`;
 
   async function handleReadBook() {
     if (readingStats.canAdvanceToNext) {
@@ -236,85 +331,269 @@ function BookCard({ book, progress, onSetupBook, onPlanBook, onReadBook, onOpenD
   }
 
   return (
-    <article className="rounded-xl border border-line bg-paper-card p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs text-ink-soft">{statusText}</p>
-          <h3 className="mt-1 font-serif text-xl text-ink">{toText(book.title)}</h3>
-          {toText(book.author) && (
-            <p className="mt-1 text-sm text-ink-soft">{toText(book.author)}</p>
+    <article
+      onMouseEnter={() => onExpandBook(book.id)}
+      onMouseLeave={() => {
+        if (!menuOpen) onCollapseBook(book.id);
+      }}
+      onFocus={() => onExpandBook(book.id)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget) && !menuOpen) {
+          onCollapseBook(book.id);
+        }
+      }}
+      className={`book-card relative flex flex-col rounded-lg border border-line bg-paper-card p-6 transition duration-200 hover:-translate-y-1 focus-within:shadow-md ${
+        expanded ? "book-card-expanded" : ""
+      } ${
+        menuOpen ? "z-20" : "z-0"
+      }`}
+      style={{
+        "--book-accent": accent.main,
+        "--book-accent-soft": accent.soft,
+      }}
+    >
+      <div className="book-card-header">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-3 py-1.5 text-xs font-medium ${status.className}`}>
+                {status.label}
+              </span>
+              <span className="rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-soft">
+                {pageCountText}
+              </span>
+            </div>
+            <div className="relative shrink-0" data-book-menu>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={`打开《${titleText}》操作菜单`}
+                onClick={() => onToggleMenu(book.id)}
+                disabled={deleting}
+                className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-paper-card text-lg leading-none text-ink-soft transition hover:bg-paper hover:text-ink disabled:opacity-50"
+              >
+                ⋯
+              </button>
+              {menuOpen && (
+                <BookActionMenu
+                  book={book}
+                  canPlan={canPlan}
+                  canRead={canRead}
+                  deleting={deleting}
+                  onSetupBook={onSetupBook}
+                  onPlanBook={onPlanBook}
+                  onOpenDirectory={onOpenDirectory}
+                  onDeleteBook={onDeleteBook}
+                  onCloseMenu={onCloseMenu}
+                />
+              )}
+            </div>
+          </div>
+          <h3 className="mt-5 line-clamp-2 text-[26px] font-medium leading-snug text-ink">
+            {titleText}
+          </h3>
+          {authorText && (
+            <p className="mt-2 truncate text-base text-ink-soft">{authorText}</p>
           )}
         </div>
-        <span className="rounded-full bg-paper px-3 py-1 text-xs text-ink-soft">
-          {book.totalPages} 页
-        </span>
       </div>
-      <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt className="text-xs text-ink-soft">章节</dt>
-          <dd className="mt-1 text-ink">{book.chapters.length} 个</dd>
+
+      {canRead && <CompactReadingHint stats={readingStats} />}
+
+      <div className="book-card-details">
+        <dl className="grid grid-cols-3 gap-2.5 text-sm">
+          <div className="rounded-lg bg-paper/70 px-4 py-3">
+            <dt className="text-xs font-medium text-ink-soft">{pageUnitLabel}</dt>
+            <dd className="mt-1.5 text-base font-medium text-ink">{book.totalPages}</dd>
+          </div>
+          <div className="rounded-lg bg-paper/70 px-4 py-3">
+            <dt className="text-xs font-medium text-ink-soft">章节</dt>
+            <dd className="mt-1.5 text-base font-medium text-ink">{book.chapters.length}</dd>
+          </div>
+          <div className="rounded-lg bg-paper/70 px-4 py-3">
+            <dt className="text-xs font-medium text-ink-soft">识别</dt>
+            <dd className="mt-1.5 truncate text-base font-medium text-ink">{sourceText}</dd>
+          </div>
+        </dl>
+        <div className="mt-3.5 flex flex-wrap gap-2 text-xs font-medium text-ink-soft">
+          <span className="rounded-full bg-paper px-3 py-1.5">正文 {roleCounts.main}</span>
+          <span className="rounded-full bg-paper px-3 py-1.5">导读 {roleCounts.guide}</span>
+          <span className="rounded-full bg-paper px-3 py-1.5">忽略 {roleCounts.ignore}</span>
+          <span className="rounded-full bg-paper px-3 py-1.5">附录 {roleCounts.appendix}</span>
         </div>
-        <div>
-          <dt className="text-xs text-ink-soft">识别方式</dt>
-          <dd className="mt-1 text-ink">{sourceText}</dd>
-        </div>
-      </dl>
-      <div className="mt-4 flex flex-wrap gap-2 text-xs text-ink-soft">
-        <span className="rounded-full bg-paper px-3 py-1">正文 {roleCounts.main}</span>
-        <span className="rounded-full bg-paper px-3 py-1">导读 {roleCounts.guide}</span>
-        <span className="rounded-full bg-paper px-3 py-1">忽略 {roleCounts.ignore}</span>
-        <span className="rounded-full bg-paper px-3 py-1">附录 {roleCounts.appendix}</span>
+        {canRead && <ReadingProgressSummary stats={readingStats} />}
       </div>
-      {canRead && (
-        <ReadingProgressSummary stats={readingStats} />
-      )}
-      {canPlan ? (
-        <>
-          {canRead && (
+
+      <div className="mt-auto pt-5">
+        {canPlan ? (
+          canRead ? (
             <button
+              type="button"
               onClick={handleReadBook}
-              className="mt-5 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:opacity-90"
+              disabled={deleting}
+              className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
             >
               {readingStats.actionLabel}
             </button>
-          )}
-          <div className={`${canRead ? "mt-2" : "mt-5"} flex flex-wrap gap-2`}>
-            {canRead && (
-              <button
-                onClick={() => onOpenDirectory(book.id)}
-                className="flex-1 rounded-lg border border-line px-4 py-2 text-sm text-ink-soft transition hover:bg-paper"
-              >
-                阅读目录
-              </button>
-            )}
+          ) : (
             <button
-              onClick={() => onSetupBook(book.id)}
-              className="flex-1 rounded-lg border border-line px-4 py-2 text-sm text-ink-soft transition hover:bg-paper"
-            >
-              书籍信息
-            </button>
-            <button
+              type="button"
               onClick={() => onPlanBook(book.id)}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm transition ${
-                canRead
-                  ? "border border-line text-ink-soft hover:bg-paper"
-                  : "bg-accent text-white hover:opacity-90"
-              }`}
+              disabled={deleting}
+              className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
             >
-              开书设置
+              继续开书设置
             </button>
-          </div>
-        </>
-      ) : (
-        <button
-          onClick={() => onSetupBook(book.id)}
-          className="mt-5 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white transition hover:opacity-90"
-        >
-          完善信息
-        </button>
-      )}
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSetupBook(book.id)}
+            disabled={deleting}
+            className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
+          >
+            完善信息
+          </button>
+        )}
+      </div>
     </article>
   );
+}
+
+function CompactReadingHint({ stats }) {
+  return (
+    <section className="book-card-summary mt-5 rounded-lg px-4 py-4">
+      <div className="flex items-center justify-between gap-3 text-xs font-medium text-ink-soft">
+        <span>{stats.positionLabel}</span>
+        <span>{stats.percent}%</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/70">
+        <div
+          className="h-full rounded-full bg-[var(--app-primary)]"
+          style={{ width: `${stats.percent}%` }}
+        />
+      </div>
+      <p className="mt-3 truncate text-sm font-medium text-ink">{stats.positionText}</p>
+    </section>
+  );
+}
+
+function BookActionMenu({
+  book,
+  canPlan,
+  canRead,
+  deleting,
+  onSetupBook,
+  onPlanBook,
+  onOpenDirectory,
+  onDeleteBook,
+  onCloseMenu,
+}) {
+  function chooseAction(action) {
+    onCloseMenu();
+    action();
+  }
+
+  return (
+    <div
+      role="menu"
+      className="absolute right-0 top-10 z-30 w-40 rounded-lg border border-line bg-paper-card p-1 text-sm shadow-lg"
+    >
+      {canRead && (
+        <MenuItem onClick={() => chooseAction(() => onOpenDirectory(book.id))}>
+          阅读目录
+        </MenuItem>
+      )}
+      <MenuItem onClick={() => chooseAction(() => onSetupBook(book.id))}>
+        书籍信息
+      </MenuItem>
+      {canPlan && (
+        <MenuItem onClick={() => chooseAction(() => onPlanBook(book.id))}>
+          开书设置
+        </MenuItem>
+      )}
+      <div className="my-1 h-px bg-line" />
+      <MenuItem danger disabled={deleting} onClick={() => onDeleteBook(book)}>
+        {deleting ? "删除中" : "删除书籍"}
+      </MenuItem>
+    </div>
+  );
+}
+
+function MenuItem({ children, danger = false, disabled = false, onClick }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      className={`w-full rounded-md px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        danger
+          ? "text-red-600 hover:bg-red-50"
+          : "text-ink-soft hover:bg-paper hover:text-ink"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+const BOOK_ACCENTS = [
+  { main: "#9c6b3f", soft: "#f4eadf" },
+  { main: "#8f7f4d", soft: "#f3efdf" },
+  { main: "#a66f52", soft: "#f5e7df" },
+  { main: "#7f8f68", soft: "#edf2e5" },
+  { main: "#a8875f", soft: "#f4ecdf" },
+  { main: "#8d735e", soft: "#f1e8df" },
+];
+
+function getBookAccent(id = "") {
+  const text = String(id);
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return BOOK_ACCENTS[hash % BOOK_ACCENTS.length];
+}
+
+function getDetectionSourceText(book) {
+  if (book.detectionSource === "outline") return "PDF 目录";
+  if (book.detectionSource === "toc") return "MOBI 目录";
+  if (book.detectionSource === "spine") return "MOBI 顺序";
+  if (book.detectionSource === "fallback") return "默认";
+  return "文本标题";
+}
+
+function formatBookPageRange(startPage, endPage, pageUnitLabel = "页") {
+  if (pageUnitLabel === "文本页") return `文本页 ${startPage}-${endPage}`;
+  return `第 ${startPage}-${endPage} 页`;
+}
+
+function formatBookPageLabel(pageNumber, pageUnitLabel = "页") {
+  if (pageUnitLabel === "文本页") return `文本页 ${pageNumber}`;
+  return `第 ${pageNumber} 页`;
+}
+
+function getBookStatus(status) {
+  if (status === "planned") {
+    return {
+      label: "已规划",
+      className: "bg-[#f0eadc] text-[#7a5c33]",
+    };
+  }
+
+  if (status === "confirmed") {
+    return {
+      label: "已确认",
+      className: "bg-[#edf2e5] text-[#64724a]",
+    };
+  }
+
+  return {
+    label: "待确认",
+    className: "bg-amber-50 text-amber-700",
+  };
 }
 
 function ReadingDirectoryModal({ book, progress = {}, onClose, onOpenItem }) {
@@ -322,6 +601,7 @@ function ReadingDirectoryModal({ book, progress = {}, onClose, onOpenItem }) {
   const completedKeys = new Set(progress.completedItemKeys || []);
   const currentIndex = clampIndex(progress.currentItemIndex || 0, items.length);
   const itemLocations = progress.currentPageByItemKey || {};
+  const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
@@ -387,7 +667,7 @@ function ReadingDirectoryModal({ book, progress = {}, onClose, onOpenItem }) {
                           {item.type === "guide" ? "开始前准备" : "正文章节"}
                         </span>
                         <span className="text-ink-soft">
-                          第 {item.startPage}-{item.endPage} 页
+                          {formatBookPageRange(item.startPage, item.endPage, pageUnitLabel)}
                         </span>
                       </div>
                       <h3 className="mt-2 font-serif text-xl leading-snug text-ink">
@@ -395,7 +675,7 @@ function ReadingDirectoryModal({ book, progress = {}, onClose, onOpenItem }) {
                       </h3>
                       {savedLocation?.pageNumber && (
                         <p className="mt-2 text-xs text-ink-soft">
-                          上次看到第 {savedLocation.pageNumber} 页
+                          上次看到{formatBookPageLabel(savedLocation.pageNumber, pageUnitLabel)}
                           {savedLocation.updatedAt
                             ? ` · ${formatLastReadTime(savedLocation.updatedAt)}`
                             : ""}
@@ -468,28 +748,28 @@ function buildDirectoryStatus({ completed, hasSavedLocation, isCurrent, isPast }
 
 function ReadingProgressSummary({ stats }) {
   return (
-    <section className="mt-5 rounded-lg bg-paper px-4 py-3">
-      <div className="flex items-center justify-between gap-3 text-xs text-ink-soft">
+    <section className="mt-5 rounded-lg bg-paper/70 px-4 py-4">
+      <div className="flex items-center justify-between gap-3 text-xs font-medium text-ink-soft">
         <span>阅读进度</span>
         <span>{stats.completedCount} / {stats.totalCount} 项 · {stats.percent}%</span>
       </div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-paper-card">
         <div
-          className="h-full rounded-full bg-accent transition-all"
+          className="h-full rounded-full bg-ink-soft/40 transition-all"
           style={{ width: `${stats.percent}%` }}
         />
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+      <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
         <div>
-          <p className="text-xs text-ink-soft">{stats.positionLabel}</p>
-          <p className="mt-1 truncate text-ink">{stats.positionText}</p>
+          <p className="text-xs font-medium text-ink-soft">{stats.positionLabel}</p>
+          <p className="mt-1.5 truncate font-medium text-ink">{stats.positionText}</p>
           {stats.lastReadText && (
             <p className="mt-1 truncate text-xs text-ink-soft">{stats.lastReadText}</p>
           )}
         </div>
         <div>
-          <p className="text-xs text-ink-soft">坚持打卡</p>
-          <p className="mt-1 text-ink">{stats.streakDays} 天</p>
+          <p className="text-xs font-medium text-ink-soft">坚持打卡</p>
+          <p className="mt-1.5 font-medium text-ink">{stats.streakDays} 天</p>
         </div>
       </div>
     </section>
@@ -519,7 +799,11 @@ function buildReadingStats(book, progress = {}) {
   const savedLocation = progress.currentPageByItemKey?.[currentKey] || null;
   const pageNumber = savedLocation?.pageNumber;
   const fallbackPage = currentItem?.startPage;
-  const pageText = pageNumber || fallbackPage ? `第 ${pageNumber || fallbackPage} 页` : "还没开始";
+  const pageUnitLabel = getBookPageUnitLabel(book);
+  const pageText =
+    pageNumber || fallbackPage
+      ? formatBookPageLabel(pageNumber || fallbackPage, pageUnitLabel)
+      : "还没开始";
   const itemText = currentItem?.title ? currentItem.title : "还没开始";
   const currentCompleted = currentKey ? completedKeys.includes(currentKey) : false;
   const hasSavedLocation = Boolean(savedLocation?.pageNumber);
