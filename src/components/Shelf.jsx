@@ -6,16 +6,26 @@ import {
   getBookFormat,
   getBookFormatLabel,
   getBookPageUnitLabel,
+  isPdfBook,
 } from "../lib/bookFormats.js";
 import {
   createBookFromParsedFile,
   deleteBook,
+  getBookCover,
+  getBookFile,
   getReadingProgress,
   listBooks,
   saveReadingProgress,
+  saveBookCover,
 } from "../lib/books.js";
+import { renderPdfFirstPageCover } from "../lib/bookCovers.js";
 import { parseMobi } from "../lib/mobi.js";
 import { parsePdf } from "../lib/pdf.js";
+import {
+  formatLocalDate,
+  isPlanItemDue,
+  parseLocalDate,
+} from "../lib/readingSchedule.js";
 import { toText } from "../lib/text.js";
 
 const TEST_BOOK = {
@@ -29,11 +39,11 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   const [progressByBookId, setProgressByBookId] = useState({});
   const [directoryBookId, setDirectoryBookId] = useState(null);
   const [menuBookId, setMenuBookId] = useState(null);
-  const [expandedBookId, setExpandedBookId] = useState(null);
   const [deletingBookId, setDeletingBookId] = useState(null);
   const [uploadState, setUploadState] = useState(null);
   const [error, setError] = useState("");
   const directoryBook = books.find((book) => book.id === directoryBookId) || null;
+  const latestReadText = getLatestReadText(progressByBookId);
 
   useEffect(() => {
     refreshBooks();
@@ -145,17 +155,17 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   }
 
   return (
-    <div className="literary-ui mx-auto max-w-5xl px-5 py-7 sm:px-6 sm:py-9">
-      <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-3xl font-medium leading-tight text-ink">书架</h2>
-          <p className="mt-1 text-sm leading-6 text-ink-soft">
-            {books.length > 0
-              ? `${books.length} 本书在这里，继续今天的阅读。`
-              : "上传一本 PDF 或 MOBI，先完成本地文本提取、目录识别和书籍信息确认。"}
-          </p>
+    <div className="bookshelf-page mx-auto max-w-[1480px] px-6 pb-8 pt-7 sm:px-10 lg:px-16">
+      <div className="bookshelf-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="font-sans text-2xl font-semibold leading-tight text-ink">全部</h2>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-sans text-xs text-ink-soft">
+            <span>{books.length} 本书</span>
+            {latestReadText && <span>上次阅读 · {latestReadText}</span>}
+          </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <input
             ref={inputRef}
             type="file"
@@ -170,7 +180,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
               disabled={Boolean(uploadState)}
               className="shelf-tool-button"
             >
-              导入测试书
+              导入测试
             </button>
           )}
           <button
@@ -179,7 +189,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
             disabled={Boolean(uploadState)}
             className="shelf-tool-button"
           >
-            上传书籍
+            上传
           </button>
         </div>
       </div>
@@ -195,27 +205,21 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
       {books.length === 0 ? (
         <EmptyShelf onUpload={() => inputRef.current?.click()} />
       ) : (
-        <section className="mt-8">
-          <div className="bookshelf-grid grid gap-5 lg:grid-cols-2">
-            {books.map((book) => (
+        <section className="bookshelf-section mt-9">
+          <div className="bookshelf-grid">
+            {books.map((book, index) => (
               <BookCard
                 key={book.id}
                 book={book}
+                coverIndex={index}
                 progress={progressByBookId[book.id]}
                 menuOpen={menuBookId === book.id}
-                expanded={expandedBookId === book.id}
                 deleting={deletingBookId === book.id}
                 onSetupBook={onSetupBook}
                 onPlanBook={onPlanBook}
                 onReadBook={onReadBook}
                 onOpenDirectory={setDirectoryBookId}
                 onDeleteBook={handleDeleteBook}
-                onExpandBook={setExpandedBookId}
-                onCollapseBook={(bookId) =>
-                  setExpandedBookId((currentBookId) =>
-                    currentBookId === bookId ? null : currentBookId
-                  )
-                }
                 onToggleMenu={(nextBookId) =>
                   setMenuBookId((currentBookId) =>
                     currentBookId === nextBookId ? null : nextBookId
@@ -225,6 +229,10 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
               />
             ))}
           </div>
+          <p className="shelf-count-footer">
+            {books.length} 本书
+            {latestReadText ? `，上次阅读 ${latestReadText}` : ""}
+          </p>
         </section>
       )}
 
@@ -294,23 +302,19 @@ function EmptyShelf({ onUpload }) {
 
 function BookCard({
   book,
+  coverIndex,
   progress,
   menuOpen,
-  expanded,
   deleting,
   onSetupBook,
   onPlanBook,
   onReadBook,
   onOpenDirectory,
   onDeleteBook,
-  onExpandBook,
-  onCollapseBook,
   onToggleMenu,
   onCloseMenu,
 }) {
-  const sourceText = getDetectionSourceText(book);
   const status = getBookStatus(book.status);
-  const roleCounts = countChapterRoles(book.chapters);
   const canPlan = book.status === "confirmed" || book.status === "planned";
   const canRead = book.status === "planned" && book.readingPlan?.items?.length > 0;
   const readingStats = buildReadingStats(book, progress);
@@ -319,150 +323,259 @@ function BookCard({
   const accent = getBookAccent(book.id);
   const pageUnitLabel = getBookPageUnitLabel(book);
   const pageCountText = `${book.totalPages} ${pageUnitLabel}`;
+  const coverButtonRef = useRef(null);
+  const primaryActionLabel = getBookPrimaryActionLabel({
+    canPlan,
+    canRead,
+    readingStats,
+  });
+  const metaText = getBookShelfMetaText({ canRead, status, readingStats });
 
   async function handleReadBook() {
-    if (readingStats.canAdvanceToNext) {
+    if (readingStats.shouldOpenNextItem) {
       await saveReadingProgress(book.id, {
         ...(progress || {}),
-        currentItemIndex: readingStats.currentIndex + 1,
+        currentItemIndex: readingStats.actionItemIndex,
       });
     }
     onReadBook(book.id);
   }
 
+  async function handlePrimaryAction() {
+    if (!canPlan) {
+      onSetupBook(book.id);
+      return;
+    }
+
+    if (!canRead) {
+      onPlanBook(book.id);
+      return;
+    }
+
+    await handleReadBook();
+  }
+
+  function handleCoverPointerMove(event) {
+    if (event.pointerType === "touch") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const target = coverButtonRef.current;
+    if (!target) return;
+
+    const rect = target.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    const rotateX = (0.5 - y) * 12;
+    const rotateY = (x - 0.5) * 14;
+
+    target.style.setProperty("--tilt-x", `${rotateX.toFixed(2)}deg`);
+    target.style.setProperty("--tilt-y", `${rotateY.toFixed(2)}deg`);
+    target.style.setProperty("--shine-x", `${(x * 100).toFixed(1)}%`);
+    target.style.setProperty("--shine-y", `${(y * 100).toFixed(1)}%`);
+  }
+
+  function resetCoverTilt() {
+    const target = coverButtonRef.current;
+    if (!target) return;
+
+    target.style.setProperty("--tilt-x", "0deg");
+    target.style.setProperty("--tilt-y", "0deg");
+    target.style.setProperty("--shine-x", "50%");
+    target.style.setProperty("--shine-y", "50%");
+  }
+
   return (
     <article
-      onMouseLeave={() => onCollapseBook(book.id)}
-      className={`book-card relative flex flex-col rounded-lg border border-line bg-paper-card p-6 transition duration-200 hover:-translate-y-1 focus-within:shadow-md ${
-        expanded ? "book-card-expanded" : ""
-      } ${
-        menuOpen ? "z-20" : "z-0"
-      }`}
+      className={`book-card book-cover-card relative ${menuOpen ? "z-20" : "z-0"}`}
       style={{
         "--book-accent": accent.main,
         "--book-accent-soft": accent.soft,
+        "--book-cover-delay": `${Math.min(coverIndex, 16) * 42}ms`,
       }}
     >
-      <div className="absolute right-6 top-6 z-10" data-book-menu>
+      <div className="book-cover-shell">
         <button
+          ref={coverButtonRef}
           type="button"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-label={`打开《${titleText}》操作菜单`}
-          onClick={() => onToggleMenu(book.id)}
+          onClick={handlePrimaryAction}
+          onPointerMove={handleCoverPointerMove}
+          onPointerLeave={resetCoverTilt}
+          onPointerCancel={resetCoverTilt}
           disabled={deleting}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-line bg-paper-card text-lg leading-none text-ink-soft transition hover:bg-paper hover:text-ink disabled:opacity-50"
+          aria-label={`${primaryActionLabel}《${titleText}》`}
+          className="book-cover-button"
         >
-          ⋯
-        </button>
-        {menuOpen && (
-          <BookActionMenu
+          <BookCoverImage
             book={book}
-            canPlan={canPlan}
-            canRead={canRead}
-            deleting={deleting}
-            onSetupBook={onSetupBook}
-            onPlanBook={onPlanBook}
-            onOpenDirectory={onOpenDirectory}
-            onDeleteBook={onDeleteBook}
-            onCloseMenu={onCloseMenu}
+            titleText={titleText}
+            authorText={authorText}
+            accent={accent}
           />
-        )}
-      </div>
-
-      <div
-        className="book-card-expand-zone"
-        onMouseEnter={() => onExpandBook(book.id)}
-      >
-        <div className="book-card-header pr-12">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full px-3 py-1.5 text-xs font-medium ${status.className}`}>
-                {status.label}
-              </span>
-              <span className="rounded-full bg-paper px-3 py-1.5 text-xs font-medium text-ink-soft">
-                {pageCountText}
+          <div className="book-cover-overlay">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${status.className}`}>
+                  {status.label}
+                </span>
+                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-ink-soft">
+                  {pageCountText}
+                </span>
+              </div>
+              {canRead && (
+                <div className="mt-3">
+                  <div className="h-1 overflow-hidden rounded-full bg-white/70">
+                    <div
+                      className="h-full rounded-full bg-[var(--app-primary)]"
+                      style={{ width: `${readingStats.percent}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 truncate text-xs font-medium text-white">
+                    {readingStats.positionText}
+                  </p>
+                </div>
+              )}
+              <span className="mt-3 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-medium text-[var(--app-primary)] shadow-sm">
+                {primaryActionLabel}
               </span>
             </div>
           </div>
-          <h3 className="mt-5 line-clamp-2 text-[26px] font-medium leading-snug text-ink">
-            {titleText}
-          </h3>
-          {authorText && (
-            <p className="mt-2 truncate text-base text-ink-soft">{authorText}</p>
-          )}
-        </div>
-        </div>
+        </button>
 
-        {canRead && <CompactReadingHint stats={readingStats} />}
-
-        <div className="book-card-details">
-          <div className="book-card-details-inner">
-            <dl className="grid grid-cols-3 gap-2 text-sm">
-              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
-                <dt className="text-xs font-medium text-ink-soft">{pageUnitLabel}</dt>
-                <dd className="mt-1 text-sm font-medium text-ink">{book.totalPages}</dd>
-              </div>
-              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
-                <dt className="text-xs font-medium text-ink-soft">章节</dt>
-                <dd className="mt-1 text-sm font-medium text-ink">{book.chapters.length}</dd>
-              </div>
-              <div className="rounded-lg bg-paper/70 px-3 py-2.5">
-                <dt className="text-xs font-medium text-ink-soft">识别</dt>
-                <dd className="mt-1 truncate text-sm font-medium text-ink">{sourceText}</dd>
-              </div>
-            </dl>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-ink-soft">
-              <span className="rounded-full bg-paper px-3 py-1.5">正文 {roleCounts.main}</span>
-              <span className="rounded-full bg-paper px-3 py-1.5">导读 {roleCounts.guide}</span>
-              <span className="rounded-full bg-paper px-3 py-1.5">忽略 {roleCounts.ignore}</span>
-              <span className="rounded-full bg-paper px-3 py-1.5">附录 {roleCounts.appendix}</span>
-            </div>
-            {canRead && <ReadingDetailSummary stats={readingStats} />}
-          </div>
-        </div>
       </div>
 
-      <div className="mt-auto pt-5">
-        {canPlan ? (
-          canRead ? (
-            <button
-              type="button"
-              onClick={handleReadBook}
-              disabled={deleting}
-              className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
-            >
-              {readingStats.actionLabel}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onPlanBook(book.id)}
-              disabled={deleting}
-              className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
-            >
-              继续开书设置
-            </button>
-          )
-        ) : (
+      <div className="book-cover-meta-row" data-book-menu>
+        <span className="truncate">{metaText}</span>
+        <div className="relative shrink-0">
           <button
             type="button"
-            onClick={() => onSetupBook(book.id)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`打开《${titleText}》操作菜单`}
+            onClick={() => onToggleMenu(book.id)}
             disabled={deleting}
-            className="book-primary-button w-full rounded-lg px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-95 disabled:opacity-50"
+            className="book-cover-more-button"
           >
-            完善信息
+            ⋯
           </button>
-        )}
+          {menuOpen && (
+            <BookActionMenu
+              book={book}
+              canPlan={canPlan}
+              canRead={canRead}
+              deleting={deleting}
+              onSetupBook={onSetupBook}
+              onPlanBook={onPlanBook}
+              onOpenDirectory={onOpenDirectory}
+              onDeleteBook={onDeleteBook}
+              onCloseMenu={onCloseMenu}
+            />
+          )}
+        </div>
       </div>
     </article>
   );
 }
 
+function BookCoverImage({ book, titleText, authorText, accent }) {
+  const [coverUrl, setCoverUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadCover() {
+      setLoading(true);
+      try {
+        const cached = await getBookCover(book.id);
+        if (cached) {
+          if (alive) setCoverUrl(cached);
+          return;
+        }
+
+        if (isPdfBook(book)) {
+          const file = await getBookFile(book.id);
+          if (file) {
+            const nextCoverUrl = await renderPdfFirstPageCover(file);
+            await saveBookCover(book.id, nextCoverUrl);
+            if (alive) setCoverUrl(nextCoverUrl);
+          }
+        }
+      } catch {
+        if (alive) setCoverUrl("");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    loadCover();
+    return () => {
+      alive = false;
+    };
+  }, [book]);
+
+  if (coverUrl) {
+    return (
+      <img
+        src={coverUrl}
+        alt={`《${titleText}》封面`}
+        className="h-full w-full bg-white object-contain"
+      />
+    );
+  }
+
+  return (
+    <BookCoverFallback
+      titleText={titleText}
+      authorText={authorText}
+      accent={accent}
+      loading={loading}
+    />
+  );
+}
+
+function BookCoverFallback({ titleText, authorText, accent, loading }) {
+  return (
+    <div
+      className="book-cover-fallback flex h-full w-full flex-col justify-between p-5"
+      style={{
+        "--book-accent": accent.main,
+        "--book-accent-soft": accent.soft,
+      }}
+    >
+      <div className="h-1 w-10 rounded-full bg-white/70" />
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/70">
+          {loading ? "Loading" : "Duban"}
+        </p>
+        <h4 className="mt-3 line-clamp-5 text-xl font-medium leading-snug text-white">
+          {titleText}
+        </h4>
+        {authorText && (
+          <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-white/80">
+            {authorText}
+          </p>
+        )}
+      </div>
+      <div className="h-1 w-14 rounded-full bg-white/65" />
+    </div>
+  );
+}
+
+function getBookPrimaryActionLabel({ canPlan, canRead, readingStats }) {
+  if (!canPlan) return "完善信息";
+  if (!canRead) return "继续开书设置";
+  return readingStats.actionLabel;
+}
+
+function getBookShelfMetaText({ canRead, status, readingStats }) {
+  if (!canRead) return status.label;
+  if (readingStats.percent >= 100) return "已读完";
+  return `${readingStats.percent}%`;
+}
+
 function CompactReadingHint({ stats }) {
   return (
-    <section className="book-card-summary mt-5 rounded-lg px-4 py-4">
+    <section className="book-card-summary relative mt-5 rounded-lg px-4 py-4 pr-10">
       <div className="flex items-center justify-between gap-3 text-xs font-medium text-ink-soft">
         <span>{stats.positionLabel}</span>
         <span>{stats.percent}%</span>
@@ -474,6 +587,12 @@ function CompactReadingHint({ stats }) {
         />
       </div>
       <p className="mt-3 truncate text-sm font-medium text-ink">{stats.positionText}</p>
+      {stats.lastReadDateText && (
+        <p className="mt-2 truncate text-[11px] font-medium text-ink-soft">
+          上次阅读 · {stats.lastReadDateText}
+        </p>
+      )}
+      <span className="book-card-summary-cue" aria-hidden="true" />
     </section>
   );
 }
@@ -497,7 +616,7 @@ function BookActionMenu({
   return (
     <div
       role="menu"
-      className="absolute right-0 top-10 z-30 w-40 rounded-lg border border-line bg-paper-card p-1 text-sm shadow-lg"
+      className="absolute right-0 top-7 z-30 w-40 rounded-lg border border-line bg-paper-card p-1 text-sm shadow-lg"
     >
       {canRead && (
         <MenuItem onClick={() => chooseAction(() => onOpenDirectory(book.id))}>
@@ -761,7 +880,19 @@ function ReadingDetailSummary({ stats }) {
           <p className="mt-1.5 font-medium text-ink">{stats.streakDays} 天</p>
         </div>
       </div>
+      <div className="mt-4 text-xs">
+        <DatePill label="上次阅读" value={stats.lastReadDateText || "还没有"} />
+      </div>
     </section>
+  );
+}
+
+function DatePill({ label, value }) {
+  return (
+    <div className="rounded-lg bg-paper-card px-3 py-2">
+      <p className="text-[11px] font-medium text-ink-soft">{label}</p>
+      <p className="mt-1 truncate text-xs font-medium text-ink">{value}</p>
+    </div>
   );
 }
 
@@ -785,20 +916,32 @@ function buildReadingStats(book, progress = {}) {
   const currentIndex = clampIndex(progress.currentItemIndex || 0, totalCount);
   const currentItem = items[currentIndex];
   const currentKey = getPlanItemKey(currentItem, currentIndex);
-  const savedLocation = progress.currentPageByItemKey?.[currentKey] || null;
+  const nextIndex = currentIndex + 1;
+  const nextItem = items[nextIndex];
+  const nextKey = getPlanItemKey(nextItem, nextIndex);
+  const currentCompleted = currentKey ? completedKeys.includes(currentKey) : false;
+  const allCompleted = totalCount > 0 && completedCount >= totalCount;
+  const nextDue = Boolean(nextItem && isPlanItemDue(nextItem));
+  const shouldPromoteNext = Boolean(currentCompleted && !allCompleted && nextDue);
+  const canAdvanceToNext = Boolean(currentItem && currentCompleted && !allCompleted && nextItem);
+  const actionItemIndex = canAdvanceToNext ? nextIndex : currentIndex;
+  const actionItem = shouldPromoteNext ? nextItem : currentItem;
+  const actionKey = shouldPromoteNext ? nextKey : currentKey;
+  const savedLocation = progress.currentPageByItemKey?.[actionKey] || null;
   const pageNumber = savedLocation?.pageNumber;
-  const fallbackPage = currentItem?.startPage;
+  const fallbackPage = actionItem?.startPage;
   const pageUnitLabel = getBookPageUnitLabel(book);
   const pageText =
     pageNumber || fallbackPage
       ? formatBookPageLabel(pageNumber || fallbackPage, pageUnitLabel)
       : "还没开始";
-  const itemText = currentItem?.title ? currentItem.title : "还没开始";
-  const currentCompleted = currentKey ? completedKeys.includes(currentKey) : false;
+  const itemText = actionItem?.title ? actionItem.title : "还没开始";
   const hasSavedLocation = Boolean(savedLocation?.pageNumber);
-  const continuing = currentItem && !currentCompleted && hasSavedLocation;
-  const allCompleted = totalCount > 0 && completedCount >= totalCount;
-  const canAdvanceToNext = Boolean(currentItem && currentCompleted && !allCompleted && currentIndex < totalCount - 1);
+  const actionCompleted = actionKey ? completedKeys.includes(actionKey) : false;
+  const continuing = actionItem && !actionCompleted && hasSavedLocation;
+  const actionItemDue = actionItem ? isPlanItemDue(actionItem) : true;
+  const shouldOpenNextItem = shouldPromoteNext || canAdvanceToNext;
+  const lastReadDateText = progress.lastReadAt ? formatLastReadTime(progress.lastReadAt) : "";
 
   return {
     totalCount,
@@ -807,17 +950,26 @@ function buildReadingStats(book, progress = {}) {
     currentIndex,
     currentCompleted,
     canAdvanceToNext,
+    shouldOpenNextItem,
+    actionItemIndex,
+    lastReadDateText,
     streakDays: calculateReadingStreak(progress.readingDays || []),
-    positionText: currentItem ? `${itemText} · ${pageText}` : "还没开始",
+    positionText: actionItem ? `${itemText} · ${pageText}` : "还没开始",
     positionLabel: continuing
       ? "上次读到"
       : allCompleted
       ? "已完成"
+      : shouldPromoteNext
+      ? "今日阅读"
       : currentCompleted
       ? "今日已完成"
+      : !actionItemDue
+      ? "未到阅读日"
       : "今日阅读",
     lastReadText: continuing
       ? `上次阅读 ${formatLastReadTime(savedLocation.updatedAt || progress.lastReadAt)}`
+      : shouldPromoteNext
+      ? "下一项已经到了今天，可以继续"
       : currentCompleted && !allCompleted
       ? "今天可以在这里停下，也可以提前读下一章"
       : progress.lastReadAt
@@ -827,8 +979,12 @@ function buildReadingStats(book, progress = {}) {
       ? "继续阅读"
       : allCompleted
       ? "回顾阅读"
+      : shouldPromoteNext
+      ? "开始今日阅读"
       : canAdvanceToNext
       ? "提前开始下一章阅读"
+      : !actionItemDue
+      ? "提前开始阅读"
       : "开始今日阅读",
   };
 }
@@ -837,33 +993,33 @@ function getPlanItemKey(item, index) {
   return item?.id || `${item?.type || "item"}:${index}`;
 }
 
+function getLatestReadText(progressByBookId) {
+  const latest = Object.values(progressByBookId || {})
+    .map((progress) => progress?.lastReadAt)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+
+  return latest ? formatLastReadTime(latest) : "";
+}
+
 function calculateReadingStreak(days) {
   const normalized = [...new Set(days.filter(Boolean))].sort();
   if (normalized.length === 0) return 0;
 
   let streak = 1;
   let cursor = parseLocalDate(normalized[normalized.length - 1]);
+  if (!cursor) return 0;
 
   for (let index = normalized.length - 2; index >= 0; index -= 1) {
     const previous = parseLocalDate(normalized[index]);
+    if (!previous) continue;
     cursor.setDate(cursor.getDate() - 1);
     if (formatLocalDate(previous) !== formatLocalDate(cursor)) break;
     streak += 1;
   }
 
   return streak;
-}
-
-function parseLocalDate(value) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function formatLocalDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function formatLastReadTime(value) {

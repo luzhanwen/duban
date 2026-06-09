@@ -28,6 +28,10 @@ import {
   updateReadingNote,
 } from "../lib/notes.js";
 import { formatUsd } from "../lib/pricing.js";
+import {
+  formatLocalDate,
+  isPlanItemDue,
+} from "../lib/readingSchedule.js";
 import { toText } from "../lib/text.js";
 
 const SESSION_STAGES = {
@@ -36,6 +40,9 @@ const SESSION_STAGES = {
   reflection: "reflection",
   completed: "completed",
 };
+
+const PAGE_TURN_REVEAL_MS = 620;
+const PAGE_TURN_TRANSITION_MS = 920;
 
 export default function Reader({
   bookId,
@@ -51,6 +58,7 @@ export default function Reader({
   const [progress, setProgress] = useState({
     currentItemIndex: 0,
     completedItemKeys: [],
+    completedAtByItemKey: {},
     currentPageByItemKey: {},
     readingDays: [],
     lastReadAt: null,
@@ -76,12 +84,27 @@ export default function Reader({
   const [selectedQuoteDraft, setSelectedQuoteDraft] = useState(null);
   const [loading, setLoading] = useState(true);
   const [preserveCurrentItemIndex, setPreserveCurrentItemIndex] = useState(false);
+  const [pageTurnActive, setPageTurnActive] = useState(false);
   const progressRef = useRef(progress);
   const pendingOpenModeRef = useRef("default");
+  const pageTurnRevealTimeoutRef = useRef(null);
+  const pageTurnFinishTimeoutRef = useRef(null);
 
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  useEffect(
+    () => () => {
+      if (pageTurnRevealTimeoutRef.current) {
+        window.clearTimeout(pageTurnRevealTimeoutRef.current);
+      }
+      if (pageTurnFinishTimeoutRef.current) {
+        window.clearTimeout(pageTurnFinishTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let alive = true;
@@ -109,6 +132,7 @@ export default function Reader({
       setProgress({
         currentItemIndex: savedProgress.currentItemIndex || 0,
         completedItemKeys: savedProgress.completedItemKeys || [],
+        completedAtByItemKey: savedProgress.completedAtByItemKey || {},
         currentPageByItemKey: savedProgress.currentPageByItemKey || {},
         readingDays: savedProgress.readingDays || [],
         lastReadAt: savedProgress.lastReadAt || null,
@@ -291,7 +315,7 @@ export default function Reader({
     await openPlanItem(index, mode);
   }
 
-  function startReading() {
+  function enterReadingStage() {
     setSessionStage(SESSION_STAGES.reading);
     recordReadingActivity({
       pageNumber:
@@ -299,6 +323,38 @@ export default function Reader({
         normalizePageNumber(null, currentItem),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startReading(options = {}) {
+    const withPageTurn = options?.withPageTurn === true;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (!withPageTurn || reducedMotion) {
+      enterReadingStage();
+      return;
+    }
+
+    if (pageTurnActive) return;
+
+    setPageTurnActive(true);
+    if (pageTurnRevealTimeoutRef.current) {
+      window.clearTimeout(pageTurnRevealTimeoutRef.current);
+    }
+    if (pageTurnFinishTimeoutRef.current) {
+      window.clearTimeout(pageTurnFinishTimeoutRef.current);
+    }
+
+    pageTurnRevealTimeoutRef.current = window.setTimeout(() => {
+      pageTurnRevealTimeoutRef.current = null;
+      enterReadingStage();
+
+      pageTurnFinishTimeoutRef.current = window.setTimeout(() => {
+        pageTurnFinishTimeoutRef.current = null;
+        setPageTurnActive(false);
+      }, PAGE_TURN_TRANSITION_MS - PAGE_TURN_REVEAL_MS);
+    }, PAGE_TURN_REVEAL_MS);
   }
 
   function openReflection() {
@@ -320,13 +376,19 @@ export default function Reader({
 
   async function finishToday() {
     const key = getPlanItemKey(currentItem, currentIndex);
+    const now = new Date().toISOString();
     const nextKeys = completedKeys.includes(key) ? completedKeys : [...completedKeys, key];
     const next = {
       ...progressRef.current,
       completedItemKeys: nextKeys,
+      completedAtByItemKey: {
+        ...(progressRef.current.completedAtByItemKey || {}),
+        [key]: progressRef.current.completedAtByItemKey?.[key] || now,
+      },
       currentItemIndex: preserveCurrentItemIndex
         ? progressRef.current.currentItemIndex
         : currentIndex,
+      lastReadAt: now,
     };
     persistProgress(addReadingDay(next));
     setSessionStage(SESSION_STAGES.completed);
@@ -356,9 +418,12 @@ export default function Reader({
 
   async function markUnfinished() {
     const key = getPlanItemKey(currentItem, currentIndex);
+    const nextCompletedAt = { ...(progress.completedAtByItemKey || {}) };
+    delete nextCompletedAt[key];
     const next = {
       ...progress,
       completedItemKeys: completedKeys.filter((itemKey) => itemKey !== key),
+      completedAtByItemKey: nextCompletedAt,
     };
     persistProgress(next);
     await saveReadingProgress(book.id, next);
@@ -650,8 +715,28 @@ export default function Reader({
     }, 2400);
   }
 
-  if (sessionStage === SESSION_STAGES.reading) {
+  function renderPageTurnOverlay() {
+    if (!pageTurnActive) return null;
+
     return (
+      <PageTurnTransition
+        title={currentItem?.title}
+        bookTitle={book?.title}
+      />
+    );
+  }
+
+  function renderWithPageTurn(stage) {
+    return (
+      <>
+        {stage}
+        {renderPageTurnOverlay()}
+      </>
+    );
+  }
+
+  if (sessionStage === SESSION_STAGES.reading) {
+    return renderWithPageTurn(
       <ReadingStage
         book={book}
         item={currentItem}
@@ -742,7 +827,7 @@ export default function Reader({
     );
   }
 
-  return (
+  return renderWithPageTurn(
     <IntroStage
       book={book}
       item={currentItem}
@@ -755,8 +840,9 @@ export default function Reader({
       guideLoading={guideLoading}
       guideStartedAt={guideStartedAt}
       guideError={guideError}
+      readingTransitioning={pageTurnActive}
       onBack={onBack}
-      onStartReading={startReading}
+      onStartReading={() => startReading({ withPageTurn: true })}
       onGenerateGuide={handleGenerateGuide}
       onJump={jumpTo}
       onMarkUnfinished={markUnfinished}
@@ -778,6 +864,7 @@ function IntroStage({
   guideLoading,
   guideStartedAt,
   guideError,
+  readingTransitioning,
   onBack,
   onStartReading,
   onGenerateGuide,
@@ -788,31 +875,36 @@ function IntroStage({
   const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
-    <div className="min-h-screen bg-paper px-6 py-8">
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
+    <div className="reader-intro-page min-h-screen bg-paper px-6 py-8">
+      {readingTransitioning && (
+        <span className="sr-only" role="status" aria-live="polite">
+          正在翻开这一章
+        </span>
+      )}
+      <div className="reader-intro-topbar mx-auto flex max-w-4xl items-center justify-between gap-4">
         <p className="text-sm text-ink-soft">阅读会话</p>
         <button onClick={onBack} className="text-sm text-accent underline">
           退出到书架
         </button>
       </div>
 
-      <main className="mx-auto flex max-w-4xl flex-col justify-center py-12 lg:min-h-[calc(100vh-96px)]">
-        <p className="text-sm text-ink-soft">
-          Day {item.day} · {item.date} · {item.type === "guide" ? "开始前准备" : "今日章节"}
+      <main className="reader-intro-main mx-auto flex max-w-4xl flex-col justify-center py-12 lg:min-h-[calc(100vh-96px)]">
+        <p className="reader-intro-kicker text-sm text-ink-soft">
+          Day {item.day} · {item.type === "guide" ? "开始前准备" : "今日章节"}
         </p>
-        <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
+        <h1 className="reader-intro-title mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
           {item.title}
         </h1>
-        <p className="mt-4 text-sm text-ink-soft">
+        <p className="reader-intro-meta mt-4 text-sm text-ink-soft">
           {formatPageRange(item.startPage, item.endPage, pageUnitLabel)} · 已完成 {completedKeys.length} /{" "}
           {planItems.length} 个阅读日
         </p>
 
-        <section className="mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm">
+        <section className="reader-intro-card mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm">
           <p className="text-xs font-medium text-ink-soft">
             <BrandName />开场
           </p>
-          <p className="mt-3 text-lg leading-9 text-ink">{bridge}</p>
+          <p className="reader-bridge-text mt-3 text-lg leading-9 text-ink">{bridge}</p>
 
           <TutorBriefing
             guide={guide}
@@ -824,7 +916,7 @@ function IntroStage({
           />
         </section>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="reader-intro-actions mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3">
             <button
               onClick={() => onJump(currentIndex - 1)}
@@ -852,13 +944,58 @@ function IntroStage({
             )}
             <button
               onClick={onStartReading}
-              className="rounded-lg bg-accent px-5 py-2 text-sm text-white shadow-sm hover:opacity-90"
+              disabled={readingTransitioning}
+              className="rounded-lg bg-accent px-5 py-2 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-60"
             >
               翻开这一章
             </button>
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+function PageTurnTransition({ title, bookTitle }) {
+  const displayTitle = toText(title || "这一章");
+  const displayBookTitle = toText(bookTitle || "");
+
+  return (
+    <div className="page-turn-overlay" role="status" aria-live="polite">
+      <span className="sr-only">正在翻开《{displayTitle}》</span>
+      <div className="page-turn-sheet" aria-hidden="true">
+        <div className="page-turn-sheet-face page-turn-sheet-front">
+          <div className="page-turn-sheet-content">
+            <p className="page-turn-sheet-kicker">DUBAN READING</p>
+            <h2>{displayTitle}</h2>
+            {displayBookTitle && <p>{displayBookTitle}</p>}
+            <PageTurnLines />
+          </div>
+        </div>
+        <div className="page-turn-sheet-face page-turn-sheet-back">
+          <div className="page-turn-sheet-content page-turn-sheet-content-back">
+            <PageTurnLines />
+            <PageTurnLines />
+            <PageTurnLines />
+            <PageTurnLines />
+            <PageTurnLines />
+            <PageTurnLines />
+          </div>
+        </div>
+      </div>
+      <div className="page-turn-spine-shadow" aria-hidden="true" />
+    </div>
+  );
+}
+
+function PageTurnLines() {
+  return (
+    <div className="page-turn-lines">
+      <span />
+      <span />
+      <span />
+      <span />
+      <span />
     </div>
   );
 }
@@ -923,7 +1060,7 @@ function ReadingStage({
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs text-ink-soft">
-              {toText(book.title)} · Day {item.day} · {item.date}
+              {toText(book.title)} · Day {item.day}
             </p>
             <h1 className="mt-1 font-serif text-2xl text-ink">{item.title}</h1>
             {continuing && savedLocation?.pageNumber && (
@@ -1255,6 +1392,7 @@ function DailyCompleteStage({
 }) {
   const nextItem = planItems[currentIndex + 1];
   const hasNext = Boolean(nextItem);
+  const nextDue = hasNext && isPlanItemDue(nextItem);
   const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
@@ -1274,7 +1412,10 @@ function DailyCompleteStage({
           恭喜，今天的阅读任务完成了
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          你已经读完「{item.title}」。今天可以在这里停下，让这一章慢慢沉淀；也可以选择提前进入下一章，但它会被视为额外阅读。
+          你已经读完「{item.title}」。今天可以在这里停下，让这一章慢慢沉淀；
+          {hasNext && nextDue
+            ? "下一项已经到了计划日，也可以继续进入下一项。"
+            : "也可以选择提前进入下一章，但它会被视为额外阅读。"}
         </p>
 
         <section className="mt-10 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
@@ -1297,7 +1438,11 @@ function DailyCompleteStage({
             disabled={!hasNext}
             className="rounded-lg bg-accent px-5 py-3 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-50"
           >
-            {hasNext ? "提前开始下一章阅读" : "已经完成全部阅读"}
+            {hasNext
+              ? nextDue
+                ? "开始下一项阅读"
+                : "提前开始下一章阅读"
+              : "已经完成全部阅读"}
           </button>
         </div>
 
@@ -1327,25 +1472,29 @@ function DailyCompleteStage({
 
 function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate }) {
   return (
-    <div className="mt-6">
+    <div className="guide-briefing mt-6">
       {disabled && (
-        <p className="rounded-lg bg-paper px-4 py-3 text-sm text-ink-soft">
+        <p className="guide-message rounded-lg bg-paper px-4 py-3 text-sm text-ink-soft">
           当前阅读项没有可用章节文本，暂时不能生成导读。
         </p>
       )}
 
-      {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="guide-message rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+          {error}
+        </p>
+      )}
 
       {loading && <GuideLoading startedAt={startedAt} />}
 
       {!guide && !disabled && !error && !loading && (
-        <div className="rounded-lg bg-paper px-5 py-4">
+        <div className="guide-empty-callout rounded-lg bg-paper px-5 py-4">
           <p className="text-sm leading-6 text-ink-soft">
             生成导读后，<BrandName />会先帮你整理今天的阅读目标和读前问题。
           </p>
           <button
             onClick={onGenerate}
-            className="mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+            className="guide-primary-button mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
             生成今日导读
           </button>
@@ -1353,13 +1502,13 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
       )}
 
       {guide && !loading && (
-        <div className="space-y-5">
+        <div className="guide-ready space-y-5">
           {guide.overview && (
-            <div className="rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
+            <div className="guide-overview rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
               <GuideMarkdownText value={guide.overview} />
             </div>
           )}
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="guide-list-grid grid gap-5 lg:grid-cols-2">
             <GuideList title="今天读完后，你应该能" items={guide.goals} />
             <GuideList title="带着这些问题读" items={guide.questions} />
           </div>
@@ -1367,7 +1516,7 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
             <button
               onClick={onGenerate}
               disabled={loading || disabled}
-              className="rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
+              className="guide-secondary-button rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
             >
               重新生成导读
             </button>
@@ -2263,20 +2412,20 @@ function SidebarPanel({
           {loading && <GuideLoading startedAt={startedAt} compact />}
           {error && <p className="text-sm leading-6 text-red-600">{error}</p>}
           {!guide && !loading && (
-            <div className="rounded-xl border border-line bg-paper-card px-4 py-4 shadow-sm">
+            <div className="guide-empty-callout rounded-xl border border-line bg-paper-card px-4 py-4 shadow-sm">
               <p className="text-sm font-medium text-ink">还没有阅读提示</p>
               <p className="mt-2 text-xs leading-5 text-ink-soft">
                 生成后会整理出 3 个阅读目标和 3 个读前问题。
               </p>
               <div className="mt-4 space-y-2">
-                <span className="block h-2.5 w-24 rounded-full bg-line" />
-                <span className="block h-2.5 w-full rounded-full bg-paper" />
-                <span className="block h-2.5 w-10/12 rounded-full bg-paper" />
+                <span className="guide-skeleton-bar block h-2.5 w-24 rounded-full bg-line" />
+                <span className="guide-skeleton-bar block h-2.5 w-full rounded-full bg-paper" />
+                <span className="guide-skeleton-bar block h-2.5 w-10/12 rounded-full bg-paper" />
               </div>
               <button
                 onClick={onGenerate}
                 disabled={disabled}
-                className="mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+                className="guide-primary-button mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
                 生成阅读提示
               </button>
@@ -2761,18 +2910,19 @@ function GuideInsightPanel({ guide, onAsk, onTakeNote, disabled, showTitle = tru
   })).filter((section) => section.items.length > 0);
 
   return (
-    <section className={showTitle ? "" : "h-full"}>
+    <section className={showTitle ? "guide-insight-panel" : "guide-insight-panel h-full"}>
       {showTitle && <p className="text-xs font-medium text-ink-soft">阅读提示</p>}
       <div className={`space-y-3 ${showTitle ? "mt-3" : ""}`}>
         {sections.length === 0 ? (
-          <p className="rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
+          <p className="guide-message rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
             这一章还没有整理出提示。
           </p>
         ) : (
-          sections.map((section) => (
+          sections.map((section, index) => (
             <GuideInsightSection
               key={section.key}
               section={section}
+              sectionIndex={index}
               disabled={disabled}
               onAsk={onAsk}
               onTakeNote={onTakeNote}
@@ -2784,9 +2934,12 @@ function GuideInsightPanel({ guide, onAsk, onTakeNote, disabled, showTitle = tru
   );
 }
 
-function GuideInsightSection({ section, disabled, onAsk, onTakeNote }) {
+function GuideInsightSection({ section, sectionIndex = 0, disabled, onAsk, onTakeNote }) {
   return (
-    <section className="rounded-xl border border-line bg-paper-card px-3 py-3 shadow-sm">
+    <section
+      className="guide-insight-section rounded-xl border border-line bg-paper-card px-3 py-3 shadow-sm"
+      style={{ "--guide-section-delay": `${sectionIndex * 80}ms` }}
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] text-ink-soft">{section.kicker}</p>
@@ -2798,7 +2951,11 @@ function GuideInsightSection({ section, disabled, onAsk, onTakeNote }) {
       </div>
       <ul className="mt-3 space-y-2">
         {section.items.map((item, index) => (
-          <li key={`${section.key}-${index}`}>
+          <li
+            key={`${section.key}-${index}`}
+            className="guide-insight-item"
+            style={{ "--guide-item-delay": `${index * 60}ms` }}
+          >
             <div className="rounded-lg bg-paper px-3 py-2.5 text-xs leading-5 text-ink">
               {item}
             </div>
@@ -2993,13 +3150,6 @@ function addReadingDay(progress) {
   };
 }
 
-function formatLocalDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatReadingTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -3039,14 +3189,18 @@ function GuideLoading({ startedAt, compact = false }) {
 
   if (compact) {
     return (
-      <div role="status" aria-live="polite" className="mt-5 rounded-lg border border-line bg-paper-card px-3 py-3">
+      <div
+        role="status"
+        aria-live="polite"
+        className="guide-loading-compact mt-5 rounded-lg border border-line bg-paper-card px-3 py-3"
+      >
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-medium text-ink">正在整理提示</p>
           <p className="shrink-0 text-[11px] text-ink-soft">{elapsed} 秒</p>
         </div>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+        <div className="guide-progress-track mt-3 h-1.5 overflow-hidden rounded-full bg-line">
           <span
-            className="block h-full rounded-full bg-accent transition-all duration-500"
+            className="guide-progress-bar block h-full rounded-full bg-accent transition-all duration-500"
             style={{ width: progressWidth }}
           />
         </div>
@@ -3056,7 +3210,11 @@ function GuideLoading({ startedAt, compact = false }) {
   }
 
   return (
-    <div role="status" aria-live="polite" className="overflow-hidden rounded-xl border border-line bg-paper-card px-5 py-5 shadow-sm">
+    <div
+      role="status"
+      aria-live="polite"
+      className="guide-loading-card overflow-hidden rounded-xl border border-line bg-paper-card px-5 py-5 shadow-sm"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-ink-soft">导读生成中</p>
@@ -3071,9 +3229,9 @@ function GuideLoading({ startedAt, compact = false }) {
           已等待 {elapsed} 秒
         </p>
       </div>
-      <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-line">
+      <div className="guide-progress-track mt-5 h-1.5 overflow-hidden rounded-full bg-line">
         <span
-          className="block h-full rounded-full bg-accent transition-all duration-500"
+          className="guide-progress-bar block h-full rounded-full bg-accent transition-all duration-500"
           style={{ width: progressWidth }}
         />
       </div>
@@ -3085,7 +3243,11 @@ function GuideLoading({ startedAt, compact = false }) {
             const done = index < activeStepIndex;
 
             return (
-              <li key={step.title} className="relative">
+              <li
+                key={step.title}
+                className="guide-loading-step relative"
+                style={{ "--guide-item-delay": `${index * 70}ms` }}
+              >
                 <span
                   className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ${
                     active || done ? "bg-accent" : "bg-line"
@@ -3108,15 +3270,15 @@ function GuideLoading({ startedAt, compact = false }) {
 
 function GuideLoadingPreview() {
   return (
-    <div className="space-y-5">
+    <div className="guide-loading-preview space-y-5">
       <GuideLoadingSkeletonSection headingWidth="w-28" lines={["w-full", "w-11/12", "w-4/5"]} />
       <GuideLoadingSkeletonSection headingWidth="w-36" lines={["w-10/12", "w-8/12"]} />
       <div className="space-y-3">
-        <span className="block h-3 w-32 animate-pulse rounded-full bg-line" />
+        <span className="guide-skeleton-bar block h-3 w-32 animate-pulse rounded-full bg-line" />
         <div className="space-y-2 pl-4">
-          <span className="block h-2.5 w-10/12 animate-pulse rounded-full bg-line" />
-          <span className="block h-2.5 w-9/12 animate-pulse rounded-full bg-line" />
-          <span className="block h-2.5 w-7/12 animate-pulse rounded-full bg-line" />
+          <span className="guide-skeleton-bar block h-2.5 w-10/12 animate-pulse rounded-full bg-line" />
+          <span className="guide-skeleton-bar block h-2.5 w-9/12 animate-pulse rounded-full bg-line" />
+          <span className="guide-skeleton-bar block h-2.5 w-7/12 animate-pulse rounded-full bg-line" />
         </div>
       </div>
     </div>
@@ -3126,12 +3288,12 @@ function GuideLoadingPreview() {
 function GuideLoadingSkeletonSection({ headingWidth, lines }) {
   return (
     <div className="space-y-3">
-      <span className={`block h-3 ${headingWidth} animate-pulse rounded-full bg-accent/25`} />
+      <span className={`guide-skeleton-bar block h-3 ${headingWidth} animate-pulse rounded-full bg-accent/25`} />
       <div className="space-y-2">
         {lines.map((width, index) => (
           <span
             key={`${headingWidth}-${index}`}
-            className={`block h-2.5 ${width} animate-pulse rounded-full bg-line`}
+            className={`guide-skeleton-bar block h-2.5 ${width} animate-pulse rounded-full bg-line`}
           />
         ))}
       </div>
@@ -3165,7 +3327,7 @@ function GuideUsage({ guide }) {
   if (!usage && !cost) return null;
 
   return (
-    <div className="rounded-lg border border-line bg-paper px-4 py-3">
+    <div className="guide-usage-card rounded-lg border border-line bg-paper px-4 py-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-sm font-medium text-ink">本次生成消耗</h3>
         {guide.model && <p className="text-xs text-ink-soft">{guide.model}</p>}
@@ -3198,15 +3360,16 @@ function GuideList({ title, items, compact = false }) {
   if (!items || items.length === 0) return null;
 
   return (
-    <div>
+    <div className={`guide-list-card ${compact ? "guide-list-card-compact" : ""}`}>
       <h3 className="text-sm font-medium text-ink">{title}</h3>
       <ul className={`mt-2 ${compact ? "space-y-2" : "space-y-3"}`}>
         {items.map((item, index) => (
           <li
             key={`${title}-${index}`}
-            className={`rounded-lg bg-paper text-ink ${
+            className={`guide-list-item rounded-lg bg-paper text-ink ${
               compact ? "px-3 py-2 text-xs leading-5" : "px-4 py-3 text-sm leading-6"
             }`}
+            style={{ "--guide-item-delay": `${index * 70}ms` }}
           >
             <GuideMarkdownText value={item} compact={compact} />
           </li>

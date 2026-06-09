@@ -18,11 +18,20 @@ export async function getBookFile(id) {
   return getItem(KEYS.bookFile(id), null);
 }
 
+export async function getBookCover(id) {
+  return getItem(KEYS.bookCover(id), null);
+}
+
+export async function saveBookCover(id, coverDataUrl) {
+  return setItem(KEYS.bookCover(id), coverDataUrl);
+}
+
 export async function getReadingProgress(id) {
   const saved = await getItem(KEYS.progress(id), {});
   return {
     currentItemIndex: 0,
     completedItemKeys: [],
+    completedAtByItemKey: {},
     currentPageByItemKey: {},
     readingDays: [],
     lastReadAt: null,
@@ -34,6 +43,7 @@ export async function saveReadingProgress(id, progress) {
   return setItem(KEYS.progress(id), {
     currentItemIndex: 0,
     completedItemKeys: [],
+    completedAtByItemKey: {},
     currentPageByItemKey: {},
     readingDays: [],
     lastReadAt: null,

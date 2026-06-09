@@ -58,7 +58,7 @@ export default function App() {
 
       {!inReader && (
         <header className="border-b border-line bg-paper-card">
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+          <div className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-3 sm:px-10 lg:px-16">
             <button
               onClick={() => setView("shelf")}
               className="rounded-lg outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
