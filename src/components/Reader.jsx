@@ -41,8 +41,7 @@ const SESSION_STAGES = {
   completed: "completed",
 };
 
-const PAGE_TURN_REVEAL_MS = 620;
-const PAGE_TURN_TRANSITION_MS = 920;
+const PAGE_TURN_TRANSITION_MS = 1460;
 
 export default function Reader({
   bookId,
@@ -87,7 +86,6 @@ export default function Reader({
   const [pageTurnActive, setPageTurnActive] = useState(false);
   const progressRef = useRef(progress);
   const pendingOpenModeRef = useRef("default");
-  const pageTurnRevealTimeoutRef = useRef(null);
   const pageTurnFinishTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -96,9 +94,6 @@ export default function Reader({
 
   useEffect(
     () => () => {
-      if (pageTurnRevealTimeoutRef.current) {
-        window.clearTimeout(pageTurnRevealTimeoutRef.current);
-      }
       if (pageTurnFinishTimeoutRef.current) {
         window.clearTimeout(pageTurnFinishTimeoutRef.current);
       }
@@ -315,14 +310,18 @@ export default function Reader({
     await openPlanItem(index, mode);
   }
 
-  function enterReadingStage() {
+  function enterReadingStage(options = {}) {
+    const scrollBehavior = options?.scrollBehavior || "smooth";
+    const trackActivity = options?.trackActivity !== false;
     setSessionStage(SESSION_STAGES.reading);
-    recordReadingActivity({
-      pageNumber:
-        getSavedLocationForCurrentItem(progressRef.current, currentKey, currentItem)?.pageNumber ||
-        normalizePageNumber(null, currentItem),
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (trackActivity) {
+      recordReadingActivity({
+        pageNumber:
+          getSavedLocationForCurrentItem(progressRef.current, currentKey, currentItem)?.pageNumber ||
+          normalizePageNumber(null, currentItem),
+      });
+    }
+    window.scrollTo({ top: 0, behavior: scrollBehavior });
   }
 
   function startReading(options = {}) {
@@ -332,29 +331,28 @@ export default function Reader({
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     if (!withPageTurn || reducedMotion) {
-      enterReadingStage();
+      enterReadingStage({ scrollBehavior: reducedMotion ? "auto" : "smooth" });
       return;
     }
 
     if (pageTurnActive) return;
 
     setPageTurnActive(true);
-    if (pageTurnRevealTimeoutRef.current) {
-      window.clearTimeout(pageTurnRevealTimeoutRef.current);
-    }
+    enterReadingStage({ scrollBehavior: "auto", trackActivity: false });
+
     if (pageTurnFinishTimeoutRef.current) {
       window.clearTimeout(pageTurnFinishTimeoutRef.current);
     }
 
-    pageTurnRevealTimeoutRef.current = window.setTimeout(() => {
-      pageTurnRevealTimeoutRef.current = null;
-      enterReadingStage();
-
-      pageTurnFinishTimeoutRef.current = window.setTimeout(() => {
-        pageTurnFinishTimeoutRef.current = null;
-        setPageTurnActive(false);
-      }, PAGE_TURN_TRANSITION_MS - PAGE_TURN_REVEAL_MS);
-    }, PAGE_TURN_REVEAL_MS);
+    pageTurnFinishTimeoutRef.current = window.setTimeout(() => {
+      pageTurnFinishTimeoutRef.current = null;
+      recordReadingActivity({
+        pageNumber:
+          getSavedLocationForCurrentItem(progressRef.current, currentKey, currentItem)?.pageNumber ||
+          normalizePageNumber(null, currentItem),
+      });
+      setPageTurnActive(false);
+    }, PAGE_TURN_TRANSITION_MS);
   }
 
   function openReflection() {
@@ -962,7 +960,7 @@ function PageTurnTransition({ title, bookTitle }) {
 
   return (
     <div className="page-turn-overlay" role="status" aria-live="polite">
-      <span className="sr-only">正在翻开《{displayTitle}》</span>
+      <span className="sr-only">{`正在翻开《${displayTitle}》`}</span>
       <div className="page-turn-sheet" aria-hidden="true">
         <div className="page-turn-sheet-face page-turn-sheet-front">
           <div className="page-turn-sheet-content">
