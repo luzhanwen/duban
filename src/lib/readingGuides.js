@@ -1,6 +1,7 @@
 import { callModelDetailed } from "./ai.js";
 import { buildReadingGuidePrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
+import { buildReadingContractContext } from "./readingContract.js";
 import { getItem, getSettings, KEYS, setItem } from "./storage.js";
 import { toText } from "./text.js";
 
@@ -82,6 +83,8 @@ function estimateGuideCost(settings, result) {
 }
 
 function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
+  const contractContext = buildReadingContractContext({ book, item });
+  const contractPromptValues = buildContractPromptValues(contractContext);
   const purpose =
     book.readingProfile?.purpose ||
     book.readingProfile?.companionFocus?.label ||
@@ -102,8 +105,74 @@ function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
     previousItemTitle: continuity.previousTitle,
     nextItemTitle: continuity.nextTitle,
     continuityStrategy: continuity.strategy,
+    ...contractPromptValues,
     chapterText,
   });
+}
+
+function buildContractPromptValues(context) {
+  return {
+    contractBookProblem: toText(context.bookProblem).trim(),
+    contractCoreQuestion: toText(context.coreQuestion).trim(),
+    contractCompanionFocusLabel: formatCompanionFocusLabel(context.companionFocus),
+    contractCompanionFocusInstruction: toText(context.companionFocus?.promptInstruction).trim(),
+    contractCurrentStructureRole: toText(context.currentStructureRole).trim(),
+    contractCurrentDifficultyHints: formatContractDifficultyHints(context.currentDifficultyHints),
+    contractCurrentKeyTurns: formatContractKeyTurns(context.currentKeyTurns),
+    contractSuggestedReadingPath: toText(context.suggestedReadingPath).trim(),
+    contractSourceLimitations: toText(context.sourceLimitations).trim(),
+    contractAvailableSummary: formatContractAvailableSummary(context.available),
+  };
+}
+
+function formatCompanionFocusLabel(focus) {
+  const label = toText(focus?.label).trim();
+  const userText = toText(focus?.userText).trim();
+  const aiSummary = toText(focus?.aiSummary).trim();
+  return [label, userText || aiSummary].filter(Boolean).join("：");
+}
+
+function formatContractDifficultyHints(items) {
+  return asArray(items)
+    .map((item) => {
+      const topic = toText(item?.topic).trim();
+      const where = toText(item?.where).trim();
+      const whyHard = toText(item?.whyHard).trim();
+      const supportStrategy = toText(item?.supportStrategy).trim();
+      const title = [topic, where ? `位置：${where}` : ""].filter(Boolean).join("，");
+      const detail = [whyHard, supportStrategy ? `读伴可这样帮：${supportStrategy}` : ""]
+        .filter(Boolean)
+        .join("；");
+      return [title, detail].filter(Boolean).join("：");
+    })
+    .filter(Boolean)
+    .join("；");
+}
+
+function formatContractKeyTurns(items) {
+  return asArray(items)
+    .map((item) =>
+      [toText(item?.title).trim(), toText(item?.whyItMatters).trim()]
+        .filter(Boolean)
+        .join("：")
+    )
+    .filter(Boolean)
+    .join("；");
+}
+
+function formatContractAvailableSummary(available = {}) {
+  const parts = [];
+  if (available.wholeBookGuide) parts.push("已有整本书导读");
+  if (available.companionFocus) parts.push("已有用户选择的读伴侧重点");
+  if (available.structureMatch) parts.push("当前阅读项匹配到全书结构位置");
+  if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
+  return parts.length > 0
+    ? parts.join("；")
+    : "没有可用的开书契约加成，按原有章节导读逻辑自然生成，不要提及缺少上下文。";
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 function formatReadingPace(pace) {

@@ -8,6 +8,7 @@ import {
   getBookPages,
   getReadingProgress,
   saveReadingProgress,
+  updateBookCompanionFocus,
 } from "../lib/books.js";
 import {
   generateReadingGuide,
@@ -32,6 +33,7 @@ import {
   formatLocalDate,
   isPlanItemDue,
 } from "../lib/readingSchedule.js";
+import { buildReadingContractContext } from "../lib/readingContract.js";
 import { toText } from "../lib/text.js";
 
 const SESSION_STAGES = {
@@ -484,6 +486,15 @@ export default function Reader({
     }
   }
 
+  async function handleSaveCompanionMemory(companionFocus) {
+    if (!book?.id) throw new Error("没有找到这本书，暂时无法保存读伴记忆。");
+    const savedBook = await updateBookCompanionFocus(book.id, companionFocus);
+    if (savedBook) {
+      setBook(savedBook);
+    }
+    return savedBook;
+  }
+
   async function handleSendChat(content, options = {}) {
     const text = toText(content).trim();
     if (!text || chatLoading) return;
@@ -775,6 +786,7 @@ export default function Reader({
         onIntro={() => setSessionStage(SESSION_STAGES.intro)}
         onReflection={openReflection}
         onGenerateGuide={handleGenerateGuide}
+        onSaveCompanionMemory={handleSaveCompanionMemory}
         onStartGuideNote={handleStartGuideNote}
         onSendChat={handleSendChat}
         onAskSelection={handleAskSelection}
@@ -1038,6 +1050,7 @@ function ReadingStage({
   onIntro,
   onReflection,
   onGenerateGuide,
+  onSaveCompanionMemory,
   onStartGuideNote,
   onSendChat,
   onAskSelection,
@@ -1117,6 +1130,7 @@ function ReadingStage({
 
         <TutorSidebar
           item={item}
+          book={book}
           currentIndex={currentIndex}
           planItems={planItems}
           completedKeys={completedKeys}
@@ -1147,6 +1161,7 @@ function ReadingStage({
           pageUnitLabel={pageUnitLabel}
           disabled={chapterSections.length === 0 && !currentPageHasText}
           onGenerate={onGenerateGuide}
+          onSaveCompanionMemory={onSaveCompanionMemory}
           onStartGuideNote={onStartGuideNote}
           onSendChat={onSendChat}
           onJump={onJump}
@@ -1528,6 +1543,7 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
 
 function TutorSidebar({
   item,
+  book,
   currentIndex,
   planItems,
   completedKeys,
@@ -1558,6 +1574,7 @@ function TutorSidebar({
   pageUnitLabel,
   disabled,
   onGenerate,
+  onSaveCompanionMemory,
   onStartGuideNote,
   onSendChat,
   onJump,
@@ -1601,6 +1618,7 @@ function TutorSidebar({
         ) : (
           <SidebarPanel
             activePanel={activePanel}
+            book={book}
             guide={guide}
             loading={loading}
             startedAt={startedAt}
@@ -1630,6 +1648,7 @@ function TutorSidebar({
             onSavePendingNote={onSavePendingNote}
             onCancelPendingNote={onCancelPendingNote}
             onGenerate={onGenerate}
+            onSaveCompanionMemory={onSaveCompanionMemory}
             onJump={onJump}
             onMarkUnfinished={onMarkUnfinished}
           />
@@ -1643,12 +1662,13 @@ const SIDEBAR_PANEL_OPTIONS = [
   { key: "chat", label: <span className="inline-flex items-baseline gap-1">问<BrandName /></span> },
   { key: "guide", label: "提示" },
   { key: "notes", label: "笔记" },
+  { key: "memory", label: "记忆" },
   { key: "items", label: "阅读项" },
 ];
 
 function SidebarPanelTabs({ activePanel, onChange }) {
   return (
-    <div className="grid grid-cols-4 rounded-lg bg-paper p-1">
+    <div className="grid grid-cols-5 rounded-lg bg-paper p-1">
       {SIDEBAR_PANEL_OPTIONS.map((option) => (
         <button
           key={option.key}
@@ -2373,6 +2393,7 @@ function ChatMessageUsage({ message }) {
 
 function SidebarPanel({
   activePanel,
+  book,
   guide,
   loading,
   startedAt,
@@ -2396,6 +2417,7 @@ function SidebarPanel({
   onSavePendingNote,
   onCancelPendingNote,
   onGenerate,
+  onSaveCompanionMemory,
   onJump,
   onMarkUnfinished,
 }) {
@@ -2469,6 +2491,15 @@ function SidebarPanel({
     );
   }
 
+  if (activePanel === "memory") {
+    return (
+      <CompanionMemoryPanel
+        book={book}
+        onSave={onSaveCompanionMemory}
+      />
+    );
+  }
+
   return (
     <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
       <div className="shrink-0">
@@ -2486,6 +2517,225 @@ function SidebarPanel({
         onMarkUnfinished={onMarkUnfinished}
       />
     </section>
+  );
+}
+
+const COMPANION_MEMORY_OPTIONS = [
+  {
+    type: "mainline",
+    label: "帮我抓主线",
+    aiSummary: "减少被细节带走，持续提醒这段和全书问题的关系。",
+    promptInstruction: "后续导读、问答和读后追问都要优先帮助用户抓住全书主线，避免只堆细节。",
+  },
+  {
+    type: "background",
+    label: "帮我补背景",
+    aiSummary: "在必要时解释人物、制度、概念和时代背景。",
+    promptInstruction: "后续导读、问答和读后追问都要用克制的背景补充帮助用户读懂当前文本。",
+  },
+  {
+    type: "argument",
+    label: "帮我拆论证",
+    aiSummary: "追问作者的判断、证据和推理是否站得住。",
+    promptInstruction: "后续导读、问答和读后追问都要帮助用户看见概念、证据和论证链。",
+  },
+  {
+    type: "application",
+    label: "帮我联系现实",
+    aiSummary: "把书中的问题和现实经验、工作生活或其他知识连接起来。",
+    promptInstruction: "后续导读、问答和读后追问都要帮助用户把当前文本和现实经验建立连接。",
+  },
+  {
+    type: "output",
+    label: "帮我沉淀输出",
+    aiSummary: "把阅读转成笔记、文章、讲稿或可复用表达。",
+    promptInstruction: "后续导读、问答和读后追问都要主动提示可沉淀的观点、结构和表达。",
+  },
+  {
+    type: "custom",
+    label: "我自己指定",
+    aiSummary: "",
+    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标收束。",
+  },
+];
+
+function CompanionMemoryPanel({ book, onSave }) {
+  const initialMemory = useMemo(() => normalizeCompanionMemory(book), [book]);
+  const [form, setForm] = useState(initialMemory);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setForm(initialMemory);
+    setError("");
+  }, [initialMemory]);
+
+  const dirty = !sameCompanionMemory(form, initialMemory);
+
+  function updateField(field, value) {
+    setNotice("");
+    setError("");
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateType(type) {
+    setNotice("");
+    setError("");
+    setForm((current) => {
+      const currentDefault = getCompanionMemoryOption(current.type);
+      const nextDefault = getCompanionMemoryOption(type);
+      const shouldUseNextSummary =
+        !toText(current.aiSummary).trim() || current.aiSummary === currentDefault.aiSummary;
+      const shouldUseNextInstruction =
+        !toText(current.promptInstruction).trim() ||
+        current.promptInstruction === currentDefault.promptInstruction;
+
+      return {
+        ...current,
+        type: nextDefault.type,
+        label: nextDefault.label,
+        aiSummary: shouldUseNextSummary ? nextDefault.aiSummary : current.aiSummary,
+        promptInstruction: shouldUseNextInstruction
+          ? nextDefault.promptInstruction
+          : current.promptInstruction,
+      };
+    });
+  }
+
+  async function handleSave(event) {
+    event.preventDefault();
+    if (!dirty || saving) return;
+
+    setSaving(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const option = getCompanionMemoryOption(form.type);
+      await onSave?.({
+        ...initialMemory.raw,
+        schemaVersion: initialMemory.raw?.schemaVersion || 1,
+        type: option.type,
+        label: option.label,
+        userText: toText(form.userText).trim(),
+        aiSummary: toText(form.aiSummary).trim(),
+        promptInstruction: toText(form.promptInstruction).trim(),
+      });
+      setNotice("已更新本书读伴记忆，后续导读、问答和读后交流会按新的方向继续。");
+    } catch (saveError) {
+      setError(saveError.message || "这次没有保存成功，请稍后再试。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
+      <div className="shrink-0">
+        <p className="text-xs text-ink-soft">读伴记忆</p>
+        <h3 className="mt-1 text-sm font-medium text-ink">本书读伴记忆</h3>
+      </div>
+
+      <form onSubmit={handleSave} className="mt-3 flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <CompanionMemoryTextarea
+            label="我读这本书主要想解决什么"
+            value={form.userText}
+            rows={3}
+            placeholder="例如：想抓住作者解释明代政治运转的主线。"
+            onChange={(value) => updateField("userText", value)}
+          />
+
+          <label className="block">
+            <span className="text-xs font-medium text-ink-soft">希望读伴重点帮我</span>
+            <select
+              value={form.type}
+              onChange={(event) => updateType(event.target.value)}
+              className="mt-2 w-full rounded-lg border border-line bg-paper-card px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+            >
+              {COMPANION_MEMORY_OPTIONS.map((option) => (
+                <option key={option.type} value={option.type}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <CompanionMemoryTextarea
+            label="读伴当前理解"
+            value={form.aiSummary}
+            rows={4}
+            placeholder="读伴如何理解你这本书的陪读方向。"
+            onChange={(value) => updateField("aiSummary", value)}
+          />
+
+          <CompanionMemoryTextarea
+            label="后续陪读规则"
+            value={form.promptInstruction}
+            rows={4}
+            placeholder="后续导读、问答和读后交流要怎样围绕这本书陪你。"
+            onChange={(value) => updateField("promptInstruction", value)}
+          />
+        </div>
+
+        {notice && <p className="mt-3 rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-accent">{notice}</p>}
+        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={!dirty || saving}
+          className="mt-3 w-full shrink-0 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? "保存中…" : "保存记忆"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function CompanionMemoryTextarea({ label, value, rows, placeholder, onChange }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-ink-soft">{label}</span>
+      <textarea
+        value={value}
+        rows={rows}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full resize-y rounded-lg border border-line bg-paper-card px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
+      />
+    </label>
+  );
+}
+
+function normalizeCompanionMemory(book) {
+  const focus = buildReadingContractContext({ book }).companionFocus || {};
+  const option = getCompanionMemoryOption(focus.type);
+
+  return {
+    raw: focus,
+    type: option.type,
+    label: option.label,
+    userText: toText(focus.userText),
+    aiSummary: toText(focus.aiSummary) || option.aiSummary,
+    promptInstruction: toText(focus.promptInstruction) || option.promptInstruction,
+  };
+}
+
+function sameCompanionMemory(left, right) {
+  return (
+    left.type === right.type &&
+    toText(left.userText).trim() === toText(right.userText).trim() &&
+    toText(left.aiSummary).trim() === toText(right.aiSummary).trim() &&
+    toText(left.promptInstruction).trim() === toText(right.promptInstruction).trim()
+  );
+}
+
+function getCompanionMemoryOption(type) {
+  return (
+    COMPANION_MEMORY_OPTIONS.find((option) => option.type === type) ||
+    COMPANION_MEMORY_OPTIONS[0]
   );
 }
 
