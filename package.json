@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
   "description": "读伴 —— 浏览器端 AI 陪读应用（纯前端，BYOK）",
   "scripts": {
     "dev": "vite --mode test",

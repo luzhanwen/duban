@@ -11,6 +11,8 @@ export default function PdfReader({
   startPage,
   endPage,
   initialPage,
+  readingMode = "scroll",
+  activePage,
   highlights = [],
   onCurrentPageChange,
   onAskSelection,
@@ -22,13 +24,24 @@ export default function PdfReader({
   const [error, setError] = useState("");
   const [selectionToolbar, setSelectionToolbar] = useState(null);
   const onCurrentPageChangeRef = useRef(onCurrentPageChange);
+  const pageMode = readingMode === "page";
 
-  const pageNumbers = useMemo(() => {
+  const allPageNumbers = useMemo(() => {
     if (!pdf) return [];
     const start = Math.max(1, Number(startPage) || 1);
     const end = Math.min(pdf.numPages, Math.max(start, Number(endPage) || start));
     return Array.from({ length: end - start + 1 }, (_, index) => start + index);
   }, [pdf, startPage, endPage]);
+
+  const pagedPageNumber = useMemo(
+    () => getInitialPageInRange(activePage || initialPage, allPageNumbers),
+    [activePage, allPageNumbers, initialPage]
+  );
+
+  const pageNumbers = useMemo(
+    () => (pageMode ? (Number.isFinite(pagedPageNumber) ? [pagedPageNumber] : []) : allPageNumbers),
+    [allPageNumbers, pageMode, pagedPageNumber]
+  );
 
   const highlightsByPage = useMemo(() => {
     return highlights.reduce((groups, highlight) => {
@@ -143,7 +156,7 @@ export default function PdfReader({
 
   useEffect(() => {
     setSelectionToolbar(null);
-  }, [bookId, startPage, endPage]);
+  }, [activePage, bookId, readingMode, startPage, endPage]);
 
   function updateSelectionToolbar(event) {
     if (event?.target?.closest?.(".pdf-selection-toolbar")) return;

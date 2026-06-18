@@ -7,14 +7,17 @@ export default function TextBookReader({
   startPage,
   endPage,
   initialPage,
+  readingMode = "scroll",
+  activePage,
   onCurrentPageChange,
   onAskSelection,
 }) {
   const containerRef = useRef(null);
   const [selectionToolbar, setSelectionToolbar] = useState(null);
   const onCurrentPageChangeRef = useRef(onCurrentPageChange);
+  const pageMode = readingMode === "page";
 
-  const visiblePages = useMemo(() => {
+  const rangedPages = useMemo(() => {
     const start = Math.max(1, Number(startPage) || 1);
     const end = Math.max(start, Number(endPage) || start);
     return pages.filter((page) => {
@@ -22,6 +25,13 @@ export default function TextBookReader({
       return pageNumber >= start && pageNumber <= end;
     });
   }, [pages, startPage, endPage]);
+
+  const visiblePages = useMemo(() => {
+    if (!pageMode) return rangedPages;
+    const pageNumbers = rangedPages.map((page) => Number(page.pageNumber));
+    const pageNumber = getInitialPageInRange(activePage || initialPage, pageNumbers);
+    return rangedPages.filter((page) => Number(page.pageNumber) === pageNumber);
+  }, [activePage, initialPage, pageMode, rangedPages]);
 
   useEffect(() => {
     onCurrentPageChangeRef.current = onCurrentPageChange;
@@ -84,7 +94,7 @@ export default function TextBookReader({
 
   useEffect(() => {
     setSelectionToolbar(null);
-  }, [startPage, endPage]);
+  }, [activePage, readingMode, startPage, endPage]);
 
   function updateSelectionToolbar(event) {
     if (event?.target?.closest?.(".text-selection-toolbar")) return;

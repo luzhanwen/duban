@@ -101,6 +101,13 @@ const OPENAI_COMPATIBLE_MODEL_OPTIONS = [
 ];
 
 const MODEL_OPTION_GROUPS = ["OpenAI", "Kimi", "DeepSeek"];
+const OFFICIAL_OPENAI_COMPATIBLE_ORIGINS = new Set([
+  "https://api.openai.com",
+  "https://api.deepseek.com",
+  "https://api.moonshot.cn",
+  "https://platform.moonshot.cn",
+  "https://platform.kimi.com",
+]);
 
 function getModelOptionValue(option) {
   return `${option.baseUrl}::${option.model}`;
@@ -112,8 +119,9 @@ function findModelOption(baseUrl, model) {
   );
 }
 
-export default function Settings() {
+export default function Settings({ onOpenPrivacy }) {
   const configInputRef = useRef(null);
+  const confirmedBaseUrlsRef = useRef(new Set());
   const [provider, setProvider] = useState(PROVIDERS.anthropic);
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_MODEL);
@@ -166,7 +174,18 @@ export default function Settings() {
   }
 
   async function handleSave() {
-    await saveSettings(buildSettings());
+    const settings = buildSettings();
+    if (
+      !confirmOpenAICompatibleTarget(
+        settings,
+        setSaveMsg,
+        "已取消保存，未使用这个 OpenAI-compatible Base URL。"
+      )
+    ) {
+      return;
+    }
+
+    await saveSettings(settings);
     setSaveMsg({ type: "ok", text: "已保存到本地。" });
     setTimeout(() => setSaveMsg(null), 2000);
   }
@@ -183,6 +202,16 @@ export default function Settings() {
     try {
       const parsed = parseAiConfigText(await file.text());
       const nextSettings = buildSettings(parsed.settings);
+      if (
+        !confirmOpenAICompatibleTarget(
+          nextSettings,
+          setConfigMsg,
+          "已取消导入，未保存这份 AI 配置。"
+        )
+      ) {
+        return;
+      }
+
       applySettingsToForm(nextSettings);
       await saveSettings(nextSettings);
 
@@ -224,6 +253,16 @@ export default function Settings() {
 
     if (!activeKey) {
       setTestMsg({ type: "error", text: "请先填写当前供应商的 API Key。" });
+      return;
+    }
+
+    if (
+      !confirmOpenAICompatibleTarget(
+        settings,
+        setTestMsg,
+        "已取消测试连接，未向这个 Base URL 发送请求。"
+      )
+    ) {
       return;
     }
 
@@ -275,12 +314,81 @@ export default function Settings() {
     setOutputPricePerMTok(option.outputPricePerMTok || "");
   }
 
+  function confirmOpenAICompatibleTarget(settings, setMessage, cancelText) {
+    if (settings.provider !== PROVIDERS.openaiCompatible) return true;
+    if (!settings.openaiCompatible.apiKey) return true;
+
+    const assessment = assessOpenAICompatibleBaseUrl(settings.openaiCompatible.baseUrl);
+    if (assessment.error) {
+      setMessage({
+        type: "error",
+        text: assessment.error,
+      });
+      return false;
+    }
+
+    if (!assessment.needsConfirmation) return true;
+    if (confirmedBaseUrlsRef.current.has(assessment.normalizedBaseUrl)) return true;
+
+    const confirmed = window.confirm(
+      [
+        "你正在使用非官方或非 HTTPS 的 OpenAI-compatible Base URL。",
+        "",
+        `目标地址：${assessment.normalizedBaseUrl}`,
+        "",
+        "测试连接和生成内容时，读伴会把你的 API Key 与必要的阅读文本发送到这个地址。读伴无法验证该服务是否可信。",
+        "",
+        "请只在你完全信任这个服务商或本地代理时继续。是否确认使用？",
+      ].join("\n")
+    );
+
+    if (confirmed) {
+      confirmedBaseUrlsRef.current.add(assessment.normalizedBaseUrl);
+      return true;
+    }
+
+    setMessage({
+      type: "warn",
+      text: cancelText || "已取消操作，未使用这个 OpenAI-compatible Base URL。",
+    });
+    return false;
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <h2 className="font-serif text-2xl text-ink">设置</h2>
       <p className="mt-2 text-sm text-ink-soft">
         配置默认模型供应商。API Key 只保存在本机浏览器 IndexedDB 中。
       </p>
+
+      <section className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-900">
+        <h3 className="font-medium">BYOK 安全提醒</h3>
+        <p className="mt-2">
+          读伴是纯前端直连模型服务：API Key 会保存在当前浏览器 IndexedDB 中，并在测试连接或生成内容时发送给你选择的模型服务商。
+          IndexedDB 不是硬件级安全存储；不可信设备、浏览器扩展、同源脚本或本机恶意软件仍可能读取本地数据。
+        </p>
+        <p className="mt-2">
+          建议使用单独的 API Key，并在模型服务商后台设置额度或限额。自定义 Base URL 时，请确认目标服务可信。
+        </p>
+      </section>
+
+      <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-ink">隐私与数据</h3>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              查看书籍、API Key、笔记和聊天记录分别存在哪里，以及什么时候会发送给模型服务商。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPrivacy}
+            className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+          >
+            查看隐私说明
+          </button>
+        </div>
+      </section>
 
       <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
         <label className="block text-sm font-medium text-ink">
@@ -342,7 +450,7 @@ export default function Settings() {
           </div>
         </div>
         <p className="mt-3 text-xs leading-5 text-ink-soft">
-          导入会立即保存到本地。下载当前配置会包含 API Key，请只保存在可信位置。
+          导入会立即保存到本地；如果配置里包含非官方 Base URL，会先要求确认。下载当前配置会包含 API Key，请只保存在可信位置。
         </p>
         {configMsg && <Hint msg={configMsg} />}
       </section>
@@ -376,7 +484,7 @@ export default function Settings() {
 
       <p className="mt-4 rounded-lg border border-line bg-paper-card px-4 py-3 text-xs leading-5 text-ink-soft">
         纯前端直连 OpenAI-compatible 服务时，部分服务可能因为 CORS 策略无法在浏览器中调用。
-        如果测试连接提示网络或 CORS 失败，后续需要增加本地代理或后端代理。
+        如果填写自定义 Base URL，测试连接和生成内容时会把 API Key 发送到该地址；读伴只会对非官方或非 HTTPS 地址做二次确认，无法替你判断服务商可信度。
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -585,8 +693,36 @@ function Hint({ msg }) {
       ? "text-green-700"
       : msg.type === "error"
       ? "text-red-600"
+      : msg.type === "warn"
+      ? "text-amber-700"
       : "text-ink-soft";
   return <p className={`mt-3 text-sm ${color}`}>{msg.text}</p>;
+}
+
+function assessOpenAICompatibleBaseUrl(value) {
+  const text = (value || DEFAULT_OPENAI_COMPATIBLE_BASE_URL).trim();
+  let url;
+
+  try {
+    url = new URL(text);
+  } catch {
+    return {
+      error: "Base URL 不是有效地址，请使用类似 https://api.openai.com/v1 的完整 URL。",
+    };
+  }
+
+  if (!["https:", "http:"].includes(url.protocol)) {
+    return {
+      error: "Base URL 只支持 http 或 https 地址。",
+    };
+  }
+
+  const normalizedBaseUrl = text.replace(/\/+$/, "");
+  return {
+    normalizedBaseUrl,
+    needsConfirmation:
+      url.protocol !== "https:" || !OFFICIAL_OPENAI_COMPATIBLE_ORIGINS.has(url.origin),
+  };
 }
 
 function downloadTextFile({ fileName, text }) {

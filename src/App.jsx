@@ -5,6 +5,7 @@ import ReadingPlanSetup from "./components/ReadingPlanSetup.jsx";
 import Settings from "./components/Settings.jsx";
 import Shelf from "./components/Shelf.jsx";
 import BrandLogo from "./components/BrandLogo.jsx";
+import Privacy from "./components/Privacy.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 
 // 应用主壳：顶部导航 + 内容区。
@@ -85,7 +86,8 @@ export default function App() {
 
       {/* 内容区：根据当前 view 渲染不同页面 */}
       <main>
-        {view === "settings" && <Settings />}
+        {view === "settings" && <Settings onOpenPrivacy={() => setView("privacy")} />}
+        {view === "privacy" && <Privacy onBack={() => setView("settings")} />}
         {view === "shelf" && (
           <Shelf
             onSetupBook={openBookSetup}

@@ -1,6 +1,6 @@
 # 读伴文档索引
 
-> 最后更新：2026-06-15
+> 最后更新：2026-06-18
 
 这个目录保存「读伴」的项目说明、路线图、UI 标准和开发日志。后续维护文档时，先看这份索引，再决定内容应该写到哪里。
 
@@ -11,6 +11,7 @@
 | [PROJECT_NOTES.md](./PROJECT_NOTES.md) | 项目总记录 | 产品愿景、核心流程、已确认需求、架构共识、数据结构、完整开发日志、已知限制 |
 | [ROADMAP.md](./ROADMAP.md) | 路线图 | 当前状态、阶段目标、优先级、Backlog、暂不优先事项 |
 | [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md) | 开书契约上下文 | 统一上下文构建函数、字段含义、兼容策略、三类 prompt 接入记录、读伴记忆数据层 |
+| [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md) | 公开前成熟度记录 | 隐私说明、BYOK 风险提示、Base URL 确认、公开仓库基础文件、安全边界 |
 | [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md) | UI 设计标准 | 视觉气质、色彩字体、布局比例、卡片边界、页面过渡、动效规范、验收清单 |
 | [UI_CHANGELOG.md](./UI_CHANGELOG.md) | UI/体验更新日志 | 书架、阅读器、笔记、品牌视觉、交互细节等前端体验改动 |
 
@@ -19,8 +20,9 @@
 1. 想快速理解项目方向：先读 [ROADMAP.md](./ROADMAP.md)。
 2. 想接手开发或理解历史决策：读 [PROJECT_NOTES.md](./PROJECT_NOTES.md)。
 3. 要维护开书契约、导读/问答/读后交流 prompt 或读伴记忆：读 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
-4. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
-5. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+4. 要检查公开前信任、安全和项目成熟度补项：读 [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md)。
+5. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
+6. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 
 ## 维护规则
 
@@ -28,6 +30,7 @@
   - 改变产品流程、数据结构、架构共识：更新 `PROJECT_NOTES.md`。
   - 改变优先级、阶段目标或待办：更新 `ROADMAP.md`。
   - 改变开书契约上下文构建、兼容策略或 prompt 接入边界：更新 `READING_CONTRACT_CONTEXT.md`。
+  - 改变公开前隐私、安全、BYOK 或仓库成熟度边界：更新 `PUBLIC_READINESS_CHANGES.md`。
   - 改变视觉规范、布局标准、交互边界：更新 `UI_DESIGN_STANDARDS.md`。
   - 改变视觉、布局、交互、文案体验：更新 `UI_CHANGELOG.md`。
 - 每次更新都尽量写清楚三件事：为什么改、改了什么、还有什么限制。

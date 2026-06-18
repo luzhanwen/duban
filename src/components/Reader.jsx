@@ -43,6 +43,11 @@ const SESSION_STAGES = {
   completed: "completed",
 };
 
+const READER_VIEW_MODES = {
+  scroll: "scroll",
+  page: "page",
+};
+
 const PAGE_TURN_TRANSITION_MS = 1460;
 
 export default function Reader({
@@ -1058,12 +1063,66 @@ function ReadingStage({
   onJump,
   onMarkUnfinished,
 }) {
+  const readerPaneRef = useRef(null);
   const visibleHighlights = useMemo(
     () => (pendingNoteDraft ? [pendingNoteDraft, ...notes] : notes),
     [notes, pendingNoteDraft]
   );
   const pdfBook = isPdfBook(book);
   const pageUnitLabel = getBookPageUnitLabel(book);
+  const [readingMode, setReadingMode] = useState(READER_VIEW_MODES.scroll);
+  const [scrollAnchorPage, setScrollAnchorPage] = useState(initialPage);
+  const pageMode = readingMode === READER_VIEW_MODES.page;
+  const pageRange = useMemo(() => {
+    const start = Number(item?.startPage) || 1;
+    const end = Math.max(start, Number(item?.endPage) || start);
+    return { start, end, total: end - start + 1 };
+  }, [item]);
+  const activeReaderPage = normalizePageNumber(currentPage || initialPage, item);
+  const readerInitialPage = pageMode ? activeReaderPage : scrollAnchorPage || initialPage;
+  const canGoPreviousPage = activeReaderPage > pageRange.start;
+  const canGoNextPage = activeReaderPage < pageRange.end;
+
+  useEffect(() => {
+    setScrollAnchorPage(initialPage);
+  }, [item?.id, initialPage]);
+
+  useEffect(() => {
+    if (!pageMode) return undefined;
+
+    function handleKeyDown(event) {
+      if (event.defaultPrevented || isEditableTarget(event.target)) return;
+      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        handleReaderPageJump(activeReaderPage - 1);
+      }
+      if (event.key === "ArrowRight" || event.key === "PageDown") {
+        event.preventDefault();
+        handleReaderPageJump(activeReaderPage + 1);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeReaderPage, pageMode]);
+
+  function handleReadingModeChange(nextMode) {
+    if (!Object.values(READER_VIEW_MODES).includes(nextMode) || nextMode === readingMode) return;
+    if (nextMode === READER_VIEW_MODES.scroll) {
+      setScrollAnchorPage(activeReaderPage);
+    } else {
+      resetReaderPaneScroll(readerPaneRef.current);
+    }
+    setReadingMode(nextMode);
+  }
+
+  function handleReaderPageJump(pageNumber) {
+    const nextPage = normalizePageNumber(pageNumber, item);
+    if (nextPage === activeReaderPage) return;
+    setScrollAnchorPage(nextPage);
+    onCurrentPageChange(nextPage);
+    resetReaderPaneScroll(readerPaneRef.current);
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-paper">
@@ -1082,6 +1141,17 @@ function ReadingStage({
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            <ReadingModeControl
+              mode={readingMode}
+              activePage={activeReaderPage}
+              pageRange={pageRange}
+              pageUnitLabel={pageUnitLabel}
+              canGoPrevious={canGoPreviousPage}
+              canGoNext={canGoNextPage}
+              onModeChange={handleReadingModeChange}
+              onPrevious={() => handleReaderPageJump(activeReaderPage - 1)}
+              onNext={() => handleReaderPageJump(activeReaderPage + 1)}
+            />
             <button
               onClick={onIntro}
               className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card"
@@ -1105,13 +1175,20 @@ function ReadingStage({
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
-        <article className="min-h-[60vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-4 py-5 shadow-sm sm:px-10 sm:py-7 lg:min-h-0">
+        <article
+          ref={readerPaneRef}
+          className={`reader-reading-pane ${
+            pageMode ? "reader-reading-pane-page" : "reader-reading-pane-scroll"
+          } min-h-[60vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-4 py-5 shadow-sm sm:px-10 sm:py-7 lg:min-h-0`}
+        >
           {pdfBook ? (
             <PdfReader
               bookId={book.id}
               startPage={item.startPage}
               endPage={item.endPage}
-              initialPage={initialPage}
+              initialPage={readerInitialPage}
+              readingMode={readingMode}
+              activePage={activeReaderPage}
               highlights={visibleHighlights}
               onCurrentPageChange={onCurrentPageChange}
               onAskSelection={onAskSelection}
@@ -1121,7 +1198,9 @@ function ReadingStage({
               pages={pages}
               startPage={item.startPage}
               endPage={item.endPage}
-              initialPage={initialPage}
+              initialPage={readerInitialPage}
+              readingMode={readingMode}
+              activePage={activeReaderPage}
               onCurrentPageChange={onCurrentPageChange}
               onAskSelection={onAskSelection}
             />
@@ -1186,6 +1265,91 @@ function ReadingStage({
       )}
     </div>
   );
+}
+
+function ReadingModeControl({
+  mode,
+  activePage,
+  pageRange,
+  pageUnitLabel,
+  canGoPrevious,
+  canGoNext,
+  onModeChange,
+  onPrevious,
+  onNext,
+}) {
+  const pagePosition = Math.max(1, activePage - pageRange.start + 1);
+  const modeButtonBase =
+    "rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-accent/25";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 rounded-lg bg-paper-card p-1" aria-label="阅读方式">
+        <button
+          type="button"
+          aria-pressed={mode === READER_VIEW_MODES.scroll}
+          onClick={() => onModeChange(READER_VIEW_MODES.scroll)}
+          className={`${modeButtonBase} ${
+            mode === READER_VIEW_MODES.scroll
+              ? "bg-paper text-ink shadow-sm"
+              : "text-ink-soft hover:text-ink"
+          }`}
+        >
+          滚动
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === READER_VIEW_MODES.page}
+          onClick={() => onModeChange(READER_VIEW_MODES.page)}
+          className={`${modeButtonBase} ${
+            mode === READER_VIEW_MODES.page
+              ? "bg-paper text-ink shadow-sm"
+              : "text-ink-soft hover:text-ink"
+          }`}
+        >
+          翻页
+        </button>
+      </div>
+
+      {mode === READER_VIEW_MODES.page && (
+        <div className="flex items-center gap-1 rounded-lg border border-line bg-paper/80 p-1 text-xs text-ink-soft">
+          <button
+            type="button"
+            aria-label="上一页"
+            disabled={!canGoPrevious}
+            onClick={onPrevious}
+            className="h-7 w-7 rounded-md text-base leading-none text-ink-soft hover:bg-paper-card hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ←
+          </button>
+          <span className="min-w-20 px-2 text-center">
+            {formatPageLabel(activePage, pageUnitLabel)} · {pagePosition}/{pageRange.total}
+          </span>
+          <button
+            type="button"
+            aria-label="下一页"
+            disabled={!canGoNext}
+            onClick={onNext}
+            className="h-7 w-7 rounded-md text-base leading-none text-ink-soft hover:bg-paper-card hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function resetReaderPaneScroll(node) {
+  if (!node) return;
+  window.requestAnimationFrame(() => {
+    node.scrollTop = 0;
+  });
+}
+
+function isEditableTarget(target) {
+  const element = target?.closest ? target : target?.parentElement;
+  return Boolean(element?.closest?.("input, textarea, select, [contenteditable='true']"));
 }
 
 function ReflectionStage({
