@@ -123,6 +123,34 @@ const OFFICIAL_OPENAI_COMPATIBLE_ORIGINS = new Set([
   "https://platform.kimi.com",
 ]);
 
+const SETTINGS_PANELS = [
+  {
+    id: "ai",
+    label: "AI 服务",
+    desc: "模型、密钥与连接测试",
+  },
+  {
+    id: "config",
+    label: "批量配置",
+    desc: "TXT 导入与配置导出",
+  },
+  {
+    id: "backup",
+    label: "数据备份",
+    desc: "书库迁移与恢复",
+  },
+  {
+    id: "privacy",
+    label: "隐私安全",
+    desc: "BYOK 与本地数据边界",
+  },
+  {
+    id: "advanced",
+    label: "高级维护",
+    desc: "危险操作集中管理",
+  },
+];
+
 function getModelOptionValue(option) {
   return `${option.baseUrl}::${option.model}`;
 }
@@ -160,6 +188,7 @@ export default function Settings({ onOpenPrivacy }) {
   const [backupImportMode, setBackupImportMode] = useState("merge");
   const [testing, setTesting] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [activePanel, setActivePanel] = useState("ai");
   const desktopBackupAvailable = isDesktopBackupAvailable();
 
   useEffect(() => {
@@ -697,417 +726,540 @@ export default function Settings({ onOpenPrivacy }) {
     return false;
   }
 
+  const storageLabel = desktopBackupAvailable ? "系统 Keychain" : "IndexedDB";
+  const activeProviderOption =
+    PROVIDER_OPTIONS.find((option) => option.value === provider) || PROVIDER_OPTIONS[0];
+  const activeModelName =
+    provider === PROVIDERS.openaiCompatible ? openaiModel : anthropicModel;
+  const activeHasSavedKey =
+    provider === PROVIDERS.openaiCompatible ? openaiHasApiKey : anthropicHasApiKey;
+  const backupStatusText = desktopBackupAvailable
+    ? backupList.length
+      ? `${backupList.length} 个桌面备份`
+      : "暂无桌面备份"
+    : "浏览器 JSON 备份";
+
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <h2 className="font-serif text-2xl text-ink">设置</h2>
-      <p className="mt-2 text-sm text-ink-soft">
-        配置默认模型供应商。浏览器版 API Key 保存在本机 IndexedDB；桌面版 API Key 保存在系统 Keychain。
-      </p>
-
-      <section className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-7 text-amber-900">
-        <h3 className="font-medium">BYOK 安全提醒</h3>
-        <p className="mt-2">
-          浏览器版会把 API Key 保存在当前浏览器 IndexedDB；桌面版会把 API Key 保存在系统 Keychain。
-          测试连接或生成内容时，Key 会发送给你选择的模型服务商。
-        </p>
-        <p className="mt-2">
-          桌面版进入设置页时不会自动把已保存的 Keychain 密钥读回输入框，避免一打开设置就触发系统密码弹窗；输入框留空保存不会覆盖已有密钥，填写新 Key 后保存才会更新。
-          如果本机已经保存过 Key，输入框下方会显示保存状态。
-        </p>
-        <p className="mt-2">
-          建议使用单独的 API Key，并在模型服务商后台设置额度或限额。自定义 Base URL 时，请确认目标服务可信。
-        </p>
-      </section>
-
-      <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="settings-page">
+      <div className="settings-shell">
+        <header className="settings-hero">
           <div>
-            <h3 className="text-sm font-medium text-ink">隐私与数据</h3>
-            <p className="mt-1 text-xs leading-5 text-ink-soft">
-              查看书籍、API Key、笔记和聊天记录分别存在哪里，以及什么时候会发送给模型服务商。
+            <p className="settings-kicker">Preferences</p>
+            <h2 className="settings-title">设置</h2>
+            <p className="settings-subtitle">
+              管理读伴的模型服务、本地数据和安全边界。高频配置放在前面，低频维护收进独立面板。
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onOpenPrivacy}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
-          >
-            查看隐私说明
-          </button>
-        </div>
-      </section>
-
-      <section className="mt-6 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-medium text-ink">本地备份</h3>
-            <p className="mt-1 text-xs leading-5 text-ink-soft">
-              导出书库、原始文件、分页文本、阅读进度、导读、笔记和聊天记录；备份不包含 API Key。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={backupInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={handleBackupFileChange}
+          <div className="settings-status-grid" aria-label="当前设置状态">
+            <StatusTile label="模型" value={activeProviderOption.label} detail={activeModelName || "未设置"} />
+            <StatusTile
+              label="密钥"
+              value={activeHasSavedKey ? "已保存" : "待配置"}
+              detail={activeHasSavedKey ? storageLabel : "当前供应商"}
+              tone={activeHasSavedKey ? "ok" : "warn"}
             />
-            <button
-              type="button"
-              onClick={handleExportBackup}
-              disabled={backupBusy}
-              className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {desktopBackupAvailable ? "导出目录备份" : "导出 JSON 备份"}
-            </button>
-            <button
-              type="button"
-              onClick={() => backupInputRef.current?.click()}
-              disabled={backupBusy}
-              className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper disabled:opacity-50"
-            >
-              导入 JSON
-            </button>
-            {desktopBackupAvailable && (
-              <button
-                type="button"
-                onClick={() => refreshDesktopBackups()}
-                disabled={backupBusy}
-                className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper disabled:opacity-50"
-              >
-                刷新清单
-              </button>
-            )}
+            <StatusTile label="备份" value={backupStatusText} detail="不包含 API Key" />
           </div>
-        </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-xs font-medium text-ink-soft">
-            导入模式
-            <select
-              value={backupImportMode}
-              onChange={(event) => setBackupImportMode(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-            >
-              <option value="merge">合并导入</option>
-              <option value="replace">覆盖恢复</option>
-            </select>
-          </label>
-          {desktopBackupAvailable && (
-            <label className="block text-xs font-medium text-ink-soft">
-              桌面备份清单
-              <select
-                value={selectedBackupId}
-                onChange={(event) => handleSelectBackup(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-              >
-                <option value="">暂无可用备份</option>
-                {backupList.map((backup) => (
-                  <option key={backup.backupId} value={backup.backupId}>
-                    {backup.label ? `${backup.label}（${backup.backupId}）` : backup.backupId}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
+        </header>
 
-        {desktopBackupAvailable && backupPreview && (
-          <div className="mt-4 rounded-lg border border-line bg-paper px-4 py-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-ink">
-                  {backupPreview.label || "导入前预览"}
-                </p>
-                <p className="mt-1 break-all text-xs leading-5 text-ink-soft">
-                  {backupPreview.path}
-                </p>
-                {backupPreview.notes && (
-                  <p className="mt-1 text-xs leading-5 text-ink-soft">{backupPreview.notes}</p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleEditBackupMetadata}
-                  disabled={backupBusy}
-                  className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper disabled:opacity-50"
-                >
-                  名称/备注
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteSelectedBackup}
-                  disabled={backupBusy}
-                  className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper disabled:opacity-50"
-                >
-                  删除
-                </button>
-                <button
-                  type="button"
-                  onClick={handleImportSelectedBackup}
-                  disabled={
-                    backupBusy || backupPreview.issues.some((issue) => issue.severity === "error")
-                  }
-                  className="rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
-                >
-                  {backupImportMode === "merge" ? "合并导入此备份" : "覆盖恢复此备份"}
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 grid gap-2 text-xs text-ink-soft sm:grid-cols-3">
-              <p>书籍：{backupPreview.bookCount}</p>
-              <p>文件：{backupPreview.fileCount}</p>
-              <p>页文本：{backupPreview.pageCount}</p>
-              <p>进度：{backupPreview.progressCount}</p>
-              <p>导读：{backupPreview.guideCount}</p>
-              <p>笔记：{backupPreview.noteCount}</p>
-              <p>聊天：{backupPreview.chatCount}</p>
-              <p>读后交流：{backupPreview.reflectionCount}</p>
-              <p>校验：{backupPreview.issues.length ? `${backupPreview.issues.length} 项提示` : "通过"}</p>
-              <p>
-                manifest：{backupPreview.manifestSha256 ? backupPreview.manifestSha256.slice(0, 12) : "旧版未记录"}
-              </p>
-            </div>
-            {backupPreview.issues.length > 0 && (
-              <div className="mt-3 space-y-1 text-xs leading-5">
-                {backupPreview.issues.slice(0, 6).map((issue) => (
-                  <p
-                    key={`${issue.code}:${issue.key || "global"}`}
-                    className={issue.severity === "error" ? "text-red-600" : "text-amber-700"}
-                  >
-                    {issue.message}
-                    {issue.key ? `（${issue.key}）` : ""}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {desktopBackupAvailable && (
-          <div className="mt-4 rounded-lg border border-line bg-paper px-4 py-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <label className="min-w-0 flex-1 text-xs font-medium text-ink-soft">
-                外部备份目录或 manifest.json 路径
-                <input
-                  value={externalBackupPath}
-                  onChange={(event) => {
-                    setExternalBackupPath(event.target.value);
-                    setExternalBackupPreview(null);
-                  }}
-                  placeholder="例如 ~/Downloads/duban-backup-..."
-                  className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={handlePreviewExternalBackup}
-                disabled={backupBusy}
-                className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper disabled:opacity-50"
-              >
-                预览外部备份
-              </button>
-            </div>
-
-            {externalBackupPreview && (
-              <div className="mt-3 rounded-lg border border-line bg-paper-card px-3 py-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-ink">
-                      {externalBackupPreview.label || "外部备份预览"}
-                    </p>
-                    <p className="mt-1 break-all text-xs leading-5 text-ink-soft">
-                      {externalBackupPreview.path}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleImportExternalBackup}
-                    disabled={
-                      backupBusy ||
-                      externalBackupPreview.issues.some((issue) => issue.severity === "error")
-                    }
-                    className="rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
-                  >
-                    {backupImportMode === "merge" ? "合并导入外部备份" : "覆盖恢复外部备份"}
-                  </button>
-                </div>
-                <div className="mt-3 grid gap-2 text-xs text-ink-soft sm:grid-cols-3">
-                  <p>书籍：{externalBackupPreview.bookCount}</p>
-                  <p>文件：{externalBackupPreview.fileCount}</p>
-                  <p>页文本：{externalBackupPreview.pageCount}</p>
-                  <p>
-                    校验：
-                    {externalBackupPreview.issues.length
-                      ? `${externalBackupPreview.issues.length} 项提示`
-                      : "通过"}
-                  </p>
-                  <p>
-                    manifest：
-                    {externalBackupPreview.manifestSha256
-                      ? externalBackupPreview.manifestSha256.slice(0, 12)
-                      : "旧版未记录"}
-                  </p>
-                </div>
-                {externalBackupPreview.issues.length > 0 && (
-                  <div className="mt-3 space-y-1 text-xs leading-5">
-                    {externalBackupPreview.issues.slice(0, 6).map((issue) => (
-                      <p
-                        key={`${issue.code}:${issue.key || "global"}`}
-                        className={issue.severity === "error" ? "text-red-600" : "text-amber-700"}
-                      >
-                        {issue.message}
-                        {issue.key ? `（${issue.key}）` : ""}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="mt-3 text-xs leading-5 text-ink-soft">
-          桌面版导出为目录式备份，manifest 与原始文件分开保存到 App 数据目录的 backups 文件夹；导入前会校验 manifest 和文件 hash，失败会自动回滚到导入前状态。导入不会从备份恢复 API Key。
-        </p>
-        {backupMsg && <Hint msg={backupMsg} />}
-      </section>
-
-      <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <label className="block text-sm font-medium text-ink">
-          默认模型供应商
-          <select
-            value={provider}
-            onChange={(event) => setProvider(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-          >
-            {PROVIDER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+        <div className="settings-layout">
+          <aside className="settings-sidebar" aria-label="设置分类">
+            {SETTINGS_PANELS.map((panel) => (
+              <SettingsNavButton
+                key={panel.id}
+                panel={panel}
+                active={activePanel === panel.id}
+                onClick={() => setActivePanel(panel.id)}
+              />
             ))}
-          </select>
-        </label>
-        <p className="mt-2 text-xs leading-5 text-ink-soft">
-          {PROVIDER_OPTIONS.find((option) => option.value === provider)?.desc}
-        </p>
-      </section>
+          </aside>
 
-      <section className="mt-6 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-medium text-ink">AI 批量配置</h3>
-            <p className="mt-1 text-xs leading-5 text-ink-soft">
-              模板已预填常用供应商，只需要粘贴要使用的 API Key。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <input
-              ref={configInputRef}
-              type="file"
-              accept=".txt,text/plain"
-              className="hidden"
-              onChange={handleConfigFileChange}
-            />
-            <button
-              type="button"
-              onClick={() => configInputRef.current?.click()}
-              className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
-            >
-              导入 TXT 配置
-            </button>
-            <a
-              href="/ai-config-template.txt"
-              download
-              className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
-            >
-              下载模板
-            </a>
-            <button
-              type="button"
-              onClick={handleDownloadCurrentConfig}
-              className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
-            >
-              下载当前配置
-            </button>
+          <div className="settings-content" key={activePanel}>
+            {activePanel === "ai" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="Model Control"
+                  title="AI 服务"
+                  desc="配置读伴生成导读、问答和读后交流时使用的默认模型。"
+                />
+
+                <SettingsSection
+                  title="默认模型供应商"
+                  desc={activeProviderOption.desc}
+                >
+                  <label className="settings-field">
+                    <span>供应商</span>
+                    <select
+                      value={provider}
+                      onChange={(event) => setProvider(event.target.value)}
+                      className="settings-input"
+                    >
+                      {PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </SettingsSection>
+
+                <SettingsSection
+                  title={
+                    provider === PROVIDERS.anthropic
+                      ? "Claude 配置"
+                      : "OpenAI-compatible 配置"
+                  }
+                  desc="密钥留空保存不会覆盖桌面版 Keychain 中已保存的密钥。"
+                >
+                  {provider === PROVIDERS.anthropic ? (
+                    <AnthropicSettings
+                      apiKey={anthropicApiKey}
+                      hasSavedKey={anthropicHasApiKey}
+                      keyStatusUnknown={desktopBackupAvailable && !anthropicHasApiKey}
+                      storageLabel={storageLabel}
+                      model={anthropicModel}
+                      showKey={showKey}
+                      onApiKeyChange={setAnthropicApiKey}
+                      onModelChange={setAnthropicModel}
+                      onToggleKey={() => setShowKey((value) => !value)}
+                    />
+                  ) : (
+                    <OpenAICompatibleSettings
+                      apiKey={openaiApiKey}
+                      hasSavedKey={openaiHasApiKey}
+                      keyStatusUnknown={desktopBackupAvailable && !openaiHasApiKey}
+                      storageLabel={storageLabel}
+                      baseUrl={openaiBaseUrl}
+                      model={openaiModel}
+                      inputPricePerMTok={inputPricePerMTok}
+                      outputPricePerMTok={outputPricePerMTok}
+                      showKey={showKey}
+                      onApiKeyChange={setOpenaiApiKey}
+                      onBaseUrlChange={setOpenaiBaseUrl}
+                      onModelChange={setOpenaiModel}
+                      onInputPriceChange={setInputPricePerMTok}
+                      onOutputPriceChange={setOutputPricePerMTok}
+                      onToggleKey={() => setShowKey((value) => !value)}
+                      onApplyModelOption={applyModelOption}
+                    />
+                  )}
+                </SettingsSection>
+
+                <SettingsSection title="连接边界" compact>
+                  <p className="settings-note">
+                    浏览器版直连 OpenAI-compatible 服务时，部分服务可能因为 CORS 策略无法调用。
+                    自定义 Base URL 会在测试连接和生成内容时接收 API Key 与必要阅读文本。
+                  </p>
+                </SettingsSection>
+
+                <div className="settings-save-bar">
+                  <div>
+                    <p className="settings-save-title">模型配置</p>
+                    <p className="settings-save-subtitle">保存后会用于后续导读、问答和读后交流。</p>
+                  </div>
+                  <div className="settings-save-actions">
+                    <button type="button" onClick={handleTest} disabled={testing} className="settings-secondary-button">
+                      {testing ? "测试中…" : "测试连接"}
+                    </button>
+                    <button type="button" onClick={handleSave} className="settings-primary-button">
+                      保存设置
+                    </button>
+                  </div>
+                </div>
+                {(saveMsg || testMsg) && (
+                  <div className="settings-message-stack">
+                    {saveMsg && <Hint msg={saveMsg} />}
+                    {testMsg && <Hint msg={testMsg} />}
+                  </div>
+                )}
+              </SettingsPanel>
+            )}
+
+            {activePanel === "config" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="Bulk Setup"
+                  title="批量配置"
+                  desc="用 TXT 模板快速写入供应商、模型、Base URL、价格和 API Key。"
+                />
+                <SettingsSection
+                  title="AI 批量配置"
+                  desc="模板已预填常用供应商，只需要粘贴要使用的 API Key。导入会立即保存到本地。"
+                >
+                  <input
+                    ref={configInputRef}
+                    type="file"
+                    accept=".txt,text/plain"
+                    className="hidden"
+                    onChange={handleConfigFileChange}
+                  />
+                  <div className="settings-action-row">
+                    <button
+                      type="button"
+                      onClick={() => configInputRef.current?.click()}
+                      className="settings-primary-button"
+                    >
+                      导入 TXT 配置
+                    </button>
+                    <a
+                      href="/ai-config-template.txt"
+                      download
+                      className="settings-secondary-button"
+                    >
+                      下载模板
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleDownloadCurrentConfig}
+                      className="settings-secondary-button"
+                    >
+                      下载当前配置
+                    </button>
+                  </div>
+                  <p className="settings-note">
+                    如果配置里包含非官方 Base URL，会先要求确认。下载当前配置会包含 API Key，请只保存在可信位置。
+                  </p>
+                  {configMsg && <Hint msg={configMsg} />}
+                </SettingsSection>
+              </SettingsPanel>
+            )}
+
+            {activePanel === "backup" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="Local Library"
+                  title="数据备份"
+                  desc="导出、预览、校验和恢复本地书库数据。备份默认不包含 API Key。"
+                />
+                <input
+                  ref={backupInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={handleBackupFileChange}
+                />
+
+                <SettingsSection
+                  title="备份操作"
+                  desc="桌面版导出目录式备份；浏览器版导出 JSON 备份。"
+                >
+                  <div className="settings-action-row">
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      disabled={backupBusy}
+                      className="settings-primary-button"
+                    >
+                      {desktopBackupAvailable ? "导出目录备份" : "导出 JSON 备份"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => backupInputRef.current?.click()}
+                      disabled={backupBusy}
+                      className="settings-secondary-button"
+                    >
+                      导入 JSON
+                    </button>
+                    {desktopBackupAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => refreshDesktopBackups()}
+                        disabled={backupBusy}
+                        className="settings-secondary-button"
+                      >
+                        刷新清单
+                      </button>
+                    )}
+                  </div>
+                  <div className="settings-form-grid">
+                    <label className="settings-field">
+                      <span>导入模式</span>
+                      <select
+                        value={backupImportMode}
+                        onChange={(event) => setBackupImportMode(event.target.value)}
+                        className="settings-input"
+                      >
+                        <option value="merge">合并导入</option>
+                        <option value="replace">覆盖恢复</option>
+                      </select>
+                    </label>
+                    {desktopBackupAvailable && (
+                      <label className="settings-field">
+                        <span>桌面备份清单</span>
+                        <select
+                          value={selectedBackupId}
+                          onChange={(event) => handleSelectBackup(event.target.value)}
+                          className="settings-input"
+                        >
+                          <option value="">暂无可用备份</option>
+                          {backupList.map((backup) => (
+                            <option key={backup.backupId} value={backup.backupId}>
+                              {backup.label ? `${backup.label}（${backup.backupId}）` : backup.backupId}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                </SettingsSection>
+
+                {desktopBackupAvailable && backupPreview && (
+                  <SettingsSection
+                    title={backupPreview.label || "备份预览"}
+                    desc={backupPreview.path}
+                  >
+                    {backupPreview.notes && <p className="settings-note">{backupPreview.notes}</p>}
+                    <BackupMetricGrid preview={backupPreview} />
+                    {backupPreview.issues.length > 0 && (
+                      <IssueList issues={backupPreview.issues} />
+                    )}
+                    <div className="settings-action-row">
+                      <button
+                        type="button"
+                        onClick={handleEditBackupMetadata}
+                        disabled={backupBusy}
+                        className="settings-secondary-button"
+                      >
+                        名称/备注
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteSelectedBackup}
+                        disabled={backupBusy}
+                        className="settings-secondary-button"
+                      >
+                        删除
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleImportSelectedBackup}
+                        disabled={
+                          backupBusy || backupPreview.issues.some((issue) => issue.severity === "error")
+                        }
+                        className="settings-primary-button"
+                      >
+                        {backupImportMode === "merge" ? "合并导入此备份" : "覆盖恢复此备份"}
+                      </button>
+                    </div>
+                  </SettingsSection>
+                )}
+
+                {desktopBackupAvailable && (
+                  <SettingsSection title="外部备份" desc="填写备份目录或 manifest.json 路径，先预览校验再导入。">
+                    <div className="settings-inline-form">
+                      <label className="settings-field">
+                        <span>外部备份目录或 manifest.json 路径</span>
+                        <input
+                          value={externalBackupPath}
+                          onChange={(event) => {
+                            setExternalBackupPath(event.target.value);
+                            setExternalBackupPreview(null);
+                          }}
+                          placeholder="例如 ~/Downloads/duban-backup-..."
+                          className="settings-input"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handlePreviewExternalBackup}
+                        disabled={backupBusy}
+                        className="settings-secondary-button"
+                      >
+                        预览外部备份
+                      </button>
+                    </div>
+
+                    {externalBackupPreview && (
+                      <div className="settings-nested-surface">
+                        <div className="settings-nested-header">
+                          <div>
+                            <p className="settings-nested-title">
+                              {externalBackupPreview.label || "外部备份预览"}
+                            </p>
+                            <p className="settings-nested-path">{externalBackupPreview.path}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleImportExternalBackup}
+                            disabled={
+                              backupBusy ||
+                              externalBackupPreview.issues.some((issue) => issue.severity === "error")
+                            }
+                            className="settings-primary-button"
+                          >
+                            {backupImportMode === "merge" ? "合并导入外部备份" : "覆盖恢复外部备份"}
+                          </button>
+                        </div>
+                        <BackupMetricGrid preview={externalBackupPreview} compact />
+                        {externalBackupPreview.issues.length > 0 && (
+                          <IssueList issues={externalBackupPreview.issues} />
+                        )}
+                      </div>
+                    )}
+                  </SettingsSection>
+                )}
+
+                <SettingsSection title="备份边界" compact>
+                  <p className="settings-note">
+                    桌面版备份会校验 manifest 和文件 hash，失败会自动回滚到导入前状态。导入不会从备份恢复 API Key。
+                  </p>
+                  {backupMsg && <Hint msg={backupMsg} />}
+                </SettingsSection>
+              </SettingsPanel>
+            )}
+
+            {activePanel === "privacy" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="Trust Boundary"
+                  title="隐私安全"
+                  desc="读伴默认把书籍、笔记、聊天和 API Key 保存在本机。"
+                />
+                <SettingsSection title="隐私与数据" desc="查看完整说明，确认哪些数据会留在本地、哪些会发送给模型服务商。">
+                  <div className="settings-security-grid">
+                    <StatusTile label="浏览器版" value="IndexedDB" detail="书库与 API Key" />
+                    <StatusTile label="桌面版" value="SQLite + Keychain" detail="书库与密钥分离" />
+                    <StatusTile label="AI 请求" value="BYOK" detail="发送给所选服务商" />
+                  </div>
+                  <button type="button" onClick={onOpenPrivacy} className="settings-secondary-button">
+                    查看隐私说明
+                  </button>
+                </SettingsSection>
+                <SettingsSection title="BYOK 安全提醒" compact>
+                  <div className="settings-copy-stack">
+                    <p>
+                      浏览器版会把 API Key 保存在当前浏览器 IndexedDB；桌面版会把 API Key 保存在系统 Keychain。
+                    </p>
+                    <p>
+                      桌面版进入设置页时不会自动把已保存密钥读回输入框，避免打开设置页就触发系统密码弹窗。
+                    </p>
+                    <p>
+                      建议使用单独的 API Key，并在模型服务商后台设置额度或限额。自定义 Base URL 时，请确认目标服务可信。
+                    </p>
+                  </div>
+                </SettingsSection>
+              </SettingsPanel>
+            )}
+
+            {activePanel === "advanced" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="Maintenance"
+                  title="高级维护"
+                  desc="低频、不可逆或需要谨慎确认的操作集中放在这里。"
+                />
+                <SettingsSection title="清空数据" desc="删除所有本地数据，包括书籍、进度、聊天记录和设置。">
+                  <div className="settings-danger-zone">
+                    <div>
+                      <p className="settings-danger-title">清空全部本地数据</p>
+                      <p className="settings-note">这个操作无法恢复。建议先完成本地备份。</p>
+                    </div>
+                    <button type="button" onClick={handleClearAll} className="settings-danger-button">
+                      清空全部数据
+                    </button>
+                  </div>
+                  {saveMsg && <Hint msg={saveMsg} />}
+                </SettingsSection>
+              </SettingsPanel>
+            )}
           </div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-ink-soft">
-          导入会立即保存到本地；如果配置里包含非官方 Base URL，会先要求确认。下载当前配置会包含 API Key，请只保存在可信位置。
-        </p>
-        {configMsg && <Hint msg={configMsg} />}
-      </section>
-
-      {provider === PROVIDERS.anthropic ? (
-        <AnthropicSettings
-          apiKey={anthropicApiKey}
-          hasSavedKey={anthropicHasApiKey}
-          keyStatusUnknown={desktopBackupAvailable && !anthropicHasApiKey}
-          storageLabel={desktopBackupAvailable ? "系统 Keychain" : "IndexedDB"}
-          model={anthropicModel}
-          showKey={showKey}
-          onApiKeyChange={setAnthropicApiKey}
-          onModelChange={setAnthropicModel}
-          onToggleKey={() => setShowKey((value) => !value)}
-        />
-      ) : (
-        <OpenAICompatibleSettings
-          apiKey={openaiApiKey}
-          hasSavedKey={openaiHasApiKey}
-          keyStatusUnknown={desktopBackupAvailable && !openaiHasApiKey}
-          storageLabel={desktopBackupAvailable ? "系统 Keychain" : "IndexedDB"}
-          baseUrl={openaiBaseUrl}
-          model={openaiModel}
-          inputPricePerMTok={inputPricePerMTok}
-          outputPricePerMTok={outputPricePerMTok}
-          showKey={showKey}
-          onApiKeyChange={setOpenaiApiKey}
-          onBaseUrlChange={setOpenaiBaseUrl}
-          onModelChange={setOpenaiModel}
-          onInputPriceChange={setInputPricePerMTok}
-          onOutputPriceChange={setOutputPricePerMTok}
-          onToggleKey={() => setShowKey((value) => !value)}
-          onApplyModelOption={applyModelOption}
-        />
-      )}
-
-      <p className="mt-4 rounded-lg border border-line bg-paper-card px-4 py-3 text-xs leading-5 text-ink-soft">
-        纯前端直连 OpenAI-compatible 服务时，部分服务可能因为 CORS 策略无法在浏览器中调用。
-        如果填写自定义 Base URL，测试连接和生成内容时会把 API Key 发送到该地址；读伴只会对非官方或非 HTTPS 地址做二次确认，无法替你判断服务商可信度。
-      </p>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          onClick={handleSave}
-          className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
-        >
-          保存设置
-        </button>
-        <button
-          onClick={handleTest}
-          disabled={testing}
-          className="rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
-        >
-          {testing ? "测试中…" : "测试连接"}
-        </button>
       </div>
+    </div>
+  );
+}
 
-      {saveMsg && <Hint msg={saveMsg} />}
-      {testMsg && <Hint msg={testMsg} />}
+function SettingsNavButton({ panel, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`settings-nav-button ${active ? "is-active" : ""}`}
+      aria-current={active ? "page" : undefined}
+    >
+      <span className="settings-nav-dot" />
+      <span>
+        <span className="settings-nav-label">{panel.label}</span>
+        <span className="settings-nav-desc">{panel.desc}</span>
+      </span>
+    </button>
+  );
+}
 
-      <section className="mt-12 rounded-xl border border-line p-6">
-        <h3 className="text-sm font-medium text-ink">清空数据</h3>
-        <p className="mt-1 text-xs text-ink-soft">
-          删除所有本地数据（书籍、进度、聊天、设置），无法恢复。
-        </p>
-        <button
-          onClick={handleClearAll}
-          className="mt-3 rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+function SettingsPanel({ children }) {
+  return <div className="settings-panel">{children}</div>;
+}
+
+function SettingsPanelHeader({ kicker, title, desc }) {
+  return (
+    <header className="settings-panel-header">
+      <p className="settings-kicker">{kicker}</p>
+      <h3>{title}</h3>
+      <p>{desc}</p>
+    </header>
+  );
+}
+
+function SettingsSection({ title, desc, compact = false, children }) {
+  return (
+    <section className={`settings-section ${compact ? "settings-section-compact" : ""}`}>
+      <div className="settings-section-head">
+        <h4>{title}</h4>
+        {desc && <p>{desc}</p>}
+      </div>
+      <div className="settings-section-body">{children}</div>
+    </section>
+  );
+}
+
+function StatusTile({ label, value, detail, tone = "default" }) {
+  return (
+    <div className={`settings-status-tile settings-status-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+    </div>
+  );
+}
+
+function BackupMetricGrid({ preview, compact = false }) {
+  const metrics = [
+    ["书籍", preview.bookCount],
+    ["文件", preview.fileCount],
+    ["页文本", preview.pageCount],
+    ["进度", preview.progressCount],
+    ["导读", preview.guideCount],
+    ["笔记", preview.noteCount],
+    ["聊天", preview.chatCount],
+    ["读后交流", preview.reflectionCount],
+    ["校验", preview.issues?.length ? `${preview.issues.length} 项提示` : "通过"],
+    ["manifest", preview.manifestSha256 ? preview.manifestSha256.slice(0, 12) : "旧版未记录"],
+  ];
+
+  return (
+    <div className={`settings-metric-grid ${compact ? "settings-metric-grid-compact" : ""}`}>
+      {metrics.map(([label, value]) => (
+        <div key={label} className="settings-metric">
+          <span>{label}</span>
+          <strong>{value ?? 0}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IssueList({ issues }) {
+  return (
+    <div className="settings-issue-list">
+      {issues.slice(0, 6).map((issue) => (
+        <p
+          key={`${issue.code}:${issue.key || "global"}`}
+          className={issue.severity === "error" ? "settings-issue-error" : "settings-issue-warn"}
         >
-          清空全部数据
-        </button>
-      </section>
+          {issue.message}
+          {issue.key ? `（${issue.key}）` : ""}
+        </p>
+      ))}
     </div>
   );
 }
@@ -1124,9 +1276,9 @@ function AnthropicSettings({
   onToggleKey,
 }) {
   return (
-    <>
-      <section className="mt-6 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <label className="block text-sm font-medium text-ink">Anthropic API Key</label>
+    <div className="settings-form-stack">
+      <label className="settings-field">
+        <span>Anthropic API Key</span>
         <KeyInput
           value={apiKey}
           hasSavedKey={hasSavedKey}
@@ -1137,14 +1289,14 @@ function AnthropicSettings({
           onChange={onApiKeyChange}
           onToggle={onToggleKey}
         />
-      </section>
+      </label>
 
-      <section className="mt-6 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <label className="block text-sm font-medium text-ink">Claude 模型</label>
+      <label className="settings-field">
+        <span>Claude 模型</span>
         <select
           value={model}
           onChange={(event) => onModelChange(event.target.value)}
-          className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 text-ink outline-none focus:border-accent"
+          className="settings-input"
         >
           {ANTHROPIC_MODEL_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -1152,8 +1304,8 @@ function AnthropicSettings({
             </option>
           ))}
         </select>
-      </section>
-    </>
+      </label>
+    </div>
   );
 }
 
@@ -1181,15 +1333,13 @@ function OpenAICompatibleSettings({
     : "custom";
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-      <h3 className="text-sm font-medium text-ink">OpenAI-compatible 配置</h3>
-
-      <label className="mt-5 block text-sm font-medium text-ink">
-        模型清单
+    <div className="settings-form-stack">
+      <label className="settings-field">
+        <span>模型清单</span>
         <select
           value={selectedModelValue}
           onChange={(event) => onApplyModelOption(event.target.value)}
-          className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+          className="settings-input"
         >
           <option value="custom">自定义 / 手动填写</option>
           {MODEL_OPTION_GROUPS.map((group) => (
@@ -1205,66 +1355,68 @@ function OpenAICompatibleSettings({
           ))}
         </select>
       </label>
-      <p className="mt-2 text-xs leading-5 text-ink-soft">
+      <p className="settings-note">
         选择后会自动填充 Base URL、模型名和可用的价格估算；下面仍然可以手动修改。
       </p>
 
-      <label className="mt-5 block text-sm font-medium text-ink">API Key</label>
-      <KeyInput
-        value={apiKey}
-        hasSavedKey={hasSavedKey}
-        keyStatusUnknown={keyStatusUnknown}
-        storageLabel={storageLabel}
-        showKey={showKey}
-        placeholder="sk-..."
-        onChange={onApiKeyChange}
-        onToggle={onToggleKey}
-      />
+      <label className="settings-field">
+        <span>API Key</span>
+        <KeyInput
+          value={apiKey}
+          hasSavedKey={hasSavedKey}
+          keyStatusUnknown={keyStatusUnknown}
+          storageLabel={storageLabel}
+          showKey={showKey}
+          placeholder="sk-..."
+          onChange={onApiKeyChange}
+          onToggle={onToggleKey}
+        />
+      </label>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="block text-sm font-medium text-ink">
-          Base URL
+      <div className="settings-form-grid">
+        <label className="settings-field">
+          <span>Base URL</span>
           <input
             value={baseUrl}
             onChange={(event) => onBaseUrlChange(event.target.value)}
             placeholder="https://api.openai.com/v1"
-            className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+            className="settings-input"
           />
         </label>
-        <label className="block text-sm font-medium text-ink">
-          模型名
+        <label className="settings-field">
+          <span>模型名</span>
           <input
             value={model}
             onChange={(event) => onModelChange(event.target.value)}
             placeholder={DEFAULT_OPENAI_COMPATIBLE_MODEL}
-            className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+            className="settings-input"
           />
         </label>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="block text-sm font-medium text-ink">
-          输入价格（美元 / 百万 token，可选）
+      <div className="settings-form-grid">
+        <label className="settings-field">
+          <span>输入价格（美元 / 百万 token，可选）</span>
           <input
             value={inputPricePerMTok}
             onChange={(event) => onInputPriceChange(event.target.value)}
             placeholder="例如 0.15"
             inputMode="decimal"
-            className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+            className="settings-input"
           />
         </label>
-        <label className="block text-sm font-medium text-ink">
-          输出价格（美元 / 百万 token，可选）
+        <label className="settings-field">
+          <span>输出价格（美元 / 百万 token，可选）</span>
           <input
             value={outputPricePerMTok}
             onChange={(event) => onOutputPriceChange(event.target.value)}
             placeholder="例如 0.60"
             inputMode="decimal"
-            className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+            className="settings-input"
           />
         </label>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -1297,24 +1449,24 @@ function KeyInput({
     : "text-ink-soft";
 
   return (
-    <div className="mt-2">
-      <div className="flex gap-2">
+    <div className="settings-key-input">
+      <div className="settings-key-row">
         <input
           type={showKey ? "text" : "password"}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
-          className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-ink outline-none focus:border-accent"
+          className="settings-input"
         />
         <button
           type="button"
           onClick={onToggle}
-          className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper"
+          className="settings-secondary-button settings-key-toggle"
         >
           {showKey ? "隐藏" : "显示"}
         </button>
       </div>
-      <p className={`mt-2 text-xs leading-5 ${statusColor}`}>{statusText}</p>
+      <p className={`settings-key-status ${statusColor}`}>{statusText}</p>
     </div>
   );
 }
@@ -1328,7 +1480,7 @@ function Hint({ msg }) {
       : msg.type === "warn"
       ? "text-amber-700"
       : "text-ink-soft";
-  return <p className={`mt-3 text-sm ${color}`}>{msg.text}</p>;
+  return <p className={`settings-hint ${color}`}>{msg.text}</p>;
 }
 
 function assessOpenAICompatibleBaseUrl(value) {
