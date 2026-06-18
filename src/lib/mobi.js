@@ -1,11 +1,31 @@
 import { BOOK_FORMATS } from "./bookFormats.js";
+import {
+  assertImportNotCancelled,
+  normalizeParseOptions,
+  reportImportProgress,
+  validateBookFileForImport,
+  validateExtractedTextBudget,
+  validateExtractedTextPresence,
+  validateMobiSpineCount,
+} from "./bookImportGuards.js";
 import { guessChapterRole } from "./pdf.js";
 import { cleanText, toText } from "./text.js";
 
 const TEXT_PAGE_CHAR_LIMIT = 2200;
 
-export async function parseMobi(file, onProgress) {
+export async function parseMobi(file, optionsOrProgress) {
+  const { onProgress, signal } = normalizeParseOptions(optionsOrProgress);
+  validateBookFileForImport(file, BOOK_FORMATS.mobi);
+  assertImportNotCancelled(signal);
+
+  reportImportProgress(onProgress, {
+    phase: "open-document",
+    detail: "打开 MOBI 文件",
+    current: 0,
+    total: 1,
+  });
   const { reader, parser } = await initMobiReader(file);
+  assertImportNotCancelled(signal);
 
   try {
     const metadata = safeCall(() => reader.getMetadata()) || {};
@@ -13,16 +33,20 @@ export async function parseMobi(file, onProgress) {
     if (spine.length === 0) {
       throw new Error("MOBI 文件没有可读取的正文章节。");
     }
+    validateMobiSpineCount(spine.length);
 
     const tocTitleByChapterId = buildTocTitleByChapterId(reader);
     const pages = [];
     const chapters = [];
     let pageNumber = 1;
+    let extractedChars = 0;
 
     for (let index = 0; index < spine.length; index += 1) {
+      assertImportNotCancelled(signal);
       const spineItem = spine[index];
       const spineId = String(spineItem.id ?? index);
       const loaded = safeCall(() => reader.loadChapter(spineId));
+      assertImportNotCancelled(signal);
       const html = toText(loaded?.html || spineItem.text);
       const text = htmlToReadableText(html);
 
@@ -36,7 +60,12 @@ export async function parseMobi(file, onProgress) {
             text: chunk,
             sourceChapterId: spineId,
           });
+          extractedChars += chunk.length;
           pageNumber += 1;
+        });
+        validateExtractedTextBudget(BOOK_FORMATS.mobi, {
+          extractedChars,
+          textPages: pages.length,
         });
 
         const tocTitle = tocTitleByChapterId.get(spineId);
@@ -53,12 +82,18 @@ export async function parseMobi(file, onProgress) {
         });
       }
 
-      if (onProgress) onProgress({ current: index + 1, total: spine.length });
+      reportImportProgress(onProgress, {
+        phase: "extract-text",
+        detail: `提取第 ${index + 1} / ${spine.length} 个内容片段`,
+        current: index + 1,
+        total: spine.length,
+      });
     }
 
     if (pages.length === 0) {
       throw new Error("MOBI 文件没有提取到可阅读文本。");
     }
+    validateExtractedTextPresence(BOOK_FORMATS.mobi, extractedChars);
 
     return {
       title: cleanTitle(metadata.title) || guessTitleFromFile(file.name),

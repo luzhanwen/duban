@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { getBookFile } from "../lib/books.js";
+import { getLocalFileAssetUrl, readFileAsArrayBuffer } from "../lib/fileAdapter.js";
 import { BrandName } from "./BrandLogo.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -69,8 +70,10 @@ export default function PdfReader({
         const file = await getBookFile(bookId);
         if (!file) throw new Error("没有找到原始 PDF 文件。");
 
-        const data = await file.arrayBuffer();
-        loadingTask = pdfjsLib.getDocument({ data });
+        const url = getLocalFileAssetUrl(file);
+        loadingTask = url
+          ? pdfjsLib.getDocument({ url })
+          : pdfjsLib.getDocument({ data: await readFileAsArrayBuffer(file) });
         const loadedPdf = await loadingTask.promise;
         if (alive) setPdf(loadedPdf);
       } catch (e) {

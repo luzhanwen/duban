@@ -1,6 +1,16 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { BOOK_FORMATS } from "./bookFormats.js";
+import {
+  assertImportNotCancelled,
+  normalizeParseOptions,
+  reportImportProgress,
+  validateBookFileForImport,
+  validateExtractedTextBudget,
+  validateExtractedTextPresence,
+  validatePdfPageCount,
+} from "./bookImportGuards.js";
+import { readFileAsArrayBuffer } from "./fileAdapter.js";
 import { cleanText } from "./text.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -16,42 +26,101 @@ const CHAPTER_PATTERNS = [
   /^\d{1,2}\.\d{1,2}\s*.{2,50}$/,
 ];
 
-export async function parsePdf(file, onProgress) {
-  const data = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const totalPages = pdf.numPages;
-  const metadata = await readMetadata(pdf);
-  const outlineChapters = await readOutlineChapters(pdf, totalPages);
-  const pages = [];
+export async function parsePdf(file, optionsOrProgress) {
+  const { onProgress, signal } = normalizeParseOptions(optionsOrProgress);
+  validateBookFileForImport(file, BOOK_FORMATS.pdf);
+  assertImportNotCancelled(signal);
 
-  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const textContent = await page.getTextContent();
-    const text = textContent.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\s+\n/g, "\n")
-      .trim();
+  reportImportProgress(onProgress, {
+    phase: "read-file",
+    detail: "读取 PDF 文件",
+    current: 0,
+    total: 1,
+  });
+  const data = await readFileAsArrayBuffer(file, { signal });
+  assertImportNotCancelled(signal);
 
-    pages.push({ pageNumber, text });
-    if (onProgress) onProgress({ current: pageNumber, total: totalPages });
+  reportImportProgress(onProgress, {
+    phase: "open-document",
+    detail: "打开 PDF 文档",
+    current: 0,
+    total: 1,
+  });
+  const loadingTask = pdfjsLib.getDocument({ data });
+  const cancelLoading = () => loadingTask.destroy();
+  signal?.addEventListener("abort", cancelLoading, { once: true });
+
+  let pdf = null;
+  try {
+    try {
+      pdf = await loadingTask.promise;
+    } catch (error) {
+      assertImportNotCancelled(signal);
+      throw error;
+    }
+    assertImportNotCancelled(signal);
+
+    const totalPages = pdf.numPages;
+    validatePdfPageCount(totalPages);
+
+    reportImportProgress(onProgress, {
+      phase: "read-metadata",
+      detail: "读取目录和元数据",
+      current: 0,
+      total: totalPages,
+    });
+    const metadata = await readMetadata(pdf);
+    assertImportNotCancelled(signal);
+    const outlineChapters = await readOutlineChapters(pdf, totalPages, signal);
+    assertImportNotCancelled(signal);
+
+    const pages = [];
+    let extractedChars = 0;
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+      assertImportNotCancelled(signal);
+      const page = await pdf.getPage(pageNumber);
+      assertImportNotCancelled(signal);
+      const textContent = await page.getTextContent();
+      assertImportNotCancelled(signal);
+      const text = textContent.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .replace(/[ \t]+/g, " ")
+        .replace(/\s+\n/g, "\n")
+        .trim();
+
+      pages.push({ pageNumber, text });
+      extractedChars += text.length;
+      validateExtractedTextBudget(BOOK_FORMATS.pdf, { extractedChars });
+      reportImportProgress(onProgress, {
+        phase: "extract-text",
+        detail: `提取第 ${pageNumber} / ${totalPages} 页文本`,
+        current: pageNumber,
+        total: totalPages,
+      });
+    }
+
+    validateExtractedTextPresence(BOOK_FORMATS.pdf, extractedChars);
+
+    const chapters =
+      outlineChapters.length > 0
+        ? outlineChapters
+        : guessChaptersFromText(pages, totalPages);
+
+    return {
+      title: cleanTitle(metadata.title) || guessTitleFromFile(file.name),
+      author: stringifyMetadataValue(metadata.author),
+      totalPages,
+      pages,
+      chapters: buildChapterRanges(chapters, totalPages),
+      detectionSource: outlineChapters.length > 0 ? "outline" : "text",
+      format: BOOK_FORMATS.pdf,
+    };
+  } finally {
+    signal?.removeEventListener("abort", cancelLoading);
+    pdf?.destroy?.();
   }
-
-  const chapters =
-    outlineChapters.length > 0
-      ? outlineChapters
-      : guessChaptersFromText(pages, totalPages);
-
-  return {
-    title: cleanTitle(metadata.title) || guessTitleFromFile(file.name),
-    author: stringifyMetadataValue(metadata.author),
-    totalPages,
-    pages,
-    chapters: buildChapterRanges(chapters, totalPages),
-    detectionSource: outlineChapters.length > 0 ? "outline" : "text",
-    format: BOOK_FORMATS.pdf,
-  };
 }
 
 async function readMetadata(pdf) {
@@ -66,12 +135,13 @@ async function readMetadata(pdf) {
   }
 }
 
-async function readOutlineChapters(pdf, totalPages) {
+async function readOutlineChapters(pdf, totalPages, signal) {
   const outline = await pdf.getOutline().catch(() => null);
   if (!outline || outline.length === 0) return [];
 
   const topLevel = [];
   for (const item of outline) {
+    assertImportNotCancelled(signal);
     const page = await getOutlinePage(pdf, item.dest);
     if (page && page <= totalPages) {
       topLevel.push({

@@ -1,10 +1,10 @@
 # 读伴项目记录
 
-> 最后更新：2026-06-15
+> 最后更新：2026-06-18
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
-文档分工见 [docs/README.md](./README.md)。简单来说：本文件记录项目总上下文和完整开发日志；路线优先级写入 [ROADMAP.md](./ROADMAP.md)；具体 UI 与交互改动写入 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+文档分工见 [docs/README.md](./README.md)。简单来说：本文件记录项目总上下文和完整开发日志；路线优先级写入 [ROADMAP.md](./ROADMAP.md)；阶段 5 之后的生产级升级步骤写入 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)；具体 UI 与交互改动写入 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 
 ## 产品愿景
 
@@ -96,16 +96,19 @@
 
 ### 当前阶段
 
-当前继续使用纯前端网页 MVP：
+当前保留浏览器网页 MVP，同时推进 Tauri 桌面 App：
 
 - Vite + React
 - Tailwind CSS
 - PDF.js
-- localforage + IndexedDB
-- Claude API BYOK，用户在设置页填自己的 Anthropic API Key
+- 浏览器版使用 localforage + IndexedDB
+- Tauri 桌面版已接入 SQLite + App 数据目录文件存储，API Key 保存到系统 Keychain
+- Claude / OpenAI-compatible BYOK，用户在设置页填自己的 API Key
 - 模型调用已抽象为供应商接口，当前支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
+- 后端开发标准记录在 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md)，后续 AI 接手提示词记录在 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md)。
+- 剩余生产级升级路线记录在 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，覆盖数据可靠、正式发布、安全隐私、诊断、CI、QA、自动更新和 public alpha。
 
-这样可以最快验证核心阅读体验，暂时不引入后端。
+浏览器版继续用于快速验证核心阅读体验；桌面版逐步把长期数据和模型请求迁到本地 Rust 后端，不引入云端后端。
 
 ### 长期风险
 
@@ -121,7 +124,8 @@
 短期继续网页 MVP，但保持存储层可迁移：
 
 - 继续通过 `storage.js` / `books.js` 封装数据访问。
-- 后续增加「导出书库 / 导入书库」能力。
+- 当前已增加「导出书库 / 导入书库」能力；桌面版使用目录式 `manifest.json + files/` v3 备份，并支持预览、manifest/file sha256 校验、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入。
+- 阶段 5 之后已完成 P6.1 数据安全收口主体、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体；后续优先推进 P6.4 AI transport 生产化，再进入安全隐私、诊断、正式签名、公证、自动更新、CI 和 public alpha。
 - 如果产品变成长期个人书库，考虑 Tauri 或 Electron 桌面版。
 - 桌面版可使用本地文件系统 + SQLite，网页端保留 IndexedDB 作为轻量试用。
 - 云同步可以作为可选能力，不强制上传 PDF 原文件。
@@ -138,22 +142,30 @@
 
 代码通过 `src/lib/promptTemplates.js` 使用 Vite `?raw` 导入 Markdown 模板，并替换 `{{变量名}}`。这样既方便维护 prompt 文案，又不需要引入后端或运行时 fetch。
 
+注意：[AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md) 记录的是后续 AI 接手项目时使用的工程协作提示词，不属于产品内读伴 prompt；不要把它打包进前端功能。
+
 ## 当前数据概念
 
-当前本地存储基于 IndexedDB，封装在 `src/lib/storage.js` 和 `src/lib/books.js`。
+当前本地存储统一封装在 `src/lib/storage.js` 和 `src/lib/books.js`。
+
+- 浏览器版：基于 localforage + IndexedDB。
+- Tauri 桌面版：`storageAdapter` 切到 Tauri command；书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流、章节导读缓存、非敏感设置、封面缓存和 AI 排版缓存已进入结构化 SQLite / App 数据目录；API Key 写入系统 Keychain；读取设置页只返回非敏感配置，不主动读回 Keychain 密钥，并用 `hasApiKey` 非敏感标记提示本机是否已保存过 Key；`kv_store` 仅保留兼容旧 key 或临时低风险 JSON；原始 `File/Blob` 写入 App 数据目录 `files/`，SQLite 保存文件索引；目录式备份写入 App 数据目录 `backups/`。
+- Tauri 首次启动会把旧 IndexedDB 数据自动迁移到 SQLite / 文件目录；如果 SQLite 已有数据，会跳过迁移并写入迁移标记。
+- 设置页支持本地备份导出/导入；桌面版备份包含书库、原始文件、分页、进度、导读、笔记和聊天记录，支持导入前预览、manifest/file sha256 校验、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入，默认不包含 API Key。
+- 桌面存储 schema 记录在 [DESKTOP_STORAGE_SCHEMA.md](./DESKTOP_STORAGE_SCHEMA.md)。
 
 主要数据：
 
-- `settings`：默认供应商、各供应商 API Key、模型、Base URL、价格配置
-- `books`：书籍元数据数组
-- `book:{id}:file`：原始书籍文件 Blob
-- `book:{id}:pages`：按页或文本页提取的文本数组
-- `book:{id}:chat`：伴读问答记录，内部按阅读项 key 分组
-- `book:{id}:reflection`：读后交流记录，内部按阅读项 key 分组
-- `book:{id}:notes`：高亮和笔记，内部按阅读项 key 分组
-- `book:{id}:questions:{planItemKey}`：当前阅读项的 AI 章节导读缓存
+- `settings`：默认供应商、模型、Base URL、价格配置；浏览器版仍包含各供应商 API Key，桌面版 API Key 由系统 Keychain 保存，读取 `settings` 时不自动返回 API Key，只返回 `hasApiKey` 这类非敏感状态
+- `books`：书籍元数据数组；桌面版已映射到结构化 `books` / `book_chapters` 表，并同步 `reading_plans` / `reading_plan_items`
+- `book:{id}:file`：原始书籍文件 Blob；桌面版已映射到 `book_files`，重开后读取返回本地文件引用
+- `book:{id}:pages`：按页或文本页提取的文本数组；桌面版已映射到 `book_pages`
+- `book:{id}:chat`：伴读问答记录，内部按阅读项 key 分组；桌面版已映射到 `chat_messages`
+- `book:{id}:reflection`：读后交流记录，内部按阅读项 key 分组；桌面版已映射到 `reflection_messages`
+- `book:{id}:notes`：高亮和笔记，内部按阅读项 key 分组；桌面版已映射到 `notes`
+- `book:{id}:questions:{planItemKey}`：当前阅读项的 AI 章节导读缓存；桌面版已映射到 `reading_guides`
 - `book:{id}:quiz:{chapterId}`：预留，章节测验
-- `progress:{id}`：阅读进度、当前阅读项、每个阅读项的最近页码、每个阅读项的完成时间和打卡日期
+- `progress:{id}`：阅读进度、当前阅读项、每个阅读项的最近页码、每个阅读项的完成时间和打卡日期；桌面版已映射到 `reading_progress` / `reading_item_progress`
 
 书籍元数据目前包含：
 
@@ -531,9 +543,10 @@ readingProfile: {
    - 继续打磨高亮、批注、笔记导出和搜索。
 
 6. 数据可迁移能力：
-   - 导出书库元数据、阅读进度、导读、聊天、读后交流和笔记。
-   - 支持导入备份。
-   - 为未来桌面版、本地文件系统和 SQLite 预留迁移接口。
+   - 已完成本地备份导出/导入，覆盖书库、原始文件、分页、进度、导读、笔记和聊天记录。
+   - 桌面版已支持目录式备份、导入前预览、manifest/file sha256 校验、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入。
+   - 后续增强压缩归档、备份签名和迁移夹具。
+   - 继续为桌面版、本地文件系统和 SQLite 保持迁移接口稳定。
 
 ## 开发日志
 
@@ -794,7 +807,7 @@ readingProfile: {
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
-- 纯前端直连 OpenAI-compatible 服务可能遇到 CORS 限制，后续可能需要本地代理或后端代理。
+- 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - PDF 图片、表格、扫描件 OCR 暂未支持。
 - MOBI 当前提供文本阅读，不渲染 Kindle 原版版式，也暂不显示 MOBI 内嵌图片或真实内嵌封面。
 - 章节识别仍然依赖 PDF outline、标题规则或 MOBI TOC/spine，复杂排版可能需要用户手动调整。

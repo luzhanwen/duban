@@ -1,18 +1,9 @@
 // ============================================================
-// 数据层：用 localforage 封装 IndexedDB，统一管理所有本地数据。
-// 为什么用 IndexedDB 而不是 localStorage？
-//   书籍原文件可能有几十 MB，localStorage 只能存几 MB 的字符串，放不下；
-//   IndexedDB 能直接存二进制 Blob，容量也大得多。
-// localforage 帮我们把 IndexedDB 复杂的回调式 API 包装成简单的 Promise。
+// 数据层：通过 storageAdapter 统一管理本地数据。
+// 当前 browser adapter 仍然使用 localforage + IndexedDB；
+// 后续桌面版可以在 adapter 层切到 SQLite / 文件系统。
 // ============================================================
-import localforage from "localforage";
-
-// 创建一个专属的存储实例（相当于一个独立的数据库），避免和别的应用冲突
-const store = localforage.createInstance({
-  name: "reading-companion", // 数据库名
-  storeName: "main", // 表名
-  description: "读伴的本地数据：书籍、进度、设置、聊天记录等",
-});
+import { storageAdapter } from "./storageAdapter.js";
 
 // ------------------------------------------------------------
 // key 命名规范（集中管理，避免到处写字符串拼错）
@@ -39,18 +30,18 @@ export const KEYS = {
 
 /** 读取任意 key，不存在时返回 fallback（默认 null） */
 export async function getItem(key, fallback = null) {
-  const value = await store.getItem(key);
+  const value = await storageAdapter.getItem(key);
   return value === null || value === undefined ? fallback : value;
 }
 
 /** 写入任意 key，返回写入后的值 */
 export async function setItem(key, value) {
-  return store.setItem(key, value);
+  return storageAdapter.setItem(key, value);
 }
 
 /** 删除某个 key */
 export async function removeItem(key) {
-  return store.removeItem(key);
+  return storageAdapter.removeItem(key);
 }
 
 // ------------------------------------------------------------
@@ -87,10 +78,12 @@ export function normalizeSettings(saved = {}) {
     provider: saved.provider || PROVIDERS.anthropic,
     anthropic: {
       apiKey: anthropic.apiKey || saved.apiKey || "",
+      hasApiKey: Boolean(anthropic.apiKey || saved.apiKey || anthropic.hasApiKey),
       model: anthropic.model || saved.model || DEFAULT_ANTHROPIC_MODEL,
     },
     openaiCompatible: {
       apiKey: openaiCompatible.apiKey || "",
+      hasApiKey: Boolean(openaiCompatible.apiKey || openaiCompatible.hasApiKey),
       baseUrl: openaiCompatible.baseUrl || DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
       model: openaiCompatible.model || DEFAULT_OPENAI_COMPATIBLE_MODEL,
       inputPricePerMTok: openaiCompatible.inputPricePerMTok || "",
@@ -103,8 +96,8 @@ export function normalizeSettings(saved = {}) {
 // 清空全部数据（设置页的「清空全部数据」按钮会用到）
 // ------------------------------------------------------------
 export async function clearAll() {
-  return store.clear();
+  return storageAdapter.clear();
 }
 
-// 把底层实例也导出，方便将来做高级操作（如遍历所有 key）
-export { store };
+// 兼容旧调用：books.js 目前会用 store.keys() 做书籍级清理。
+export { storageAdapter, storageAdapter as store };

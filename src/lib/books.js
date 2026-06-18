@@ -135,12 +135,22 @@ export async function createBookFromParsedFile(file, parsed) {
     updatedAt: now,
   };
 
-  const books = await listBooks();
-  await setItem(KEYS.books, [book, ...books]);
-  await setItem(KEYS.bookFile(id), file);
-  await setItem(KEYS.bookPages(id), parsed.pages);
+  const writtenKeys = [];
 
-  return book;
+  try {
+    await setItem(KEYS.bookFile(id), file);
+    writtenKeys.push(KEYS.bookFile(id));
+    await setItem(KEYS.bookPages(id), parsed.pages);
+    writtenKeys.push(KEYS.bookPages(id));
+
+    const books = await listBooks();
+    await setItem(KEYS.books, [book, ...books]);
+
+    return book;
+  } catch (error) {
+    await Promise.all(writtenKeys.map((key) => removeItem(key).catch(() => {})));
+    throw error;
+  }
 }
 
 export async function createBookFromPdf(file, parsed) {

@@ -1,10 +1,11 @@
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
+import { readFileAsArrayBuffer } from "./fileAdapter.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 export async function renderPdfFirstPageCover(file, { maxWidth = 520 } = {}) {
-  const data = await file.arrayBuffer();
+  const data = await readFileAsArrayBuffer(file);
   const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
 

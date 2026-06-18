@@ -10,6 +10,11 @@
 | --- | --- | --- |
 | [PROJECT_NOTES.md](./PROJECT_NOTES.md) | 项目总记录 | 产品愿景、核心流程、已确认需求、架构共识、数据结构、完整开发日志、已知限制 |
 | [ROADMAP.md](./ROADMAP.md) | 路线图 | 当前状态、阶段目标、优先级、Backlog、暂不优先事项 |
+| [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md) | App 化专项路线与实施日志 | 从纯前端到桌面 App 的阶段路线、每次工程推进、验证结果和后续限制 |
+| [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md) | 生产级升级路线 | 数据可靠、正式发布、安全隐私、诊断、CI、QA、自动更新和 public alpha 的剩余步骤 |
+| [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md) | 后端开发标准 | Tauri Rust 本地后端、SQLite、Keychain、备份、AI transport、测试验证和文档同步标准 |
+| [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md) | 后续 AI 接手提示词 | 新 AI 会话接手项目、后端修改、迁移、备份、Keychain、代码审查和最终汇报的可复制提示词 |
+| [DESKTOP_STORAGE_SCHEMA.md](./DESKTOP_STORAGE_SCHEMA.md) | 桌面存储 Schema | Tauri 桌面版 SQLite 表、App 数据目录、迁移顺序和结构化存储边界 |
 | [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md) | 开书契约上下文 | 统一上下文构建函数、字段含义、兼容策略、三类 prompt 接入记录、读伴记忆数据层 |
 | [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md) | 公开前成熟度记录 | 隐私说明、BYOK 风险提示、Base URL 确认、公开仓库基础文件、安全边界 |
 | [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md) | UI 设计标准 | 视觉气质、色彩字体、布局比例、卡片边界、页面过渡、动效规范、验收清单 |
@@ -19,16 +24,26 @@
 
 1. 想快速理解项目方向：先读 [ROADMAP.md](./ROADMAP.md)。
 2. 想接手开发或理解历史决策：读 [PROJECT_NOTES.md](./PROJECT_NOTES.md)。
-3. 要维护开书契约、导读/问答/读后交流 prompt 或读伴记忆：读 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
-4. 要检查公开前信任、安全和项目成熟度补项：读 [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md)。
-5. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
-6. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+3. 要推进纯前端到桌面 App 的迁移：读 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)。
+4. 要推进正式分发、长期可靠、CI、QA、自动更新或 public alpha：读 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)。
+5. 要修改 Tauri/Rust、本地后端、AI transport、Keychain 或备份：读 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md)。
+6. 要修改桌面存储、SQLite 或数据迁移：读 [DESKTOP_STORAGE_SCHEMA.md](./DESKTOP_STORAGE_SCHEMA.md)。
+7. 要让后续 AI 接手任务：复制 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md) 中对应提示词。
+8. 要维护开书契约、导读/问答/读后交流 prompt 或读伴记忆：读 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
+9. 要检查公开前信任、安全和项目成熟度补项：读 [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md)。
+10. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
+11. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 
 ## 维护规则
 
 - 新功能完成后，先判断它影响哪一类文档：
   - 改变产品流程、数据结构、架构共识：更新 `PROJECT_NOTES.md`。
   - 改变优先级、阶段目标或待办：更新 `ROADMAP.md`。
+  - 推进 App 化、桌面壳、运行环境边界、AI transport、本地文件系统或 SQLite：更新 `APP_EVOLUTION_LOG.md`。
+  - 推进生产级发布、数据可靠、安全隐私、诊断、CI、QA、自动更新或 public alpha：更新 `PRODUCTION_UPGRADE_PLAN.md`。
+  - 改变 Tauri/Rust 后端、AI transport、Keychain、备份或测试标准：更新 `BACKEND_DEVELOPMENT_STANDARDS.md`。
+  - 改变后续 AI 接手流程、任务模板或协作方式：更新 `AI_HANDOFF_PROMPTS.md`。
+  - 改变 SQLite 表结构、数据迁移顺序或本地数据目录约定：更新 `DESKTOP_STORAGE_SCHEMA.md`。
   - 改变开书契约上下文构建、兼容策略或 prompt 接入边界：更新 `READING_CONTRACT_CONTEXT.md`。
   - 改变公开前隐私、安全、BYOK 或仓库成熟度边界：更新 `PUBLIC_READINESS_CHANGES.md`。
   - 改变视觉规范、布局标准、交互边界：更新 `UI_DESIGN_STANDARDS.md`。
@@ -36,6 +51,9 @@
 - 每次更新都尽量写清楚三件事：为什么改、改了什么、还有什么限制。
 - `PROJECT_NOTES.md` 可以保留完整背景，但不要把所有 UI 微调都塞进去；细节优先放到 `UI_CHANGELOG.md`。
 - `ROADMAP.md` 不写流水账，只写当前状态、下一步和取舍。
+- `APP_EVOLUTION_LOG.md` 是 App 化专项流水账和阶段记录；每次相关工程推进后都要追加日志。
+- `PRODUCTION_UPGRADE_PLAN.md` 是生产级升级的任务地图；阶段 5 之后的可靠性、发布、安全、诊断和 CI 工作都应先对齐它。
+- `DESKTOP_STORAGE_SCHEMA.md` 是桌面版本地存储结构的来源；改 SQLite schema 时先同步它。
 - `UI_DESIGN_STANDARDS.md` 是前端 UI 的护栏；新增功能时不要绕过它直接改视觉比例。
 - `UI_CHANGELOG.md` 不替代产品需求文档；如果某个 UI 改动背后改变了核心流程，还要同步更新 `PROJECT_NOTES.md` 或 `ROADMAP.md`。
 
@@ -43,6 +61,11 @@
 
 - `PROJECT_NOTES.md` 是主上下文文档，但已经较长，后续新增日志应尽量按日期追加，避免在前半部分不断扩写细枝末节。
 - `ROADMAP.md` 的阶段路线已经能覆盖当前方向，后续应优先维护 P0/P1 的进展和优先事项；开书契约接入已经从待办转为验证和调优任务。
+- `APP_EVOLUTION_LOG.md` 已用于记录从纯前端 MVP 走向桌面 App 的专项阶段、实施记录和验证结果。
+- `PRODUCTION_UPGRADE_PLAN.md` 已拆出阶段 5 之后的生产级升级步骤；P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体已完成，下一步建议进入 P6.4 AI transport 生产化。
+- `BACKEND_DEVELOPMENT_STANDARDS.md` 是后端和本地后端工程护栏，后续改 Tauri/Rust、SQLite、Keychain、备份或 AI transport 前应先读。
+- `AI_HANDOFF_PROMPTS.md` 是后续 AI 接手入口，包含通用接手、后端修改、迁移、备份、安全审查和最终汇报提示词。
+- `DESKTOP_STORAGE_SCHEMA.md` 已记录阶段 5 的 SQLite 目标表、当前已实现表和迁移顺序。
 - `READING_CONTRACT_CONTEXT.md` 是开书契约和单本书读伴记忆的专项来源，当前已记录章节导读、阅读中问答、读后交流三条链路的接入情况。
 - `UI_DESIGN_STANDARDS.md` 用来保护现有视觉气质和组件边界，尤其是封面书架比例、封面主操作、菜单边界、动效克制和主次操作层级。
 - `UI_CHANGELOG.md` 适合作为界面演进记录，尤其适合记录书架、阅读器、笔记和品牌视觉的连续试错。

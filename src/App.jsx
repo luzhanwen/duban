@@ -7,6 +7,12 @@ import Shelf from "./components/Shelf.jsx";
 import BrandLogo from "./components/BrandLogo.jsx";
 import Privacy from "./components/Privacy.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
+import { initializeDesktopWindowIcon } from "./lib/desktopIcon.js";
+import { APP_RUNTIME } from "./lib/runtime.js";
+
+const DESKTOP_DOWNLOAD_URL =
+  import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim() ||
+  "https://github.com/luzhanwen/duban/releases/latest";
 
 // 应用主壳：顶部导航 + 内容区。
 // 这里用一个简单的 view 状态来切换页面，不引入路由库，保持项目精简。
@@ -20,6 +26,8 @@ export default function App() {
   const inReader = view === "reader";
 
   useEffect(() => {
+    initializeDesktopWindowIcon();
+
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const leaveDelay = prefersReducedMotion ? 300 : 2050;
     const removeDelay = prefersReducedMotion ? 520 : 2520;
@@ -79,6 +87,7 @@ export default function App() {
               >
                 设置
               </NavTab>
+              <DesktopDownloadLink />
             </nav>
           </div>
         </header>
@@ -125,6 +134,23 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function DesktopDownloadLink() {
+  if (!APP_RUNTIME.isBrowser) return null;
+
+  return (
+    <a
+      href={DESKTOP_DOWNLOAD_URL}
+      target="_blank"
+      rel="noreferrer"
+      aria-label="下载读伴桌面版"
+      className="rounded-lg px-3 py-1.5 text-ink-soft transition-colors hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
+    >
+      <span className="hidden sm:inline">下载桌面版</span>
+      <span className="sm:hidden">桌面版</span>
+    </a>
   );
 }
 

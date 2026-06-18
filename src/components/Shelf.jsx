@@ -9,6 +9,13 @@ import {
   isPdfBook,
 } from "../lib/bookFormats.js";
 import {
+  assertImportNotCancelled,
+  formatFileSize,
+  humanizeBookImportError,
+  isBookImportAbortError,
+  validateBookFileForImport,
+} from "../lib/bookImportGuards.js";
+import {
   createBookFromParsedFile,
   deleteBook,
   getBookCover,
@@ -19,6 +26,7 @@ import {
   saveBookCover,
 } from "../lib/books.js";
 import { renderPdfFirstPageCover } from "../lib/bookCovers.js";
+import { fetchFileFromUrl } from "../lib/fileAdapter.js";
 import { parseMobi } from "../lib/mobi.js";
 import { parsePdf } from "../lib/pdf.js";
 import {
@@ -35,13 +43,16 @@ const TEST_BOOK = {
 
 export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   const inputRef = useRef(null);
+  const importAbortControllerRef = useRef(null);
   const [books, setBooks] = useState([]);
   const [progressByBookId, setProgressByBookId] = useState({});
   const [directoryBookId, setDirectoryBookId] = useState(null);
   const [menuBookId, setMenuBookId] = useState(null);
   const [deletingBookId, setDeletingBookId] = useState(null);
   const [uploadState, setUploadState] = useState(null);
+  const [lastImportFile, setLastImportFile] = useState(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const directoryBook = books.find((book) => book.id === directoryBookId) || null;
   const latestReadText = getLatestReadText(progressByBookId);
 
@@ -79,35 +90,83 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   }
 
   async function importBookFile(file) {
+    if (uploadState) return;
+
     const format = getBookFormat(file);
     const formatLabel = getBookFormatLabel(format);
 
     if (!format) {
       setError("请上传 PDF 或 MOBI 文件。");
+      setNotice("");
+      setLastImportFile(null);
       return;
     }
 
+    try {
+      validateBookFileForImport(file, format);
+    } catch (importError) {
+      setError(humanizeBookImportError(importError, format));
+      setNotice("");
+      setLastImportFile(null);
+      return;
+    }
+
+    const abortController = new AbortController();
+    const startedAt = Date.now();
+    importAbortControllerRef.current = abortController;
+    setLastImportFile(file);
     setError("");
-    setUploadState({ fileName: file.name, current: 0, total: 0, phase: `解析 ${formatLabel}` });
+    setNotice("");
+    setUploadState(
+      buildImportUploadState(file, formatLabel, {
+        phase: "check-file",
+        detail: `${formatLabel} · ${formatFileSize(file.size)}`,
+        current: 0,
+        total: 1,
+        startedAt,
+      })
+    );
 
     try {
       const parser = format === BOOK_FORMATS.mobi ? parseMobi : parsePdf;
-      const parsed = await parser(file, ({ current, total }) => {
-        setUploadState({ fileName: file.name, current, total, phase: "提取文本" });
+      const parsed = await parser(file, {
+        signal: abortController.signal,
+        onProgress: (progress) => {
+          setUploadState(
+            buildImportUploadState(file, formatLabel, {
+              ...progress,
+              startedAt,
+            })
+          );
+        },
       });
+      assertImportNotCancelled(abortController.signal);
       setUploadState({
         fileName: file.name,
-        current: parsed.totalPages,
-        total: parsed.totalPages,
+        current: 1,
+        total: 1,
         phase: "保存到本地",
+        detail: `保存 ${parsed.totalPages} 个${format === BOOK_FORMATS.mobi ? "文本页" : "页面"}`,
+        canCancel: false,
+        startedAt,
       });
       const book = await createBookFromParsedFile(file, parsed);
       await refreshBooks();
       setUploadState(null);
+      setLastImportFile(null);
       onSetupBook(book.id);
     } catch (e) {
       setUploadState(null);
-      setError(e.message || `${formatLabel} 解析失败，请换一本书重试。`);
+      if (isBookImportAbortError(e)) {
+        setNotice("已取消导入，未保存任何内容。");
+      } else {
+        setError(humanizeBookImportError(e, format));
+        setLastImportFile(file);
+      }
+    } finally {
+      if (importAbortControllerRef.current === abortController) {
+        importAbortControllerRef.current = null;
+      }
     }
   }
 
@@ -121,15 +180,38 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
 
   async function handleImportTestBook() {
     try {
-      const response = await fetch(TEST_BOOK.url);
-      if (!response.ok) throw new Error("测试书文件读取失败。");
-      const blob = await response.blob();
-      const file = new File([blob], TEST_BOOK.fileName, { type: "application/pdf" });
+      const file = await fetchFileFromUrl(TEST_BOOK.url, TEST_BOOK.fileName, {
+        type: "application/pdf",
+        errorMessage: "测试书文件读取失败。",
+      });
       await importBookFile(file);
     } catch (e) {
       setUploadState(null);
       setError(e.message || "测试书导入失败，请稍后重试。");
+      setNotice("");
     }
+  }
+
+  function handleCancelImport() {
+    const controller = importAbortControllerRef.current;
+    if (!controller) return;
+
+    controller.abort();
+    setUploadState((current) =>
+      current
+        ? {
+            ...current,
+            phase: "正在取消",
+            detail: "会在当前步骤结束后停止，不会保存这本书。",
+            canCancel: false,
+          }
+        : current
+    );
+  }
+
+  async function handleRetryImport() {
+    if (!lastImportFile || uploadState) return;
+    await importBookFile(lastImportFile);
   }
 
   async function handleDeleteBook(book) {
@@ -194,12 +276,27 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         </div>
       </div>
 
-      {uploadState && <UploadProgress uploadState={uploadState} />}
+      {uploadState && <UploadProgress uploadState={uploadState} onCancel={handleCancelImport} />}
+
+      {notice && (
+        <p className="mt-4 rounded-lg border border-line bg-paper-card px-4 py-3 text-sm text-ink-soft">
+          {notice}
+        </p>
+      )}
 
       {error && (
-        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {error}
-        </p>
+        <div className="mt-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+          <p>{error}</p>
+          {lastImportFile && !uploadState && (
+            <button
+              type="button"
+              onClick={handleRetryImport}
+              className="shrink-0 rounded-lg border border-red-200 bg-white/75 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-white"
+            >
+              重试
+            </button>
+          )}
+        </div>
       )}
 
       {books.length === 0 ? (
@@ -251,20 +348,68 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   );
 }
 
-function UploadProgress({ uploadState }) {
+function buildImportUploadState(file, formatLabel, progress = {}) {
+  return {
+    fileName: file.name,
+    current: Number.isFinite(progress.current) ? progress.current : 0,
+    total: Number.isFinite(progress.total) ? progress.total : 0,
+    phase: getImportPhaseText(progress.phase, formatLabel),
+    detail: progress.detail || "",
+    canCancel: progress.canCancel !== false,
+    startedAt: progress.startedAt || Date.now(),
+  };
+}
+
+function getImportPhaseText(phase, formatLabel) {
+  switch (phase) {
+    case "check-file":
+      return "检查文件";
+    case "read-file":
+      return `读取 ${formatLabel}`;
+    case "open-document":
+      return `打开 ${formatLabel}`;
+    case "read-metadata":
+      return "读取目录";
+    case "extract-text":
+      return "提取文本";
+    case "save-book":
+      return "保存到本地";
+    default:
+      return `解析 ${formatLabel}`;
+  }
+}
+
+function UploadProgress({ uploadState, onCancel }) {
   const percent =
     uploadState.total > 0
-      ? Math.round((uploadState.current / uploadState.total) * 100)
+      ? Math.max(
+          uploadState.current > 0 ? 1 : 8,
+          Math.round((uploadState.current / uploadState.total) * 100)
+        )
       : 8;
 
   return (
     <section className="mt-6 rounded-lg border border-line bg-paper-card p-5 shadow-sm">
       <div className="flex items-center justify-between gap-4 text-sm">
-        <div>
+        <div className="min-w-0">
           <p className="font-medium text-ink">{uploadState.phase}</p>
-          <p className="mt-1 text-ink-soft">{uploadState.fileName}</p>
+          <p className="mt-1 truncate text-ink-soft">{uploadState.fileName}</p>
+          {uploadState.detail && (
+            <p className="mt-1 text-xs leading-5 text-ink-soft/80">{uploadState.detail}</p>
+          )}
         </div>
-        <span className="text-ink-soft">{percent}%</span>
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="text-ink-soft">{percent}%</span>
+          {uploadState.canCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-soft hover:bg-paper hover:text-ink"
+            >
+              取消
+            </button>
+          )}
+        </div>
       </div>
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-paper">
         <div

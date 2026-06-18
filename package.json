@@ -10,16 +10,24 @@
     "build": "vite build",
     "build:formal": "vite build --mode formal",
     "build:test": "vite build --mode test",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "tauri": "node node_modules/@tauri-apps/cli/tauri.js",
+    "tauri:dev": "npm run tauri -- dev",
+    "tauri:build": "npm run tauri -- build --bundles app",
+    "tauri:build:all": "npm run tauri -- build",
+    "icons:generate": "npm run tauri -- icon public/logo.svg",
+    "package:mac-local": "npm run tauri:build && ./scripts/build-local-dmg.sh"
   },
   "dependencies": {
     "@lingo-reader/mobi-parser": "^0.4.6",
+    "@tauri-apps/api": "^2.11.1",
     "localforage": "^1.10.0",
     "pdfjs-dist": "^4.7.76",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

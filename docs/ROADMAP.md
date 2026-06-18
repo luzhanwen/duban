@@ -1,10 +1,10 @@
 # 读伴 Roadmap
 
-> 最后更新：2026-06-15
+> 最后更新：2026-06-18
 
 这份文档用于维护「读伴」的产品路线图。它关注项目接下来要往哪里走、哪些事情优先做、每个阶段完成到什么程度算达标。
 
-文档分工见 [README.md](./README.md)。更细的需求背景、架构共识和开发日志见 [PROJECT_NOTES.md](./PROJECT_NOTES.md)，界面与交互演进见 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+文档分工见 [README.md](./README.md)。更细的需求背景、架构共识和开发日志见 [PROJECT_NOTES.md](./PROJECT_NOTES.md)，界面与交互演进见 [UI_CHANGELOG.md](./UI_CHANGELOG.md)，纯前端到桌面 App 的专项路线和实施日志见 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)，剩余生产级升级步骤见 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)。
 
 ## 产品定位
 
@@ -14,7 +14,7 @@
 
 ## 当前状态
 
-当前项目处于纯前端 MVP 阶段：
+当前项目处于浏览器 MVP + Tauri 桌面化阶段：
 
 - 用户可上传 PDF 或 MOBI，并在本地提取分页文本；PDF 使用原版页渲染，MOBI 使用文本页阅读。
 - 用户可确认书名、作者、章节结构和章节用途。
@@ -27,10 +27,12 @@
 - 从读前导入进入正文时支持克制的纸面翻页过渡，并对 reduced-motion 场景降级。
 - 正文阅读会根据书籍格式分流：PDF 默认渲染原版页并叠加可选中文字层，MOBI 使用文本阅读视图。
 - 书架正在测试封面优先形态：PDF 优先提取第一页作为封面，MOBI 或失败场景使用文字封面兜底。
-- 阅读位置、完成状态、聊天记录、导读、高亮和笔记都保存到 IndexedDB。
-- AI 调用采用 BYOK 模式，支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
+- 阅读位置、完成状态、聊天记录、导读、高亮和笔记在浏览器版保存到 IndexedDB；Tauri 桌面版已开始迁移到 SQLite + App 数据目录文件存储，书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流和章节导读缓存已结构化，桌面 API Key 已迁入系统 Keychain。
+- AI 调用采用 BYOK 模式，支持 Anthropic Claude 和 OpenAI-compatible Chat Completions；浏览器版仍直连模型服务，Tauri 桌面版已通过 Rust command 代理模型请求。
 - 设置页支持从预设 TXT 模板批量导入 AI 供应商、模型、Base URL、API Key 和价格配置，也支持把当前 AI 配置导出为 TXT。
 - 已支持手动生成章节导读、当前章节伴读问答、选中文字追问、高亮笔记、笔记管理和读后交流追问。
+- 已建立后端开发标准和后续 AI 接手提示词文档，用于约束 Tauri/Rust、SQLite、Keychain、备份、AI transport 和交接流程。
+- 已新增 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，将阶段 5 之后的数据可靠、正式发布、安全隐私、诊断、CI、QA、自动更新和 public alpha 拆成 P6.x 生产级升级步骤。
 
 ## 路线原则
 
@@ -120,12 +122,17 @@
 
 目标：降低 IndexedDB 作为唯一存储带来的长期风险。
 
+当前进展：
+
+- 已在设置页提供本地备份导出/导入。
+- 桌面版备份已升级为目录式 `manifest.json + files/` v3，包含书库、原始文件、分页文本、阅读进度、导读、笔记、聊天和读后交流，默认不包含 API Key。
+- 桌面版支持备份清单、导入前预览、校验报告、manifest/file sha256、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入。
+- 桌面版 schema 已到 `8`，schema 初始化已收束为显式迁移器入口。
+
 优先事项：
 
-- 支持导出书库元数据、阅读进度、导读、聊天记录和笔记。
-- 支持导入书库备份。
-- 评估是否导出原始 PDF，或只导出索引和用户数据。
-- 为未来 Tauri/Electron 桌面版、本地文件系统和 SQLite 预留迁移接口。
+- 为 schema 迁移和备份恢复继续建立固定测试夹具，覆盖旧库、旧备份目录、坏备份和大书库。
+- 后续评估 zip/tar 压缩归档、备份签名和原生外部目录选择器。
 
 完成标准：
 
@@ -136,12 +143,23 @@
 
 目标：决定读伴是继续作为浏览器工具，还是演进为桌面个人书库。
 
+App 化专项路线和每次实施记录维护在 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)。
+阶段 5 之后的生产级升级步骤维护在 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)。
+
+当前进展：
+
+- 已接入 Tauri 桌面壳，桌面版 AI 请求已通过 Rust command 代理。
+- 已完成阶段 5.2-5.9：桌面存储 schema 文档已建立；书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流和章节导读缓存已迁入结构化 SQLite 表；原始 PDF/MOBI 文件进 App 数据目录，桌面读取时使用本地文件引用；桌面 API Key 已迁入系统 Keychain；已提供目录式备份、导入前预览、校验报告、合并导入和显式 schema 迁移器。
+- 已建立 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md) 和 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md)，为后续后端扩展和 AI 接手提供固定标准。
+- 已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；正式签名、公证、自动更新和长期存储仍待后续阶段处理。
+- 已将剩余生产级工作拆成 P6.1-P6.12；P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件解析韧性主体已完成，后续继续进入 P6.4 AI transport 生产化。
+
 可能方向：
 
 - 浏览器版继续作为轻量试用和快速迭代入口。
 - 桌面版使用本地文件系统 + SQLite 管理长期书库。
 - 可选云同步只同步用户授权的数据，不默认上传 PDF 原文件。
-- 引入本地代理或后端代理，解决浏览器直连模型服务的 CORS 和密钥暴露问题。
+- 桌面版已引入 Tauri Rust command 作为本地模型请求代理；浏览器版后续仍可评估是否需要后端代理。
 
 完成标准：
 
@@ -177,8 +195,12 @@
 
 ### 数据与工程
 
-- 导出/导入。
-- 数据 schema 版本和迁移。
+- 生产级数据安全收口后续：迁移夹具、压缩归档、备份签名和更友好的跨设备迁移入口。
+- 大文件解析韧性主体已完成：文件大小/页数限制、进度、取消、重试和友好错误；后续补更完整的大书/坏书回归样本和“稍后解析”降级路径。
+- AI transport 生产化：请求取消、超时、重试、错误映射和调用诊断。
+- 本地诊断包：日志脱敏、数据库健康检查、备份清单和错误诊断码。
+- 正式 macOS 签名、公证、发布包和自动更新。
+- CI、发布流水线、QA 矩阵和回归样本。
 - 更完整的错误边界和空状态。
 - 关键本地存储读写的测试。
 - 构建产物体积优化。
@@ -197,3 +219,4 @@
 - 每次新增较大的需求时，先放入 Backlog，再决定归属阶段。
 - 如果路线发生变化，优先更新「路线原则」和「阶段路线」，再更新开发日志。
 - `ROADMAP.md` 记录方向和优先级，`PROJECT_NOTES.md` 记录背景、细节和日志。
+- 从纯前端到桌面 App 的工程推进，追加记录到 `APP_EVOLUTION_LOG.md`。
