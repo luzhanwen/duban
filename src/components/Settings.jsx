@@ -36,12 +36,12 @@ const PROVIDER_OPTIONS = [
   {
     value: PROVIDERS.anthropic,
     label: "Anthropic Claude",
-    desc: "使用 Claude Messages API，适合当前默认导读能力。",
+    desc: "使用 Claude 官方接口，适合日常导读、问答和读后交流。",
   },
   {
     value: PROVIDERS.openaiCompatible,
     label: "OpenAI-compatible",
-    desc: "兼容 OpenAI Chat Completions，可用于 OpenAI、Kimi、DeepSeek 等服务。",
+    desc: "用于 OpenAI、Kimi、DeepSeek 等支持兼容接口的服务。",
   },
 ];
 
@@ -127,27 +127,27 @@ const SETTINGS_PANELS = [
   {
     id: "ai",
     label: "AI 服务",
-    desc: "模型、密钥与连接测试",
+    desc: "选择模型，保存密钥",
   },
   {
     id: "config",
     label: "批量配置",
-    desc: "TXT 导入与配置导出",
+    desc: "用 TXT 一次导入",
   },
   {
     id: "backup",
     label: "数据备份",
-    desc: "书库迁移与恢复",
+    desc: "导出和恢复书库",
   },
   {
     id: "privacy",
     label: "隐私安全",
-    desc: "BYOK 与本地数据边界",
+    desc: "本地保存与发送范围",
   },
   {
     id: "advanced",
-    label: "高级维护",
-    desc: "危险操作集中管理",
+    label: "清空数据",
+    desc: "删除本机全部内容",
   },
 ];
 
@@ -414,9 +414,9 @@ export default function Settings({ onOpenPrivacy }) {
       [
         `准备${modeText}这个备份。`,
         backupImportMode === "merge"
-          ? "合并导入会保留当前书库中备份没有涉及的数据；同 id 书籍和同 key 数据会以备份为准。"
+          ? "合并导入会保留现有书库；如果备份里有同一本书，会用备份版本更新。"
           : "覆盖恢复会清空当前书库、进度、笔记和聊天，再恢复备份内容。",
-        "备份不包含 API Key；桌面版会保留当前 Keychain 中的 API Key。",
+        "备份不包含 API Key；当前已保存的密钥会保留。",
         "",
         "是否继续？",
       ].join("\n")
@@ -446,7 +446,7 @@ export default function Settings({ onOpenPrivacy }) {
   async function handlePreviewExternalBackup() {
     const path = externalBackupPath.trim();
     if (!path) {
-      setBackupMsg({ type: "warn", text: "请先填写外部备份目录或 manifest.json 路径。" });
+      setBackupMsg({ type: "warn", text: "请先填写外部备份的文件夹路径或清单文件路径。" });
       return;
     }
 
@@ -477,9 +477,9 @@ export default function Settings({ onOpenPrivacy }) {
       [
         `准备${modeText}这个外部备份。`,
         externalBackupPreview.issues.some((issue) => issue.severity === "error")
-          ? "当前校验报告有错误，不能导入。"
-          : "导入前会再次校验 manifest 和原始文件 hash；失败会自动恢复导入前状态。",
-        "备份不包含 API Key；桌面版会保留当前 Keychain 中的 API Key。",
+          ? "这个备份还有错误，暂时不能导入。"
+          : "导入前会再次检查备份完整性；如果导入失败，会尽量恢复到导入前状态。",
+        "备份不包含 API Key；当前已保存的密钥会保留。",
         "",
         "是否继续？",
       ].join("\n")
@@ -523,7 +523,7 @@ export default function Settings({ onOpenPrivacy }) {
       const preview = await updateLocalBackupMetadata(selectedBackupId, { label, notes });
       setBackupPreview(preview);
       await refreshDesktopBackups(selectedBackupId);
-      setBackupMsg({ type: "ok", text: "已更新备份名称和备注，并重新写入 manifest 校验和。" });
+      setBackupMsg({ type: "ok", text: "已更新备份名称和备注。" });
     } catch (e) {
       setBackupMsg({
         type: "error",
@@ -581,9 +581,9 @@ export default function Settings({ onOpenPrivacy }) {
       [
         `备份预览：${preview.bookCount} 本书，${preview.fileCount} 个文件，${preview.pageCount} 页文本，${preview.noteCount} 条笔记，${preview.chatCount} 条聊天。`,
         backupImportMode === "merge"
-          ? "合并导入会保留当前书库中备份没有涉及的数据；同 id 书籍和同 key 数据会以备份为准。"
+          ? "合并导入会保留现有书库；如果备份里有同一本书，会用备份版本更新。"
           : "覆盖恢复会清空当前书库、进度、笔记、聊天和本地设置。",
-        "备份文件不包含 API Key；桌面版会保留当前 Keychain 中的 API Key，浏览器版会尽量保留当前浏览器中的 API Key。",
+        "备份文件不包含 API Key；当前已保存的密钥会尽量保留。",
         "",
         "是否继续导入？",
       ].join("\n")
@@ -623,8 +623,8 @@ export default function Settings({ onOpenPrivacy }) {
       setTestMsg({
         type: "error",
         text: hasSavedActiveKey
-          ? "本机已保存当前供应商的 API Key；设置页测试连接不会自动读取它。若要重新测试，请临时粘贴 Key。"
-          : "请先填写当前供应商的 API Key。桌面版设置页不会自动读取已保存的 Keychain 密钥，以避免系统密码弹窗。",
+          ? "本机已经保存过这个供应商的 API Key。测试连接需要你临时粘贴一次 Key，避免直接读取已保存密钥。"
+          : "请先填写当前供应商的 API Key。桌面版不会在打开设置页时自动读取已保存密钥。",
       });
       return;
     }
@@ -708,9 +708,9 @@ export default function Settings({ onOpenPrivacy }) {
         "",
         `目标地址：${assessment.normalizedBaseUrl}`,
         "",
-        "测试连接和生成内容时，读伴会把你的 API Key 与必要的阅读文本发送到这个地址。读伴无法验证该服务是否可信。",
+        "测试连接和生成内容时，API Key 和必要的阅读文本会发送到这个地址。请确认它是你信任的服务或本地代理。",
         "",
-        "请只在你完全信任这个服务商或本地代理时继续。是否确认使用？",
+        "确认继续使用吗？",
       ].join("\n")
     );
 
@@ -726,7 +726,7 @@ export default function Settings({ onOpenPrivacy }) {
     return false;
   }
 
-  const storageLabel = desktopBackupAvailable ? "系统 Keychain" : "IndexedDB";
+  const storageLabel = desktopBackupAvailable ? "系统钥匙串" : "浏览器本地存储";
   const activeProviderOption =
     PROVIDER_OPTIONS.find((option) => option.value === provider) || PROVIDER_OPTIONS[0];
   const activeModelName =
@@ -744,10 +744,10 @@ export default function Settings({ onOpenPrivacy }) {
       <div className="settings-shell">
         <header className="settings-hero">
           <div>
-            <p className="settings-kicker">Preferences</p>
+            <p className="settings-kicker">偏好设置</p>
             <h2 className="settings-title">设置</h2>
             <p className="settings-subtitle">
-              管理读伴的模型服务、本地数据和安全边界。高频配置放在前面，低频维护收进独立面板。
+              在这里连接模型、保存密钥、备份书库，并确认哪些数据会离开本机。
             </p>
           </div>
           <div className="settings-status-grid" aria-label="当前设置状态">
@@ -755,7 +755,7 @@ export default function Settings({ onOpenPrivacy }) {
             <StatusTile
               label="密钥"
               value={activeHasSavedKey ? "已保存" : "待配置"}
-              detail={activeHasSavedKey ? storageLabel : "当前供应商"}
+              detail={activeHasSavedKey ? storageLabel : "需要填写"}
               tone={activeHasSavedKey ? "ok" : "warn"}
             />
             <StatusTile label="备份" value={backupStatusText} detail="不包含 API Key" />
@@ -778,9 +778,9 @@ export default function Settings({ onOpenPrivacy }) {
             {activePanel === "ai" && (
               <SettingsPanel>
                 <SettingsPanelHeader
-                  kicker="Model Control"
+                  kicker="模型连接"
                   title="AI 服务"
-                  desc="配置读伴生成导读、问答和读后交流时使用的默认模型。"
+                  desc="选择导读、问答和读后交流要使用的模型。"
                 />
 
                 <SettingsSection
@@ -809,7 +809,7 @@ export default function Settings({ onOpenPrivacy }) {
                       ? "Claude 配置"
                       : "OpenAI-compatible 配置"
                   }
-                  desc="密钥留空保存不会覆盖桌面版 Keychain 中已保存的密钥。"
+                  desc="如果已经保存过密钥，留空保存不会删掉它。"
                 >
                   {provider === PROVIDERS.anthropic ? (
                     <AnthropicSettings
@@ -845,17 +845,17 @@ export default function Settings({ onOpenPrivacy }) {
                   )}
                 </SettingsSection>
 
-                <SettingsSection title="连接边界" compact>
+                <SettingsSection title="请求会发送到哪里" compact>
                   <p className="settings-note">
-                    浏览器版直连 OpenAI-compatible 服务时，部分服务可能因为 CORS 策略无法调用。
-                    自定义 Base URL 会在测试连接和生成内容时接收 API Key 与必要阅读文本。
+                    测试连接和生成内容时，API Key 与必要的阅读文本会发送给当前模型服务。
+                    如果填写自定义 Base URL，请确认这个地址可信。
                   </p>
                 </SettingsSection>
 
                 <div className="settings-save-bar">
                   <div>
                     <p className="settings-save-title">模型配置</p>
-                    <p className="settings-save-subtitle">保存后会用于后续导读、问答和读后交流。</p>
+                    <p className="settings-save-subtitle">保存后，新的导读和问答会使用这套配置。</p>
                   </div>
                   <div className="settings-save-actions">
                     <button type="button" onClick={handleTest} disabled={testing} className="settings-secondary-button">
@@ -878,13 +878,13 @@ export default function Settings({ onOpenPrivacy }) {
             {activePanel === "config" && (
               <SettingsPanel>
                 <SettingsPanelHeader
-                  kicker="Bulk Setup"
+                  kicker="快速导入"
                   title="批量配置"
-                  desc="用 TXT 模板快速写入供应商、模型、Base URL、价格和 API Key。"
+                  desc="用一份 TXT 文件填好模型服务、价格和 API Key。"
                 />
                 <SettingsSection
                   title="AI 批量配置"
-                  desc="模板已预填常用供应商，只需要粘贴要使用的 API Key。导入会立即保存到本地。"
+                  desc="适合换设备或一次配置多个模型。导入后会直接保存到本机。"
                 >
                   <input
                     ref={configInputRef}
@@ -917,7 +917,7 @@ export default function Settings({ onOpenPrivacy }) {
                     </button>
                   </div>
                   <p className="settings-note">
-                    如果配置里包含非官方 Base URL，会先要求确认。下载当前配置会包含 API Key，请只保存在可信位置。
+                    下载当前配置会包含 API Key。请只保存在你信任的位置，不要发给别人。
                   </p>
                   {configMsg && <Hint msg={configMsg} />}
                 </SettingsSection>
@@ -927,9 +927,9 @@ export default function Settings({ onOpenPrivacy }) {
             {activePanel === "backup" && (
               <SettingsPanel>
                 <SettingsPanelHeader
-                  kicker="Local Library"
+                  kicker="本地书库"
                   title="数据备份"
-                  desc="导出、预览、校验和恢复本地书库数据。备份默认不包含 API Key。"
+                  desc="导出或恢复书籍、进度、笔记、聊天和读后交流。备份默认不包含 API Key。"
                 />
                 <input
                   ref={backupInputRef}
@@ -941,7 +941,7 @@ export default function Settings({ onOpenPrivacy }) {
 
                 <SettingsSection
                   title="备份操作"
-                  desc="桌面版导出目录式备份；浏览器版导出 JSON 备份。"
+                  desc="导出一份可恢复的书库备份，或从已有备份恢复。"
                 >
                   <div className="settings-action-row">
                     <button
@@ -1045,10 +1045,10 @@ export default function Settings({ onOpenPrivacy }) {
                 )}
 
                 {desktopBackupAvailable && (
-                  <SettingsSection title="外部备份" desc="填写备份目录或 manifest.json 路径，先预览校验再导入。">
+                  <SettingsSection title="外部备份" desc="如果备份不在默认位置，可以在这里填写路径后导入。">
                     <div className="settings-inline-form">
                       <label className="settings-field">
-                        <span>外部备份目录或 manifest.json 路径</span>
+                        <span>外部备份路径</span>
                         <input
                           value={externalBackupPath}
                           onChange={(event) => {
@@ -1099,9 +1099,9 @@ export default function Settings({ onOpenPrivacy }) {
                   </SettingsSection>
                 )}
 
-                <SettingsSection title="备份边界" compact>
+                <SettingsSection title="备份不会包含什么" compact>
                   <p className="settings-note">
-                    桌面版备份会校验 manifest 和文件 hash，失败会自动回滚到导入前状态。导入不会从备份恢复 API Key。
+                    备份不会恢复 API Key。桌面版导入失败时，会尽量恢复到导入前的书库状态。
                   </p>
                   {backupMsg && <Hint msg={backupMsg} />}
                 </SettingsSection>
@@ -1111,24 +1111,24 @@ export default function Settings({ onOpenPrivacy }) {
             {activePanel === "privacy" && (
               <SettingsPanel>
                 <SettingsPanelHeader
-                  kicker="Trust Boundary"
+                  kicker="数据去向"
                   title="隐私安全"
-                  desc="读伴默认把书籍、笔记、聊天和 API Key 保存在本机。"
+                  desc="查看哪些内容保存在本机，哪些内容会发给模型服务。"
                 />
-                <SettingsSection title="隐私与数据" desc="查看完整说明，确认哪些数据会留在本地、哪些会发送给模型服务商。">
+                <SettingsSection title="隐私与数据" desc="模型生成导读或回答时，只会发送完成这次请求所需的文本。">
                   <div className="settings-security-grid">
-                    <StatusTile label="浏览器版" value="IndexedDB" detail="书库与 API Key" />
-                    <StatusTile label="桌面版" value="SQLite + Keychain" detail="书库与密钥分离" />
-                    <StatusTile label="AI 请求" value="BYOK" detail="发送给所选服务商" />
+                    <StatusTile label="浏览器版" value="浏览器本地存储" detail="书库与 API Key" />
+                    <StatusTile label="桌面版" value="本机数据库 + 系统钥匙串" detail="书库与密钥分开保存" />
+                    <StatusTile label="模型请求" value="使用你的 Key" detail="发送给所选服务商" />
                   </div>
                   <button type="button" onClick={onOpenPrivacy} className="settings-secondary-button">
                     查看隐私说明
                   </button>
                 </SettingsSection>
-                <SettingsSection title="BYOK 安全提醒" compact>
+                <SettingsSection title="使用自己的 API Key" compact>
                   <div className="settings-copy-stack">
                     <p>
-                      浏览器版会把 API Key 保存在当前浏览器 IndexedDB；桌面版会把 API Key 保存在系统 Keychain。
+                      浏览器版会把 API Key 保存在当前浏览器；桌面版会把 API Key 保存在系统钥匙串。
                     </p>
                     <p>
                       桌面版进入设置页时不会自动把已保存密钥读回输入框，避免打开设置页就触发系统密码弹窗。
@@ -1144,9 +1144,9 @@ export default function Settings({ onOpenPrivacy }) {
             {activePanel === "advanced" && (
               <SettingsPanel>
                 <SettingsPanelHeader
-                  kicker="Maintenance"
-                  title="高级维护"
-                  desc="低频、不可逆或需要谨慎确认的操作集中放在这里。"
+                  kicker="谨慎操作"
+                  title="清空数据"
+                  desc="删除本机保存的书籍、进度、笔记、聊天和设置。"
                 />
                 <SettingsSection title="清空数据" desc="删除所有本地数据，包括书籍、进度、聊天记录和设置。">
                   <div className="settings-danger-zone">
@@ -1233,7 +1233,7 @@ function BackupMetricGrid({ preview, compact = false }) {
     ["聊天", preview.chatCount],
     ["读后交流", preview.reflectionCount],
     ["校验", preview.issues?.length ? `${preview.issues.length} 项提示` : "通过"],
-    ["manifest", preview.manifestSha256 ? preview.manifestSha256.slice(0, 12) : "旧版未记录"],
+    ["备份校验码", preview.manifestSha256 ? preview.manifestSha256.slice(0, 12) : "旧版未记录"],
   ];
 
   return (
@@ -1433,12 +1433,12 @@ function KeyInput({
   const hasDraftKey = Boolean(value.trim());
   const statusText = hasDraftKey
     ? hasSavedKey
-      ? `已填写新 Key；保存后会更新${storageLabel}中的密钥。`
-      : `已填写 Key；保存后会写入${storageLabel}。`
+      ? `已填写新 Key；保存后会替换${storageLabel}里的密钥。`
+      : `已填写 Key；保存后会保存在${storageLabel}。`
     : hasSavedKey
     ? `已保存 Key（不会显示明文）；留空保存会继续保留。`
     : keyStatusUnknown
-    ? "未读取 Keychain，保存状态未知；如果之前保存过 Key，它仍会保留。填写并保存新 Key 后会显示已保存。"
+    ? "没有读取已保存密钥；如果之前保存过，留空也会继续保留。填写并保存新 Key 后会更新状态。"
     : "尚未保存 Key。";
   const statusColor = hasDraftKey
     ? "text-amber-700"

@@ -432,7 +432,7 @@ function EmptyShelf({ onUpload }) {
       </div>
       <h3 className="font-serif text-2xl text-ink">从第一本书开始</h3>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink-soft">
-        当前阶段会先完成本地文本提取、目录猜测和章节确认。图片与表格暂时只作为文本上下文中的弱信息处理。
+        导入 PDF 或 MOBI 后，可以确认目录、生成阅读计划，再按章节开始阅读。图片和复杂表格目前不会完整还原。
       </p>
       <button
         type="button"

@@ -16,8 +16,8 @@ import { cleanText } from "./text.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const CHAPTER_PATTERNS = [
-  /^第[一二三四五六七八九十百千万\d]+[章节篇部卷]\s*.+/,
-  /^第[一二三四五六七八九十百千万\d]+[章节篇部卷]$/,
+  /^第[一二三四五六七八九十百千万\d]+[章节篇编部卷]\s*.+/,
+  /^第[一二三四五六七八九十百千万\d]+[章节篇编部卷]$/,
   /^chapter\s+[ivxlcdm\d]+[:.\s-]*.+/i,
   /^chapter\s+[ivxlcdm\d]+$/i,
   /^part\s+[ivxlcdm\d]+[:.\s-]*.+/i,
@@ -25,6 +25,16 @@ const CHAPTER_PATTERNS = [
   /^\d{1,2}[.、]\s*.{2,50}$/,
   /^\d{1,2}\.\d{1,2}\s*.{2,50}$/,
 ];
+const REJECT_CHAPTER_PATTERNS = [
+  /^第[一二三四五六七八九十百千万\d]+章\s*引语引自/i,
+  /^\d{1,2}\s*(年|世纪|月|日|岁|支|个|世纪[，,])/,
+  /^\d{1,2}\s*[、.]\s*\d{1,2}\s*世纪/,
+];
+const MAX_CHAPTER_CANDIDATES = 120;
+const LAYOUT_HEADING_SCAN_LINES = 8;
+const LAYOUT_HEADING_CONTINUATION_LINES = 2;
+const LAYOUT_HEADING_MIN_SIZE = 18;
+const LAYOUT_LINE_Y_TOLERANCE = 2;
 
 export async function parsePdf(file, optionsOrProgress) {
   const { onProgress, signal } = normalizeParseOptions(optionsOrProgress);
@@ -75,6 +85,7 @@ export async function parsePdf(file, optionsOrProgress) {
     assertImportNotCancelled(signal);
 
     const pages = [];
+    const layoutChapters = [];
     let extractedChars = 0;
 
     for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
@@ -83,6 +94,8 @@ export async function parsePdf(file, optionsOrProgress) {
       assertImportNotCancelled(signal);
       const textContent = await page.getTextContent();
       assertImportNotCancelled(signal);
+      const layoutChapter = guessChapterFromTextContent(textContent, pageNumber);
+      if (layoutChapter) layoutChapters.push(layoutChapter);
       const text = textContent.items
         .map((item) => ("str" in item ? item.str : ""))
         .join(" ")
@@ -103,18 +116,23 @@ export async function parsePdf(file, optionsOrProgress) {
 
     validateExtractedTextPresence(BOOK_FORMATS.pdf, extractedChars);
 
-    const chapters =
-      outlineChapters.length > 0
-        ? outlineChapters
-        : guessChaptersFromText(pages, totalPages);
+    const textChapters = guessChaptersFromText(pages, totalPages);
+    const detected = chooseChapterCandidates(
+      [
+        { source: "outline", chapters: outlineChapters },
+        { source: "layout", chapters: layoutChapters },
+        { source: "text", chapters: textChapters },
+      ],
+      totalPages
+    );
 
     return {
       title: cleanTitle(metadata.title) || guessTitleFromFile(file.name),
       author: stringifyMetadataValue(metadata.author),
       totalPages,
       pages,
-      chapters: buildChapterRanges(chapters, totalPages),
-      detectionSource: outlineChapters.length > 0 ? "outline" : "text",
+      chapters: buildChapterRanges(detected.chapters, totalPages),
+      detectionSource: detected.source,
       format: BOOK_FORMATS.pdf,
     };
   } finally {
@@ -139,20 +157,67 @@ async function readOutlineChapters(pdf, totalPages, signal) {
   const outline = await pdf.getOutline().catch(() => null);
   if (!outline || outline.length === 0) return [];
 
-  const topLevel = [];
-  for (const item of outline) {
+  const entries = [];
+  await collectOutlineEntries({
+    pdf,
+    items: outline,
+    totalPages,
+    signal,
+    level: 0,
+    entries,
+  });
+
+  return pickBestOutlineLevel(entries, totalPages);
+}
+
+async function collectOutlineEntries({ pdf, items, totalPages, signal, level, entries }) {
+  for (const item of items || []) {
     assertImportNotCancelled(signal);
     const page = await getOutlinePage(pdf, item.dest);
-    if (page && page <= totalPages) {
-      topLevel.push({
+    const title = normalizeLine(item.title);
+    if (title && page && page <= totalPages) {
+      entries.push({
+        level,
         title: normalizeLine(item.title),
         startPage: page,
         source: "outline",
       });
     }
+    if (item.items?.length) {
+      await collectOutlineEntries({
+        pdf,
+        items: item.items,
+        totalPages,
+        signal,
+        level: level + 1,
+        entries,
+      });
+    }
+  }
+}
+
+function pickBestOutlineLevel(entries, totalPages) {
+  const groups = new Map();
+  for (const entry of entries) {
+    if (!groups.has(entry.level)) groups.set(entry.level, []);
+    groups.get(entry.level).push(entry);
   }
 
-  return dedupeChapters(topLevel).slice(0, 80);
+  let best = [];
+  let bestScore = -Infinity;
+  for (const chapters of groups.values()) {
+    const normalized = normalizeChapterCandidates(chapters, totalPages).slice(
+      0,
+      MAX_CHAPTER_CANDIDATES
+    );
+    const score = scoreChapterCandidates(normalized, totalPages, "outline");
+    if (score > bestScore) {
+      best = normalized;
+      bestScore = score;
+    }
+  }
+
+  return best;
 }
 
 async function getOutlinePage(pdf, dest) {
@@ -187,7 +252,7 @@ function guessChaptersFromText(pages, totalPages) {
     }
   }
 
-  const chapters = dedupeChapters(candidates).slice(0, 80);
+  const chapters = dedupeChapters(candidates).slice(0, MAX_CHAPTER_CANDIDATES);
   if (chapters.length > 0) return chapters;
 
   return [
@@ -200,10 +265,218 @@ function guessChaptersFromText(pages, totalPages) {
   ];
 }
 
+function guessChapterFromTextContent(textContent, pageNumber) {
+  const lines = extractTextContentLines(textContent).slice(0, LAYOUT_HEADING_SCAN_LINES);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.fontSize < LAYOUT_HEADING_MIN_SIZE) continue;
+    if (!isLikelyChapterTitle(line.text)) continue;
+
+    const titleParts = [line.text];
+    for (
+      let offset = 1;
+      offset <= LAYOUT_HEADING_CONTINUATION_LINES && index + offset < lines.length;
+      offset += 1
+    ) {
+      const next = lines[index + offset];
+      const sizeDelta = Math.abs(next.fontSize - line.fontSize);
+      if (next.fontSize < LAYOUT_HEADING_MIN_SIZE) break;
+      if (sizeDelta > line.fontSize * 0.35) break;
+      if (isLikelyChapterTitle(next.text)) break;
+      if (next.text.length > 80) break;
+      titleParts.push(next.text);
+    }
+
+    const title = normalizeDetectedChapterTitle(titleParts.join(" "));
+    if (title) {
+      return {
+        title,
+        startPage: pageNumber,
+        source: "layout",
+      };
+    }
+  }
+
+  return null;
+}
+
+function extractTextContentLines(textContent) {
+  const groups = [];
+
+  for (const item of textContent.items || []) {
+    const str = "str" in item ? item.str : "";
+    if (!str.trim()) continue;
+
+    const transform = Array.isArray(item.transform) ? item.transform : [];
+    const x = Number(transform[4]) || 0;
+    const y = Number(transform[5]) || 0;
+    const fontSize =
+      Math.hypot(Number(transform[2]) || 0, Number(transform[3]) || 0) ||
+      Number(item.height) ||
+      0;
+
+    let group = groups.find(
+      (candidate) => Math.abs(candidate.y - y) <= LAYOUT_LINE_Y_TOLERANCE
+    );
+    if (!group) {
+      group = { y, items: [], fontSize: 0 };
+      groups.push(group);
+    }
+    group.items.push({ x, str });
+    group.fontSize = Math.max(group.fontSize, fontSize);
+  }
+
+  return groups
+    .sort((a, b) => b.y - a.y)
+    .map((group) => ({
+      text: normalizeLine(
+        group.items
+          .sort((a, b) => a.x - b.x)
+          .map((item) => item.str)
+          .join("")
+      ),
+      fontSize: group.fontSize,
+    }))
+    .filter((line) => line.text);
+}
+
+function chooseChapterCandidates(options, totalPages) {
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const option of options) {
+    const chapters = normalizeChapterCandidates(option.chapters, totalPages).slice(
+      0,
+      MAX_CHAPTER_CANDIDATES
+    );
+    const score = scoreChapterCandidates(chapters, totalPages, option.source);
+    if (score > bestScore) {
+      best = {
+        source: option.source,
+        chapters,
+      };
+      bestScore = score;
+    }
+  }
+
+  if (!best || best.chapters.length === 0) {
+    return {
+      source: "fallback",
+      chapters: [{ title: "全文", startPage: 1, endPage: totalPages, source: "fallback" }],
+    };
+  }
+
+  if (best.chapters.every((chapter) => chapter.source === "fallback")) {
+    return { ...best, source: "fallback" };
+  }
+
+  return best;
+}
+
+function scoreChapterCandidates(chapters, totalPages, source) {
+  if (!chapters.length) return -Infinity;
+  if (chapters.every((chapter) => chapter.source === "fallback")) return -500;
+
+  let score = Math.min(chapters.length, 80) * 3;
+  const mainChapterCount = chapters.filter((chapter) =>
+    isMainChapterHeading(chapter.title)
+  ).length;
+  score += mainChapterCount * 2;
+
+  if (source === "outline") score += 24;
+  if (source === "layout") score += 32;
+  if (source === "text") {
+    score -= 80;
+    score -= (chapters.length - mainChapterCount) * 4;
+  }
+
+  if (chapters.length === 1) score -= 120;
+
+  const maxSpan = chapters.reduce((currentMax, chapter, index) => {
+    const next = chapters[index + 1];
+    const endPage = next ? next.startPage - 1 : totalPages;
+    return Math.max(currentMax, Math.max(1, endPage - chapter.startPage + 1));
+  }, 1);
+  const maxSpanRatio = maxSpan / Math.max(1, totalPages);
+  if (maxSpanRatio > 0.9) score -= 80;
+  else if (maxSpanRatio > 0.75) score -= 40;
+
+  return score;
+}
+
+function normalizeChapterCandidates(chapters, totalPages) {
+  const normalized = dedupeChapters(chapters)
+    .map((chapter) => ({
+      ...chapter,
+      startPage: Number(chapter.startPage),
+    }))
+    .filter(
+      (chapter) =>
+        Number.isFinite(chapter.startPage) &&
+        chapter.startPage >= 1 &&
+        chapter.startPage <= totalPages
+    )
+    .sort((a, b) => a.startPage - b.startPage);
+
+  return removeStructuralPartHeadings(normalized);
+}
+
 function isLikelyChapterTitle(line) {
-  if (line.length < 2 || line.length > 70) return false;
-  if (/^\d+$/.test(line)) return false;
-  return CHAPTER_PATTERNS.some((pattern) => pattern.test(line));
+  const normalized = normalizeLine(line);
+  if (normalized.length < 2 || normalized.length > 70) return false;
+  if (/^\d+$/.test(normalized)) return false;
+  if (REJECT_CHAPTER_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+  return CHAPTER_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function removeStructuralPartHeadings(chapters) {
+  const chapterHeadingCount = chapters.filter((chapter) =>
+    isMainChapterHeading(chapter.title)
+  ).length;
+  if (chapterHeadingCount < 3) return chapters;
+
+  const kept = [];
+  for (const chapter of chapters) {
+    if (isStructuralPartHeading(chapter.title)) {
+      const previous = kept[kept.length - 1];
+      if (previous && previous.startPage < chapter.startPage) {
+        previous.endPage = Math.min(
+          previous.endPage || chapter.startPage - 1,
+          chapter.startPage - 1
+        );
+      }
+      continue;
+    }
+    kept.push(chapter);
+  }
+
+  return kept;
+}
+
+function isMainChapterHeading(title) {
+  const normalized = normalizeLine(title);
+  return (
+    /^第[一二三四五六七八九十百千万\d]+章/.test(normalized) ||
+    /^chapter\s+[ivxlcdm\d]+/i.test(normalized)
+  );
+}
+
+function isStructuralPartHeading(title) {
+  const normalized = normalizeLine(title);
+  return (
+    /^第[一二三四五六七八九十百千万\d]+编(?:\s|$)/.test(normalized) ||
+    /^part\s+[ivxlcdm\d]+(?:\s|[:.\-—–]|$)/i.test(normalized)
+  );
+}
+
+function normalizeDetectedChapterTitle(value) {
+  return normalizeLine(value).replace(
+    /^(第[一二三四五六七八九十百千万\d]+[章节篇编部卷])(?=\S)/,
+    "$1 "
+  );
 }
 
 function buildChapterRanges(chapters, totalPages) {

@@ -893,7 +893,7 @@ function IntroStage({
     <div className="reader-intro-page min-h-screen bg-paper px-6 py-8">
       {readingTransitioning && (
         <span className="sr-only" role="status" aria-live="polite">
-          正在翻开这一章
+          正在进入阅读页
         </span>
       )}
       <div className="reader-intro-topbar mx-auto flex max-w-4xl items-center justify-between gap-4">
@@ -917,7 +917,7 @@ function IntroStage({
 
         <section className="reader-intro-card mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm">
           <p className="text-xs font-medium text-ink-soft">
-            <BrandName />开场
+            读前提示
           </p>
           <p className="reader-bridge-text mt-3 text-lg leading-9 text-ink">{bridge}</p>
 
@@ -1420,10 +1420,10 @@ function ReflectionStage({
           {toText(book.title)} · Day {item.day}
         </p>
         <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-          读完以后，先停一下
+          读完后，留一个判断
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          这一章不急着合上。先和<BrandName />聊几轮，把你的理解、疑惑和章节里的细节接起来。
+          先不急着总结全章。把印象最深的一处、一个疑问或一个判断写下来，再顺着它往下看。
         </p>
 
         <section className="mt-10 flex min-h-[520px] flex-col rounded-xl border border-line bg-paper-card p-4 shadow-sm sm:p-5">
@@ -1433,7 +1433,7 @@ function ReflectionStage({
                 <BrandName />追问
               </h2>
               <p className="mt-1 text-sm text-ink-soft">
-                {answered ? "继续顺着你的回答往下想。" : <>先回答<BrandName />的第一个问题。</>}
+                {answered ? "沿着刚才的判断继续。" : "先回答下面这个问题。"}
               </p>
             </div>
             <div className="mt-3 flex flex-col items-start gap-2 sm:mt-0 sm:items-end">
@@ -1497,7 +1497,7 @@ function ReflectionStage({
               onKeyDown={handleTextareaKeyDown}
               rows={3}
               disabled={loading}
-              placeholder="用自己的话回答。Enter 发送，Shift+Enter 换行。"
+              placeholder="写下你的理解、疑问或一个具体细节。Enter 发送，Shift+Enter 换行。"
               className="w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent disabled:opacity-60"
             />
             <button
@@ -1505,7 +1505,7 @@ function ReflectionStage({
               disabled={!draft.trim() || loading}
               className="mt-3 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
             >
-              {loading ? "等待追问…" : <>回答<BrandName /></>}
+              {loading ? "等待追问…" : "发送回答"}
             </button>
           </form>
         </section>
@@ -1586,13 +1586,13 @@ function DailyCompleteStage({
           {toText(book.title)} · Day {item.day}
         </p>
         <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-          恭喜，今天的阅读任务完成了
+          今天这段读完了
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          你已经读完「{item.title}」。今天可以在这里停下，让这一章慢慢沉淀；
+          你已经读完「{item.title}」。可以到这里收住，留一点时间把问题放稳；
           {hasNext && nextDue
-            ? "下一项已经到了计划日，也可以继续进入下一项。"
-            : "也可以选择提前进入下一章，但它会被视为额外阅读。"}
+            ? "下一项已经到了计划日，也可以继续往前读。"
+            : "也可以提前进入下一章，系统会记录为提前阅读。"}
         </p>
 
         <section className="mt-10 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
@@ -1667,13 +1667,13 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
       {!guide && !disabled && !error && !loading && (
         <div className="guide-empty-callout rounded-lg bg-paper px-5 py-4">
           <p className="text-sm leading-6 text-ink-soft">
-            生成导读后，<BrandName />会先帮你整理今天的阅读目标和读前问题。
+            生成后会看到一段读前提示，以及今天最值得带走的目标和问题。
           </p>
           <button
             onClick={onGenerate}
             className="guide-primary-button mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
-            生成今日导读
+            生成读前提示
           </button>
         </div>
       )}
@@ -1686,8 +1686,8 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
             </div>
           )}
           <div className="guide-list-grid grid gap-5 lg:grid-cols-2">
-            <GuideList title="今天读完后，你应该能" items={guide.goals} />
-            <GuideList title="带着这些问题读" items={guide.questions} />
+            <GuideList title="读完这一段，可以带走" items={guide.goals} />
+            <GuideList title="阅读时留意" items={guide.questions} />
           </div>
           <div className="flex flex-wrap gap-3">
             <button
@@ -1855,14 +1855,14 @@ const GUIDE_TAB_OPTIONS = [
   {
     key: "goals",
     label: "目标",
-    kicker: "读完后抓住",
-    title: "今天的收获",
+    kicker: "读完后带走",
+    title: "今天要带走",
     promptPrefix: "请围绕这个阅读目标陪我读：",
   },
   {
     key: "questions",
     label: "问题",
-    kicker: "读的时候想想",
+    kicker: "读的时候留意",
     title: "可以追的问题",
     promptPrefix: "请带着这个问题陪我读：",
   },
@@ -1946,7 +1946,7 @@ function ChatPanel({
           </h3>
           {currentPage && (
             <p className="mt-1 text-[11px] leading-4 text-ink-soft">
-              {currentPageHasText ? "你问当前这一段时，我会优先看这里。" : "这里暂时没有提取到文本。"}
+              {currentPageHasText ? "提问时会优先参考当前页面。" : "当前页面暂时没有可用文本。"}
             </p>
           )}
         </div>
@@ -2015,7 +2015,7 @@ function ChatPanel({
             onKeyDown={handleTextareaKeyDown}
             disabled={loading || disabled}
             rows={2}
-            placeholder={disabled ? "当前页和章节都没有可用文本" : "有问题，尽管问"}
+            placeholder={disabled ? "当前章节暂无可用文本" : "输入你的问题"}
             className="w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-6 text-ink outline-none disabled:opacity-60"
           />
         </div>
@@ -2273,7 +2273,7 @@ function AssistantWelcome() {
     <article className="flex items-start gap-2">
       <Avatar label="伴" />
       <div className="max-w-[88%] rounded-2xl rounded-tl-sm bg-paper px-4 py-3 text-sm leading-6 text-ink shadow-sm">
-        我会优先看你当前读到的页面。你可以直接问某个概念、某段话的意思，也可以选中原文后带着引用来问。
+        可以直接问某个概念、某段话的意思；如果选中原文再提问，回答会更贴近那一句。
       </div>
     </article>
   );
@@ -3435,10 +3435,10 @@ function buildReadingBridge({ book, item, currentIndex, planItems }) {
   const previous = planItems[currentIndex - 1];
 
   if (currentIndex === 0) {
-    return `今天是你正式翻开《${title}》的第一步。先不用急着抓住所有细节，我们先建立一个入口：这本书到底想带你理解什么问题，作者为什么要这样安排开场，以及你可以用什么节奏进入它。`;
+    return `从《${title}》的开头进入，先看作者把问题摆在什么位置：他为什么从这里起笔，哪些背景需要留意，哪些判断可以暂时放在心里。读完这一段，再决定后面该用怎样的节奏。`;
   }
 
-  return `上一项你读的是「${previous?.title || "前一部分"}」。今天这一章会接着往前走：你可以一边回想上一章留下的问题，一边观察作者这次是补充背景、推进概念，还是开始给出方法。`;
+  return `上一项是「${previous?.title || "前一部分"}」。今天继续沿着这条线往前读：留意作者是在补一层背景、推进一个判断，还是改变看问题的角度。把这处变化看清，后面的内容会更容易接上。`;
 }
 
 function buildPendingNoteFromSelection(selection) {
@@ -3607,7 +3607,7 @@ function GuideLoading({ startedAt, compact = false }) {
         className="guide-loading-compact mt-5 rounded-lg border border-line bg-paper-card px-3 py-3"
       >
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-ink">正在整理提示</p>
+          <p className="text-xs font-medium text-ink">正在整理读前提示</p>
           <p className="shrink-0 text-[11px] text-ink-soft">{elapsed} 秒</p>
         </div>
         <div className="guide-progress-track mt-3 h-1.5 overflow-hidden rounded-full bg-line">
@@ -3631,10 +3631,10 @@ function GuideLoading({ startedAt, compact = false }) {
         <div>
           <p className="text-xs font-medium text-ink-soft">导读生成中</p>
           <h3 className="mt-1 font-serif text-xl text-ink">
-            <BrandName />正在整理今天的阅读入口
+            正在整理今天的读前提示
           </h3>
           <p className="mt-2 text-sm leading-6 text-ink-soft">
-            会先抓住整本书的位置，再整理 3 个目标和 3 个问题。长章节可能需要多想一会儿。
+            正在判断这一段在全书里的位置，并整理目标和问题。长章节可能需要稍等。
           </p>
         </div>
         <p className="inline-flex w-fit shrink-0 rounded-full border border-line bg-paper px-3 py-1 text-xs text-ink-soft">
@@ -3716,19 +3716,19 @@ function GuideLoadingSkeletonSection({ headingWidth, lines }) {
 const GUIDE_LOADING_STEPS = [
   {
     title: "读取章节上下文",
-    description: "先看这一段在全书里的位置。",
+    description: "确认这一段在全书里的位置。",
   },
   {
-    title: "提炼阅读入口",
-    description: "把背景、作者眼光和今天的章节连起来。",
+    title: "梳理读前提示",
+    description: "把必要背景和今天章节放到一起看。",
   },
   {
     title: "整理目标和问题",
-    description: "准备读完后要抓住的能力与疑问。",
+    description: "留下读完后值得检验的目标和问题。",
   },
   {
-    title: "排版成导读",
-    description: "把内容拆成短标题、段落和提示点。",
+    title: "整理展示内容",
+    description: "分成短标题、段落和提示点。",
   },
 ];
 

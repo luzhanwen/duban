@@ -31,8 +31,8 @@ export function buildInitialReflectionMessage({ item, guide }) {
   const guideQuestion = toText(guide?.questions?.[0]).trim();
   const itemTitle = toText(item?.title) || "这一章";
   const content = guideQuestion
-    ? `你刚读完「${itemTitle}」。我们先不急着进入下一章：如果回到读前那个问题，“${guideQuestion}”，你现在会怎么回答？`
-    : `你刚读完「${itemTitle}」。先用自己的话说一句：这一章最想让你看见什么？可以很粗糙，先说出来，我们再慢慢追问。`;
+    ? `读完「${itemTitle}」后，可以回看读前那个问题：“${guideQuestion}”。现在你的答案有什么变化？从一个细节或一个判断说起就好。`
+    : `读完「${itemTitle}」后，先留下一点自己的判断：这一部分让你看见了什么？从一个细节、一句话或一个疑问开始都可以。`;
 
   return {
     id: makeId("reflection-assistant"),

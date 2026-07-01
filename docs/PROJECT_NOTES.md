@@ -400,8 +400,10 @@ readingProfile: {
 - 书架页支持上传 PDF 和 MOBI。
 - PDF 使用 PDF.js 在浏览器本地提取每页文本。
 - 读取 PDF 元数据中的 title/author。
-- 读取 PDF outline 作为章节来源。
-- 无 outline 时，按标题规则猜章节。
+- 递归读取 PDF outline 作为章节来源，并在 outline 过粗或不可用时降级到页面版式标题识别。
+- 页面版式标题识别会基于 PDF.js textContent 的坐标和字号，从页面顶部大字号“第X章/第X编/Chapter/Part”等标题中提取章节候选。
+- 当同一本书已识别出多个“第X章/Chapter”时，会把“第X编/Part”这类分部标题视为结构分隔符，不作为独立阅读章节，并截断上一章页码避免分部页混入正文阅读项。
+- 最终会对 outline、版式标题和旧文本规则做质量评分，避免单个粗粒度 outline 把整本书识别成一个章节。
 - MOBI 使用 `@lingo-reader/mobi-parser` 解析 metadata、TOC/spine 和章节 HTML。
 - MOBI 正文清洗为文本，并按约 2200 字符切成文本页，复用阅读计划、当前页上下文和笔记数据结构。
 - 保存原始文件和分页/文本页内容到 IndexedDB。
@@ -810,7 +812,7 @@ readingProfile: {
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - PDF 图片、表格、扫描件 OCR 暂未支持。
 - MOBI 当前提供文本阅读，不渲染 Kindle 原版版式，也暂不显示 MOBI 内嵌图片或真实内嵌封面。
-- 章节识别仍然依赖 PDF outline、标题规则或 MOBI TOC/spine，复杂排版可能需要用户手动调整。
+- 章节识别已加入 PDF 递归 outline、页面版式标题候选和质量评分兜底；复杂目录页、扫描版 PDF 或标题版式异常的书仍可能需要用户手动调整。
 - 当前阅读计划仍是本地草稿，尚未调用 AI 优化。
 - AI 章节导读已实现手动生成、耗时提示、token 展示和费用估算，但还没有流式输出和编辑能力。
 - 阅读会话已实现三段式骨架、阅读位置保存、PDF 原版页渲染、PDF text layer、选中文本提问浮层、高亮笔记、当前章节 sidebar 问答和读后交流；尚未支持字体设置。

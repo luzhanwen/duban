@@ -44,11 +44,35 @@ const WEEKDAYS = [
   { value: 0, label: "日" },
 ];
 
+const OPENING_STEPS = [
+  {
+    id: "guide",
+    title: "开书地图",
+    desc: "先理解整本书",
+  },
+  {
+    id: "pace",
+    title: "阅读节奏",
+    desc: "决定怎么读",
+  },
+  {
+    id: "focus",
+    title: "读伴记忆",
+    desc: "设定陪读方向",
+  },
+  {
+    id: "plan",
+    title: "计划预览",
+    desc: "确认并保存",
+  },
+];
+
 export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
   const [book, setBook] = useState(null);
   const [pages, setPages] = useState([]);
   const [wholeBookGuide, setWholeBookGuide] = useState(null);
   const [guideLoading, setGuideLoading] = useState(false);
+  const [guideStartedAt, setGuideStartedAt] = useState(null);
   const [guideError, setGuideError] = useState("");
   const [userIntent, setUserIntent] = useState("");
   const [paceMode, setPaceMode] = useState("standard");
@@ -57,6 +81,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
   const [splitLongChapters, setSplitLongChapters] = useState(true);
   const [focusType, setFocusType] = useState("mainline");
   const [customFocus, setCustomFocus] = useState("");
+  const [activeStep, setActiveStep] = useState("guide");
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
@@ -105,7 +130,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
       {
         type: "custom",
         label: "我自己指定",
-        description: "用一句话告诉读伴，这本书主要想帮你解决什么。",
+        description: "用一句话说明这本书主要想解决什么。",
         promptInstruction: "后续回答要围绕用户自定义的阅读目标收束。",
       },
     ];
@@ -152,6 +177,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
     setGuideError("");
     setMessage(null);
     setGuideLoading(true);
+    setGuideStartedAt(Date.now());
     setWholeBookGuide(null);
     try {
       const generated = await generateWholeBookGuide({ book, pages, userIntent });
@@ -169,6 +195,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
       setGuideError(e.message || "整本书导读生成失败，请稍后重试。");
     } finally {
       setGuideLoading(false);
+      setGuideStartedAt(null);
     }
   }
 
@@ -225,13 +252,35 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
     if (onDone) onDone(book.id);
   }
 
+  const activeStepIndex = Math.max(
+    0,
+    OPENING_STEPS.findIndex((step) => step.id === activeStep)
+  );
+  const canGoBackStep = activeStepIndex > 0;
+  const canGoNextStep = activeStepIndex < OPENING_STEPS.length - 1;
+
+  function goToStep(stepId) {
+    setMessage(null);
+    setActiveStep(stepId);
+  }
+
+  function goPreviousStep() {
+    if (!canGoBackStep) return;
+    goToStep(OPENING_STEPS[activeStepIndex - 1].id);
+  }
+
+  function goNextStep() {
+    if (!canGoNextStep) return;
+    goToStep(OPENING_STEPS[activeStepIndex + 1].id);
+  }
+
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
+    <div className="opening-page mx-auto max-w-6xl px-6 py-10">
       <button onClick={onBack} className="text-sm text-accent underline">
         返回书籍信息
       </button>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm text-ink-soft">开书分析</p>
           <h2 className="mt-1 font-serif text-3xl text-ink">{toText(book.title)}</h2>
@@ -239,214 +288,337 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
             <p className="mt-2 text-sm text-ink-soft">{toText(book.author)}</p>
           )}
         </div>
-        <div className="rounded-lg border border-line bg-paper-card px-4 py-2 text-sm text-ink-soft">
-          正文 {planPreview.mainCount} 章 · 预计 {planPreview.items.length} 个阅读日
+        <div className="opening-summary-grid">
+          <OpeningSummaryTile label="正文" value={`${planPreview.mainCount} 章`} />
+          <OpeningSummaryTile label="计划" value={`${planPreview.items.length} 个阅读日`} />
+          <OpeningSummaryTile
+            label="导读"
+            value={guideLoading ? "生成中" : wholeBookGuide ? "已生成" : "可跳过"}
+          />
         </div>
       </div>
 
-      <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <StepHeading
-          index="1"
-          title="先让读伴分析整本书"
-          desc="这一步会建立全书地图：核心问题、结构推进、阅读难点和适合你的读法。"
-        />
+      <OpeningStepTabs
+        steps={OPENING_STEPS}
+        activeStep={activeStep}
+        activeStepIndex={activeStepIndex}
+        guideLoading={guideLoading}
+        hasGuide={Boolean(wholeBookGuide)}
+        onChange={goToStep}
+      />
 
-        <textarea
-          value={userIntent}
-          onChange={(event) => setUserIntent(event.target.value)}
-          rows={3}
-          placeholder="可选：你为什么想读这本书？比如：想抓主线、写文章、补背景、准备分享……"
-          className="mt-4 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
-        />
+      <section className="opening-panel mt-6" key={activeStep}>
+        {activeStep === "guide" && (
+          <>
+            <StepHeading
+              index="1"
+              title="先整理整本书的读法"
+              desc="全书导读会整理核心问题、结构推进、阅读难点和建议节奏。它不是必填项，但生成后后续陪读会更有方向。"
+            />
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleGenerateGuide}
-            disabled={guideLoading}
-            className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {guideLoading ? "读伴正在分析…" : wholeBookGuide ? "重新分析这本书" : "让读伴分析这本书"}
-          </button>
-          {wholeBookGuide?.generatedAt && (
-            <span className="text-xs text-ink-soft">
-              已生成 · {formatDateTime(wholeBookGuide.generatedAt)}
-            </span>
-          )}
-        </div>
+            <textarea
+              value={userIntent}
+              onChange={(event) => setUserIntent(event.target.value)}
+              rows={3}
+              placeholder="可选：你为什么想读这本书？比如：想抓主线、写文章、补背景、准备分享……"
+              className="mt-5 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
+            />
 
-        {guideError && (
-          <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-            {guideError}
-          </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleGenerateGuide}
+                disabled={guideLoading}
+                className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {guideLoading ? "正在整理…" : wholeBookGuide ? "重新整理这本书" : "整理这本书"}
+              </button>
+              {wholeBookGuide?.generatedAt && (
+                <span className="text-xs text-ink-soft">
+                  已生成 · {formatDateTime(wholeBookGuide.generatedAt)}
+                </span>
+              )}
+            </div>
+
+            {guideError && (
+              <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                {guideError}
+              </p>
+            )}
+
+            {guideLoading && <WholeBookGuideLoading startedAt={guideStartedAt} />}
+
+            {wholeBookGuide ? (
+              <WholeBookGuideView guide={wholeBookGuide} />
+            ) : (
+              !guideLoading && (
+                <div className="mt-5 rounded-lg bg-paper px-4 py-3 text-sm leading-6 text-ink-soft">
+                  没有生成整本书导读也可以继续设置计划；后续进入这本书时还可以再补生成。
+                </div>
+              )
+            )}
+
+            <OpeningPanelActions
+              onBack={onBack}
+              backLabel="返回书籍信息"
+              onNext={goNextStep}
+              nextLabel={wholeBookGuide ? "下一步：阅读节奏" : "先跳过，设置节奏"}
+            />
+          </>
         )}
 
-        {guideLoading && <WholeBookGuideLoading />}
-
-        {wholeBookGuide ? (
-          <WholeBookGuideView guide={wholeBookGuide} />
-        ) : (
-          <div className="mt-5 rounded-lg bg-paper px-4 py-3 text-sm leading-6 text-ink-soft">
-            没有生成整本书导读也可以先保存计划；后续进入这本书时还可以再补生成。
-          </div>
-        )}
-      </section>
-
-      <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <StepHeading
-          index="2"
-          title="确定阅读节奏"
-          desc="先选一个大致节奏，长章节可以自动拆成多个阅读日。"
-        />
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {PACE_OPTIONS.map((option) => (
-            <ChoiceCard
-              key={option.value}
-              active={paceMode === option.value}
-              title={option.title}
-              desc={`${option.desc} · 建议单次不超过 ${option.maxPagesPerSession} ${pageUnitLabel}`}
-              onClick={() => setPaceMode(option.value)}
+        {activeStep === "pace" && (
+          <>
+            <StepHeading
+              index="2"
+              title="确定阅读节奏"
+              desc="先选一个大致节奏，长章节可以自动拆成多个阅读日。"
             />
-          ))}
-        </div>
 
-        <div className="mt-6 grid gap-6 md:grid-cols-[220px_1fr]">
-          <label className="block text-sm font-medium text-ink">
-            开始日期
-            <input
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
-            />
-          </label>
-
-          <div>
-            <p className="text-sm font-medium text-ink">每周阅读日</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {WEEKDAYS.map((day) => (
-                <button
-                  key={day.value}
-                  onClick={() => toggleWeekday(day.value)}
-                  className={`h-10 w-10 rounded-full border text-sm transition ${
-                    weekdays.includes(day.value)
-                      ? "border-accent bg-accent text-white"
-                      : "border-line bg-paper text-ink-soft hover:border-accent"
-                  }`}
-                >
-                  {day.label}
-                </button>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {PACE_OPTIONS.map((option) => (
+                <ChoiceCard
+                  key={option.value}
+                  active={paceMode === option.value}
+                  title={option.title}
+                  desc={`${option.desc} · 建议单次不超过 ${option.maxPagesPerSession} ${pageUnitLabel}`}
+                  onClick={() => setPaceMode(option.value)}
+                />
               ))}
             </div>
-          </div>
-        </div>
 
-        <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-lg bg-paper px-4 py-3">
-          <input
-            type="checkbox"
-            checked={splitLongChapters}
-            onChange={(event) => setSplitLongChapters(event.target.checked)}
-            className="mt-1"
-          />
-          <span>
-            <span className="block text-sm font-medium text-ink">长章节可以拆开读</span>
-            <span className="mt-1 block text-xs leading-5 text-ink-soft">
-              如果单章{pageUnitLabel}数明显超过当前节奏，会拆成多个阅读日，避免一天塞太满。
-            </span>
-          </span>
-        </label>
-      </section>
+            <div className="mt-6 grid gap-6 md:grid-cols-[220px_1fr]">
+              <label className="block text-sm font-medium text-ink">
+                开始日期
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-line bg-paper px-3 py-2 font-normal text-ink outline-none focus:border-accent"
+                />
+              </label>
 
-      <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <StepHeading
-          index="3"
-          title="设定本书的读伴侧重点"
-          desc="这个选择会进入后续导读、问答和读后交流，让读伴围绕你的真实目的工作。"
-        />
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {focusOptions.map((option) => (
-            <ChoiceCard
-              key={option.type}
-              active={focusType === option.type}
-              title={option.label}
-              desc={option.description}
-              onClick={() => setFocusType(option.type)}
-            />
-          ))}
-        </div>
-
-        {focusType === "custom" && (
-          <textarea
-            value={customFocus}
-            onChange={(event) => setCustomFocus(event.target.value)}
-            rows={3}
-            placeholder="我读这本书，主要想解决……"
-            className="mt-4 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
-          />
-        )}
-      </section>
-
-      <section className="mt-8 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-        <StepHeading
-          index="4"
-          title="生成阅读计划"
-          desc={planPreview.summary}
-        />
-
-        {planPreview.riskNotes.length > 0 && (
-          <div className="mt-4 rounded-lg bg-paper px-4 py-3">
-            <p className="text-xs font-medium text-ink-soft">生成计划时的提醒</p>
-            <ul className="mt-2 space-y-1 text-xs leading-5 text-ink-soft">
-              {planPreview.riskNotes.map((note, index) => (
-                <li key={`${note}-${index}`}>- {note}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <ol className="mt-5 space-y-2">
-          {planPreview.items.slice(0, 10).map((item) => (
-            <li key={item.id} className="rounded-lg bg-paper px-4 py-3">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm font-medium text-ink">
-                  Day {item.day} · {item.title}
-                </p>
-                <p className="text-xs text-ink-soft">{item.date}</p>
+              <div>
+                <p className="text-sm font-medium text-ink">每周阅读日</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {WEEKDAYS.map((day) => (
+                    <button
+                      key={day.value}
+                      onClick={() => toggleWeekday(day.value)}
+                      className={`h-10 w-10 rounded-full border text-sm transition ${
+                        weekdays.includes(day.value)
+                          ? "border-accent bg-accent text-white"
+                          : "border-line bg-paper text-ink-soft hover:border-accent"
+                      }`}
+                    >
+                      {day.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="mt-1 text-xs text-ink-soft">
-                {item.type === "guide" ? "准备阅读" : "正文章节"} ·{" "}
-                {formatPlanPageRange(item.startPage, item.endPage, pageUnitLabel)}
-                {item.wholeBookRole ? ` · ${item.wholeBookRole}` : ""}
-              </p>
-            </li>
-          ))}
-        </ol>
+            </div>
 
-        {planPreview.items.length > 10 && (
-          <p className="mt-3 text-xs text-ink-soft">
-            还有 {planPreview.items.length - 10} 个阅读日会在保存后一起记录。
-          </p>
+            <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-lg bg-paper px-4 py-3">
+              <input
+                type="checkbox"
+                checked={splitLongChapters}
+                onChange={(event) => setSplitLongChapters(event.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                <span className="block text-sm font-medium text-ink">长章节可以拆开读</span>
+                <span className="mt-1 block text-xs leading-5 text-ink-soft">
+                  如果单章{pageUnitLabel}数明显超过当前节奏，会拆成多个阅读日，避免一天塞太满。
+                </span>
+              </span>
+            </label>
+
+            <OpeningPanelActions
+              onBack={goPreviousStep}
+              backLabel="上一步"
+              onNext={goNextStep}
+              nextLabel="下一步：读伴记忆"
+            />
+          </>
+        )}
+
+        {activeStep === "focus" && (
+          <>
+            <StepHeading
+              index="3"
+              title="选择这本书的阅读侧重"
+              desc="这个选择会影响后续导读、问答和读后交流，让提示更贴近你的目的。"
+            />
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              {focusOptions.map((option) => (
+                <ChoiceCard
+                  key={option.type}
+                  active={focusType === option.type}
+                  title={option.label}
+                  desc={option.description}
+                  onClick={() => setFocusType(option.type)}
+                />
+              ))}
+            </div>
+
+            {focusType === "custom" && (
+              <textarea
+                value={customFocus}
+                onChange={(event) => setCustomFocus(event.target.value)}
+                rows={3}
+                placeholder="我读这本书，主要想解决……"
+                className="mt-4 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
+              />
+            )}
+
+            <OpeningPanelActions
+              onBack={goPreviousStep}
+              backLabel="上一步"
+              onNext={goNextStep}
+              nextLabel="下一步：预览计划"
+            />
+          </>
+        )}
+
+        {activeStep === "plan" && (
+          <>
+            <StepHeading
+              index="4"
+              title="确认阅读计划"
+              desc={planPreview.summary}
+            />
+
+            {planPreview.riskNotes.length > 0 && (
+              <div className="mt-4 rounded-lg bg-paper px-4 py-3">
+                <p className="text-xs font-medium text-ink-soft">生成计划时的提醒</p>
+                <ul className="mt-2 space-y-1 text-xs leading-5 text-ink-soft">
+                  {planPreview.riskNotes.map((note, index) => (
+                    <li key={`${note}-${index}`}>- {note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <ol className="mt-5 space-y-2">
+              {planPreview.items.slice(0, 10).map((item) => (
+                <li key={item.id} className="rounded-lg bg-paper px-4 py-3">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium text-ink">
+                      Day {item.day} · {item.title}
+                    </p>
+                    <p className="text-xs text-ink-soft">{item.date}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {item.type === "guide" ? "准备阅读" : "正文章节"} ·{" "}
+                    {formatPlanPageRange(item.startPage, item.endPage, pageUnitLabel)}
+                    {item.wholeBookRole ? ` · ${item.wholeBookRole}` : ""}
+                  </p>
+                </li>
+              ))}
+            </ol>
+
+            {planPreview.items.length > 10 && (
+              <p className="mt-3 text-xs text-ink-soft">
+                还有 {planPreview.items.length - 10} 个阅读日会在保存后一起记录。
+              </p>
+            )}
+
+            {message && <Hint message={message} />}
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleSave}
+                disabled={planPreview.mainCount === 0}
+                className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              >
+                保存开书设置并生成计划
+              </button>
+              <button
+                onClick={goPreviousStep}
+                className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+              >
+                上一步
+              </button>
+              <button
+                onClick={onBack}
+                className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+              >
+                返回修改章节
+              </button>
+            </div>
+          </>
         )}
       </section>
+    </div>
+  );
+}
 
-      {message && <Hint message={message} />}
+function OpeningSummaryTile({ label, value }) {
+  return (
+    <div className="opening-summary-tile">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={planPreview.mainCount === 0}
-          className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-        >
-          保存开书设置并生成计划
-        </button>
-        <button
-          onClick={onBack}
-          className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
-        >
-          返回修改章节
-        </button>
-      </div>
+function OpeningStepTabs({
+  steps,
+  activeStep,
+  activeStepIndex,
+  guideLoading,
+  hasGuide,
+  onChange,
+}) {
+  return (
+    <nav className="opening-step-tabs" aria-label="开书设置步骤">
+      {steps.map((step, index) => {
+        const active = step.id === activeStep;
+        const done =
+          index < activeStepIndex ||
+          (step.id === "guide" && hasGuide && !guideLoading);
+        const loading = step.id === "guide" && guideLoading;
+
+        return (
+          <button
+            key={step.id}
+            type="button"
+            onClick={() => onChange(step.id)}
+            className={`opening-step-tab ${active ? "is-active" : ""} ${
+              done ? "is-done" : ""
+            } ${loading ? "is-loading" : ""}`}
+          >
+            <span className="opening-step-index">
+              {loading ? "…" : done ? "✓" : index + 1}
+            </span>
+            <span>
+              <span className="opening-step-title">{step.title}</span>
+              <span className="opening-step-desc">{step.desc}</span>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function OpeningPanelActions({ onBack, backLabel, onNext, nextLabel }) {
+  return (
+    <div className="opening-panel-actions">
+      <button
+        type="button"
+        onClick={onBack}
+        className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+      >
+        {backLabel}
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+      >
+        {nextLabel}
+      </button>
     </div>
   );
 }
@@ -488,18 +660,57 @@ function ChoiceCard({ active, title, desc, onClick }) {
   );
 }
 
-function WholeBookGuideLoading() {
+function WholeBookGuideLoading({ startedAt }) {
+  const [now, setNow] = useState(Date.now());
+  const elapsedSeconds = Math.max(
+    1,
+    Math.floor((now - (startedAt || now)) / 1000)
+  );
+  const loadingSteps = [
+    "读取章节结构",
+    "抽样正文与导读章节",
+    "整理全书问题和路线",
+    "压缩成可用的开书地图",
+  ];
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
-    <div className="mt-5 rounded-xl border border-line bg-paper px-5 py-4">
-      <p className="text-sm font-medium text-ink">读伴正在整理整本书入口</p>
-      <p className="mt-1 text-xs leading-5 text-ink-soft">
-        会先看章节结构、导读章节和正文抽样，再整理结构地图、难点和建议读法。
-      </p>
-      <div className="mt-4 space-y-2">
-        <span className="block h-2.5 w-24 rounded-full bg-line" />
-        <span className="block h-2.5 w-full rounded-full bg-paper-card" />
-        <span className="block h-2.5 w-10/12 rounded-full bg-paper-card" />
-        <span className="block h-2.5 w-7/12 rounded-full bg-paper-card" />
+    <div className="whole-book-loading mt-5">
+      <div className="whole-book-loading-visual" aria-hidden="true">
+        <span className="whole-book-page whole-book-page-left" />
+        <span className="whole-book-page whole-book-page-right" />
+        <span className="whole-book-glow" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-ink">正在整理整本书的读法</p>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              全书导读会参考章节结构、导读章节和正文抽样，通常比章节导读更久一点。
+              现在不是卡住，只是在等待模型返回。
+            </p>
+          </div>
+          <span className="whole-book-loading-time">已等待 {elapsedSeconds}s</span>
+        </div>
+        <div className="whole-book-loading-track mt-4">
+          <span className="whole-book-loading-bar" />
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {loadingSteps.map((step, index) => (
+            <div
+              key={step}
+              className="whole-book-loading-step"
+              style={{ "--opening-step-delay": `${index * 120}ms` }}
+            >
+              <span />
+              {step}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -553,7 +764,7 @@ function GuideQuestionPanel({ guide }) {
 
   return (
     <section className="rounded-xl border border-line bg-paper-card px-5 py-4">
-      <p className="text-xs font-medium text-ink-soft">先抓住这本书的入口</p>
+      <p className="text-xs font-medium text-ink-soft">先看这本书在问什么</p>
       <div className="mt-4 space-y-4">
         {bookProblem && (
           <GuidePlainRow
@@ -590,7 +801,7 @@ function GuideRoute({ items }) {
       <div>
         <p className="text-xs font-medium text-ink-soft">阅读路线</p>
         <p className="mt-1 text-sm leading-6 text-ink-soft">
-          不用先记住所有章节，只看这本书的问题大概怎样一步步推进。
+          不用预先记住所有章节，先看问题大致如何推进。
         </p>
       </div>
       <ol className="mt-5 space-y-0">
@@ -627,9 +838,9 @@ function GuideSupportList({ items }) {
   return (
     <section className="rounded-xl border border-line bg-paper-card px-5 py-4">
       <div>
-        <p className="text-xs font-medium text-ink-soft">读伴会多帮你的地方</p>
+        <p className="text-xs font-medium text-ink-soft">阅读时容易卡住的地方</p>
         <p className="mt-1 text-sm leading-6 text-ink-soft">
-          这些不是考试重点，而是读着读着容易失去方向的地方。
+          这些不是考试重点，而是读到中途容易失去方向的位置。
         </p>
       </div>
       <div className="mt-4 divide-y divide-line">
@@ -641,7 +852,7 @@ function GuideSupportList({ items }) {
                 <p className="text-ink-soft">{toText(item.whyHard || item.where)}</p>
               )}
               {toText(item.supportStrategy) && (
-                <p className="text-ink">读伴会帮你：{formatSupportStrategy(item.supportStrategy)}</p>
+                <p className="text-ink">处理方式：{formatSupportStrategy(item.supportStrategy)}</p>
               )}
             </div>
           </div>
