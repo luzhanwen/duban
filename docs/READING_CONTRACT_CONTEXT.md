@@ -1,6 +1,6 @@
 # 开书契约上下文
 
-> 最后更新：2026-06-15
+> 最后更新：2026-07-02
 
 本文档记录“开书契约上下文”的实现进展、设计意义和使用边界。它不是 prompt 文案文档，而是维护章节导读、阅读中问答、读后交流可以复用的轻量上下文能力。
 
@@ -12,6 +12,7 @@
 - 导出 `buildReadingContractContext({ book, item })`
 - 已接入章节导读、阅读中问答和读后交流
 - 已支持单本书 `readingProfile.companionFocus` 的安全更新
+- 当前解析整本书导读时复用 `normalizeWholeBookGuide`，避免上下文构建和开书导读模块各自维护一套 JSON 修复逻辑
 
 这个函数从当前书籍对象和当前阅读计划项中抽取一份统一上下文，输出字段包括：
 
@@ -81,6 +82,20 @@
 
 `readingProfile.companionFocus` 是单本书的读伴记忆。它既来自开书设置，也可以在阅读过程中被安全更新。
 
+截至 2026-07-06，开书设置第一步已改为“多轮设定读伴对话”。这几轮回答会被保存到同一个 `companionFocus` 中，并通过现有开书契约上下文进入后续导读、问答和读后交流。
+
+当前主要字段：
+
+- `type`：读伴侧重点，例如 `mainline`、`background`、`argument`、`application`、`output` 或 `custom`；当前在设定读伴最后一轮选择，不再单独开页面。
+- `label`：界面展示的侧重点名称。
+- `openingAnswers`：用户在设定读伴对话中的结构化回答，当前包含 `context`、`curiosity` 和 `companion`。
+- `openingMessage`：由 `openingAnswers` 合成的开书前记忆文本，保留用户原意。
+- `companionProfile`：本书读伴的外观档案，当前包含 `name`、`color` 和 `expression`。
+- `customFocus`：当用户选择自定义陪读方式时填写的具体目标。
+- `userText`：兼容字段，合并 `openingMessage` 和 `customFocus`，供旧链路和上下文格式化继续读取。
+- `aiSummary`：读伴对用户捎话和陪读方式的理解。
+- `promptInstruction`：后续章节导读、阅读中问答和读后交流应如何围绕这段记忆调整。
+
 当前数据层入口：
 
 - `src/lib/books.js`
@@ -93,6 +108,8 @@
 - 旧书没有 `readingProfile` 时，会创建一个兼容的 `readingProfile`。
 - 旧书已有 `purpose`、`pace`、`startDate`、`weekdays` 等字段时，会原样保留。
 - 旧书没有 `companionFocus` 时，会先生成默认读伴记忆，再合并更新 patch。
+- 旧书没有 `openingAnswers` 时，开书设置会回退读取旧的 `openingMessage` 或 `userText`，并放入第一轮 `context`。
+- 旧书没有 `companionProfile` 时，开书设置使用默认名字、颜色和表情。
 - `type` 不合法时回退到 `mainline`。
 - `label`、`promptInstruction` 等空字符串字段会按类型补默认值。
 - 更新后仍然保存在 `books` 列表里，不新增 IndexedDB key。
@@ -113,6 +130,18 @@
 4. 后续可以补充单元测试，覆盖旧书兼容、`chapterIds` 匹配、空上下文、不同 `companionFocus` 类型。
 
 ## 开发记录
+
+### 2026-07-06：多轮设定读伴对话进入读伴记忆
+
+本次把开书设置第一步从“先生成整本书导读”改为“先通过几轮对话设定读伴”。用户回答会保存为 `readingProfile.companionFocus.openingAnswers`，合成为 `openingMessage`；读伴名字、颜色和表情保存为 `companionProfile`；同时同步写入 `userText`、`aiSummary` 和 `promptInstruction`，让现有 `buildReadingContractContext({ book, item })` 不需要新增读取入口也能带入这段记忆。
+
+改动文件：
+
+- `src/components/ReadingPlanSetup.jsx`
+- `src/prompts/wholeBookGuide.md`
+- `docs/OPENING_COMPANION_ONBOARDING.md`
+
+设计说明见 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
 
 ### 2026-06-15：第二步，接入章节导读
 

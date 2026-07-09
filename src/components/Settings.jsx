@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import ChineseIcon from "./ChineseIcon.jsx";
 import { testModelConnection } from "../lib/ai.js";
+import { DEFAULT_AI_BUDGET } from "../lib/aiBudgetSettings.js";
+import { clearAiDiagnostics, getAiDiagnostics } from "../lib/aiDiagnostics.js";
+import { AI_PROFILE_TASKS, DEFAULT_AI_PROFILES } from "../lib/aiProfiles.js";
 import { buildAiConfigText, parseAiConfigText } from "../lib/aiConfigImport.js";
+import {
+  buildDiagnosticErrorDetails,
+  copyDiagnosticText,
+  exportDiagnosticPackage,
+  findLatestDiagnosticIssueEntry,
+  isDesktopDiagnosticsAvailable,
+  isDiagnosticIssueEntry,
+  runDiagnosticHealthCheck,
+} from "../lib/diagnostics.js";
 import {
   deleteLocalBackup,
   exportLocalBackup,
@@ -25,6 +38,7 @@ import {
   PROVIDERS,
   saveSettings,
 } from "../lib/storage.js";
+import { formatUsd } from "../lib/pricing.js";
 
 const ANTHROPIC_MODEL_OPTIONS = [
   { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6（默认，均衡）" },
@@ -128,26 +142,37 @@ const SETTINGS_PANELS = [
     id: "ai",
     label: "AI 服务",
     desc: "选择模型，保存密钥",
+    icon: "ink",
   },
   {
     id: "config",
     label: "批量配置",
     desc: "用 TXT 一次导入",
+    icon: "scroll",
   },
   {
     id: "backup",
     label: "数据备份",
     desc: "导出和恢复书库",
+    icon: "archive",
   },
   {
     id: "privacy",
     label: "隐私安全",
     desc: "本地保存与发送范围",
+    icon: "shield",
+  },
+  {
+    id: "diagnostics",
+    label: "诊断",
+    desc: "健康检查与错误详情",
+    icon: "pulse",
   },
   {
     id: "advanced",
     label: "清空数据",
     desc: "删除本机全部内容",
+    icon: "clear",
   },
 ];
 
@@ -175,11 +200,30 @@ export default function Settings({ onOpenPrivacy }) {
   const [openaiModel, setOpenaiModel] = useState(DEFAULT_OPENAI_COMPATIBLE_MODEL);
   const [inputPricePerMTok, setInputPricePerMTok] = useState("");
   const [outputPricePerMTok, setOutputPricePerMTok] = useState("");
+  const [aiBudgetEnabled, setAiBudgetEnabled] = useState(DEFAULT_AI_BUDGET.enabled);
+  const [maxInputTokensPerRequest, setMaxInputTokensPerRequest] = useState(
+    DEFAULT_AI_BUDGET.maxInputTokensPerRequest
+  );
+  const [maxOutputTokensPerRequest, setMaxOutputTokensPerRequest] = useState(
+    DEFAULT_AI_BUDGET.maxOutputTokensPerRequest
+  );
+  const [maxEstimatedCostPerRequest, setMaxEstimatedCostPerRequest] = useState(
+    DEFAULT_AI_BUDGET.maxEstimatedCostPerRequest
+  );
+  const [maxEstimatedCostPerDay, setMaxEstimatedCostPerDay] = useState(
+    DEFAULT_AI_BUDGET.maxEstimatedCostPerDay
+  );
+  const [aiProfilesEnabled, setAiProfilesEnabled] = useState(DEFAULT_AI_PROFILES.enabled);
+  const [aiProfileTasks, setAiProfileTasks] = useState(DEFAULT_AI_PROFILES.tasks);
   const [showKey, setShowKey] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [testMsg, setTestMsg] = useState(null);
   const [configMsg, setConfigMsg] = useState(null);
   const [backupMsg, setBackupMsg] = useState(null);
+  const [diagnosticsMsg, setDiagnosticsMsg] = useState(null);
+  const [aiDiagnostics, setAiDiagnostics] = useState({ entries: [] });
+  const [desktopHealthReport, setDesktopHealthReport] = useState(null);
+  const [diagnosticPackageResult, setDiagnosticPackageResult] = useState(null);
   const [backupList, setBackupList] = useState([]);
   const [selectedBackupId, setSelectedBackupId] = useState("");
   const [backupPreview, setBackupPreview] = useState(null);
@@ -188,13 +232,16 @@ export default function Settings({ onOpenPrivacy }) {
   const [backupImportMode, setBackupImportMode] = useState("merge");
   const [testing, setTesting] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   const [activePanel, setActivePanel] = useState("ai");
   const desktopBackupAvailable = isDesktopBackupAvailable();
+  const desktopDiagnosticsAvailable = isDesktopDiagnosticsAvailable();
 
   useEffect(() => {
     getSettings().then((settings) => {
       applySettingsToForm(settings);
     });
+    refreshAiDiagnostics();
   }, []);
 
   useEffect(() => {
@@ -215,6 +262,13 @@ export default function Settings({ onOpenPrivacy }) {
     setOpenaiModel(normalized.openaiCompatible.model);
     setInputPricePerMTok(normalized.openaiCompatible.inputPricePerMTok);
     setOutputPricePerMTok(normalized.openaiCompatible.outputPricePerMTok);
+    setAiBudgetEnabled(normalized.aiBudget.enabled);
+    setMaxInputTokensPerRequest(normalized.aiBudget.maxInputTokensPerRequest);
+    setMaxOutputTokensPerRequest(normalized.aiBudget.maxOutputTokensPerRequest);
+    setMaxEstimatedCostPerRequest(normalized.aiBudget.maxEstimatedCostPerRequest);
+    setMaxEstimatedCostPerDay(normalized.aiBudget.maxEstimatedCostPerDay);
+    setAiProfilesEnabled(normalized.aiProfiles.enabled);
+    setAiProfileTasks(normalized.aiProfiles.tasks);
   }
 
   function buildSettings(overrides = {}) {
@@ -240,6 +294,19 @@ export default function Settings({ onOpenPrivacy }) {
         inputPricePerMTok: inputPricePerMTok.trim(),
         outputPricePerMTok: outputPricePerMTok.trim(),
         ...(overrides.openaiCompatible || {}),
+      },
+      aiBudget: {
+        enabled: aiBudgetEnabled,
+        maxInputTokensPerRequest: maxInputTokensPerRequest.trim(),
+        maxOutputTokensPerRequest: maxOutputTokensPerRequest.trim(),
+        maxEstimatedCostPerRequest: maxEstimatedCostPerRequest.trim(),
+        maxEstimatedCostPerDay: maxEstimatedCostPerDay.trim(),
+        ...(overrides.aiBudget || {}),
+      },
+      aiProfiles: {
+        enabled: aiProfilesEnabled,
+        tasks: aiProfileTasks,
+        ...(overrides.aiProfiles || {}),
       },
     });
   }
@@ -344,7 +411,7 @@ export default function Settings({ onOpenPrivacy }) {
           : `备份文件 ${result.fileName} 已生成`;
       setBackupMsg({
         type: "ok",
-        text: `${locationText}。包含 ${result.itemCount} 组数据和 ${result.fileCount} 个文件，不包含 API Key。`,
+        text: `${locationText}。包含 ${result.itemCount} 组数据和 ${result.fileCount} 个文件；API Key 会单独保留在本机。`,
       });
       if (desktopBackupAvailable) {
         await refreshDesktopBackups(result.backupId);
@@ -378,6 +445,106 @@ export default function Settings({ onOpenPrivacy }) {
       setBackupMsg({
         type: "error",
         text: e.message || "读取备份清单失败。",
+      });
+    }
+  }
+
+  async function refreshAiDiagnostics() {
+    try {
+      setAiDiagnostics(await getAiDiagnostics());
+    } catch (e) {
+      setDiagnosticsMsg({
+        type: "error",
+        text: e.message || "读取 AI 调用诊断失败。",
+      });
+    }
+  }
+
+  async function handleClearAiDiagnostics() {
+    const ok = window.confirm("确定清空最近 AI 调用诊断吗？这不会删除书库、设置或预算用量。");
+    if (!ok) return;
+    try {
+      setAiDiagnostics(await clearAiDiagnostics());
+      setDiagnosticsMsg({ type: "ok", text: "已清空 AI 调用诊断。" });
+    } catch (e) {
+      setDiagnosticsMsg({
+        type: "error",
+        text: e.message || "清空 AI 调用诊断失败。",
+      });
+    }
+  }
+
+  async function handleRunHealthCheck() {
+    if (!desktopDiagnosticsAvailable) {
+      setDiagnosticsMsg({ type: "warn", text: "浏览器版没有桌面健康检查。" });
+      return;
+    }
+
+    setDiagnosticBusy(true);
+    setDiagnosticsMsg(null);
+    try {
+      const report = await runDiagnosticHealthCheck();
+      setDesktopHealthReport(report);
+      setDiagnosticsMsg({
+        type: report.status === "ok" ? "ok" : report.status === "warn" ? "warn" : "error",
+        text:
+          report.status === "ok"
+            ? "健康检查通过。"
+            : `健康检查完成，发现 ${report.issueCount || 0} 项提示。`,
+      });
+    } catch (e) {
+      setDiagnosticsMsg({
+        type: "error",
+        text: e.message || "运行健康检查失败。",
+      });
+    } finally {
+      setDiagnosticBusy(false);
+    }
+  }
+
+  async function handleExportDiagnosticPackage() {
+    if (!desktopDiagnosticsAvailable) {
+      setDiagnosticsMsg({ type: "warn", text: "浏览器版没有桌面诊断包。" });
+      return;
+    }
+
+    setDiagnosticBusy(true);
+    setDiagnosticsMsg(null);
+    try {
+      const result = await exportDiagnosticPackage();
+      setDiagnosticPackageResult(result);
+      setDiagnosticsMsg({
+        type: result.healthStatus === "error" ? "warn" : "ok",
+        text: `已导出诊断包：${result.path}`,
+      });
+      await refreshAiDiagnostics();
+    } catch (e) {
+      setDiagnosticsMsg({
+        type: "error",
+        text: e.message || "导出诊断包失败。",
+      });
+    } finally {
+      setDiagnosticBusy(false);
+    }
+  }
+
+  async function handleCopyLatestErrorDetails() {
+    const entry = findLatestDiagnosticIssueEntry(aiDiagnostics);
+    if (!entry) {
+      setDiagnosticsMsg({ type: "warn", text: "没有可复制的错误详情。" });
+      return;
+    }
+    await handleCopyErrorDetails(entry);
+  }
+
+  async function handleCopyErrorDetails(entry) {
+    try {
+      await copyDiagnosticText(buildDiagnosticErrorDetails(entry));
+      setDiagnosticsMsg({ type: "ok", text: "已复制脱敏错误详情。" });
+    } catch (e) {
+      setDiagnosticsMsg({
+        type: "error",
+        text: e.message || "复制错误详情失败。",
       });
     }
   }
@@ -416,7 +583,7 @@ export default function Settings({ onOpenPrivacy }) {
         backupImportMode === "merge"
           ? "合并导入会保留现有书库；如果备份里有同一本书，会用备份版本更新。"
           : "覆盖恢复会清空当前书库、进度、笔记和聊天，再恢复备份内容。",
-        "备份不包含 API Key；当前已保存的密钥会保留。",
+        "备份只恢复书库内容；当前已保存的密钥会保留。",
         "",
         "是否继续？",
       ].join("\n")
@@ -477,9 +644,9 @@ export default function Settings({ onOpenPrivacy }) {
       [
         `准备${modeText}这个外部备份。`,
         externalBackupPreview.issues.some((issue) => issue.severity === "error")
-          ? "这个备份还有错误，暂时不能导入。"
+          ? "这个备份还有错误，请先换一份备份或重新导出后再导入。"
           : "导入前会再次检查备份完整性；如果导入失败，会尽量恢复到导入前状态。",
-        "备份不包含 API Key；当前已保存的密钥会保留。",
+        "备份只恢复书库内容；当前已保存的密钥会保留。",
         "",
         "是否继续？",
       ].join("\n")
@@ -540,7 +707,7 @@ export default function Settings({ onOpenPrivacy }) {
       return;
     }
 
-    const ok = window.confirm(`确定删除备份 ${selectedBackupId} 吗？这个操作不会删除当前书库。`);
+    const ok = window.confirm(`确定删除备份 ${selectedBackupId} 吗？这只会删除备份文件，当前书库会保留。`);
     if (!ok) return;
 
     setBackupMsg(null);
@@ -583,7 +750,7 @@ export default function Settings({ onOpenPrivacy }) {
         backupImportMode === "merge"
           ? "合并导入会保留现有书库；如果备份里有同一本书，会用备份版本更新。"
           : "覆盖恢复会清空当前书库、进度、笔记、聊天和本地设置。",
-        "备份文件不包含 API Key；当前已保存的密钥会尽量保留。",
+        "备份文件只恢复书库内容；当前已保存的密钥会尽量保留。",
         "",
         "是否继续导入？",
       ].join("\n")
@@ -624,7 +791,7 @@ export default function Settings({ onOpenPrivacy }) {
         type: "error",
         text: hasSavedActiveKey
           ? "本机已经保存过这个供应商的 API Key。测试连接需要你临时粘贴一次 Key，避免直接读取已保存密钥。"
-          : "请先填写当前供应商的 API Key。桌面版不会在打开设置页时自动读取已保存密钥。",
+          : "请先填写当前供应商的 API Key。桌面版打开设置页时会保留已保存密钥；测试连接需要你手动粘贴一次 Key。",
       });
       return;
     }
@@ -633,7 +800,7 @@ export default function Settings({ onOpenPrivacy }) {
       !confirmOpenAICompatibleTarget(
         settings,
         setTestMsg,
-        "已取消测试连接，未向这个 Base URL 发送请求。"
+        "已取消测试连接，请求已停止。"
       )
     ) {
       return;
@@ -652,7 +819,7 @@ export default function Settings({ onOpenPrivacy }) {
 
   async function handleClearAll() {
     const ok = window.confirm(
-      "确定要清空全部数据吗？这会删除所有书籍、进度、聊天记录和设置，且无法恢复。"
+      "确定要清空全部数据吗？清空后会永久删除所有书籍、进度、聊天记录和设置。"
     );
     if (!ok) return;
     await clearAll();
@@ -664,7 +831,24 @@ export default function Settings({ onOpenPrivacy }) {
     setOpenaiModel(DEFAULT_OPENAI_COMPATIBLE_MODEL);
     setInputPricePerMTok("");
     setOutputPricePerMTok("");
+    setAiBudgetEnabled(DEFAULT_AI_BUDGET.enabled);
+    setMaxInputTokensPerRequest(DEFAULT_AI_BUDGET.maxInputTokensPerRequest);
+    setMaxOutputTokensPerRequest(DEFAULT_AI_BUDGET.maxOutputTokensPerRequest);
+    setMaxEstimatedCostPerRequest(DEFAULT_AI_BUDGET.maxEstimatedCostPerRequest);
+    setMaxEstimatedCostPerDay(DEFAULT_AI_BUDGET.maxEstimatedCostPerDay);
+    setAiProfilesEnabled(DEFAULT_AI_PROFILES.enabled);
+    setAiProfileTasks(DEFAULT_AI_PROFILES.tasks);
     setSaveMsg({ type: "ok", text: "已清空全部本地数据。" });
+  }
+
+  function updateAiProfileTask(taskId, patch) {
+    setAiProfileTasks((tasks) => ({
+      ...tasks,
+      [taskId]: {
+        ...(tasks[taskId] || DEFAULT_AI_PROFILES.tasks[taskId]),
+        ...patch,
+      },
+    }));
   }
 
   function applyModelOption(optionValue) {
@@ -687,43 +871,48 @@ export default function Settings({ onOpenPrivacy }) {
   }
 
   function confirmOpenAICompatibleTarget(settings, setMessage, cancelText) {
-    if (settings.provider !== PROVIDERS.openaiCompatible) return true;
+    const targets = collectOpenAICompatibleTargets(settings);
+    if (!targets.length) return true;
     if (!settings.openaiCompatible.apiKey && !desktopBackupAvailable) return true;
 
-    const assessment = assessOpenAICompatibleBaseUrl(settings.openaiCompatible.baseUrl);
-    if (assessment.error) {
-      setMessage({
-        type: "error",
-        text: assessment.error,
-      });
-      return false;
-    }
+    for (const target of targets) {
+      const assessment = assessOpenAICompatibleBaseUrl(target.baseUrl);
+      if (assessment.error) {
+        setMessage({
+          type: "error",
+          text: `${target.label}：${assessment.error}`,
+        });
+        return false;
+      }
 
-    if (!assessment.needsConfirmation) return true;
-    if (confirmedBaseUrlsRef.current.has(assessment.normalizedBaseUrl)) return true;
+      if (!assessment.needsConfirmation) continue;
+      if (confirmedBaseUrlsRef.current.has(assessment.normalizedBaseUrl)) continue;
 
-    const confirmed = window.confirm(
-      [
-        "你正在使用非官方或非 HTTPS 的 OpenAI-compatible Base URL。",
-        "",
-        `目标地址：${assessment.normalizedBaseUrl}`,
-        "",
-        "测试连接和生成内容时，API Key 和必要的阅读文本会发送到这个地址。请确认它是你信任的服务或本地代理。",
-        "",
-        "确认继续使用吗？",
-      ].join("\n")
-    );
+      const confirmed = window.confirm(
+        [
+          "你正在使用非官方或非 HTTPS 的 OpenAI-compatible Base URL。",
+          "",
+          `用途：${target.label}`,
+          `目标地址：${assessment.normalizedBaseUrl}`,
+          "",
+          "测试连接和生成内容时，API Key 和必要的阅读文本会发送到这个地址。请确认它是你信任的服务或本地代理。",
+          "",
+          "确认继续使用吗？",
+        ].join("\n")
+      );
 
-    if (confirmed) {
+      if (!confirmed) {
+        setMessage({
+          type: "warn",
+          text: cancelText || "已取消操作，未使用这个 OpenAI-compatible Base URL。",
+        });
+        return false;
+      }
+
       confirmedBaseUrlsRef.current.add(assessment.normalizedBaseUrl);
-      return true;
     }
 
-    setMessage({
-      type: "warn",
-      text: cancelText || "已取消操作，未使用这个 OpenAI-compatible Base URL。",
-    });
-    return false;
+    return true;
   }
 
   const storageLabel = desktopBackupAvailable ? "系统钥匙串" : "浏览器本地存储";
@@ -758,7 +947,7 @@ export default function Settings({ onOpenPrivacy }) {
               detail={activeHasSavedKey ? storageLabel : "需要填写"}
               tone={activeHasSavedKey ? "ok" : "warn"}
             />
-            <StatusTile label="备份" value={backupStatusText} detail="不包含 API Key" />
+            <StatusTile label="备份" value={backupStatusText} detail="API Key 单独保存" />
           </div>
         </header>
 
@@ -809,7 +998,7 @@ export default function Settings({ onOpenPrivacy }) {
                       ? "Claude 配置"
                       : "OpenAI-compatible 配置"
                   }
-                  desc="如果已经保存过密钥，留空保存不会删掉它。"
+                  desc="已保存的密钥会继续保留；填写新 Key 后再保存会替换它。"
                 >
                   {provider === PROVIDERS.anthropic ? (
                     <AnthropicSettings
@@ -850,6 +1039,36 @@ export default function Settings({ onOpenPrivacy }) {
                     测试连接和生成内容时，API Key 与必要的阅读文本会发送给当前模型服务。
                     如果填写自定义 Base URL，请确认这个地址可信。
                   </p>
+                </SettingsSection>
+
+                <SettingsSection
+                  title="任务模型 Profile"
+                  desc="为整本书导读、章节导读、阅读中问答、本书聊天、追问和正文整理分别指定模型参数。"
+                >
+                  <AiProfileSettings
+                    enabled={aiProfilesEnabled}
+                    tasks={aiProfileTasks}
+                    onEnabledChange={setAiProfilesEnabled}
+                    onTaskChange={updateAiProfileTask}
+                  />
+                </SettingsSection>
+
+                <SettingsSection
+                  title="预算保护"
+                  desc="生成前按输入、输出和费用估算做一次拦截。费用上限依赖模型价格。"
+                >
+                  <AiBudgetSettings
+                    enabled={aiBudgetEnabled}
+                    maxInputTokensPerRequest={maxInputTokensPerRequest}
+                    maxOutputTokensPerRequest={maxOutputTokensPerRequest}
+                    maxEstimatedCostPerRequest={maxEstimatedCostPerRequest}
+                    maxEstimatedCostPerDay={maxEstimatedCostPerDay}
+                    onEnabledChange={setAiBudgetEnabled}
+                    onMaxInputTokensChange={setMaxInputTokensPerRequest}
+                    onMaxOutputTokensChange={setMaxOutputTokensPerRequest}
+                    onMaxRequestCostChange={setMaxEstimatedCostPerRequest}
+                    onMaxDayCostChange={setMaxEstimatedCostPerDay}
+                  />
                 </SettingsSection>
 
                 <div className="settings-save-bar">
@@ -917,7 +1136,7 @@ export default function Settings({ onOpenPrivacy }) {
                     </button>
                   </div>
                   <p className="settings-note">
-                    下载当前配置会包含 API Key。请只保存在你信任的位置，不要发给别人。
+                    下载当前配置会包含 API Key。请只保存在你信任的位置，避免发给别人。
                   </p>
                   {configMsg && <Hint msg={configMsg} />}
                 </SettingsSection>
@@ -929,7 +1148,7 @@ export default function Settings({ onOpenPrivacy }) {
                 <SettingsPanelHeader
                   kicker="本地书库"
                   title="数据备份"
-                  desc="导出或恢复书籍、进度、笔记、聊天和读后交流。备份默认不包含 API Key。"
+                  desc="导出或恢复书籍、进度、笔记、聊天和读后交流。API Key 会单独保存在本机。"
                 />
                 <input
                   ref={backupInputRef}
@@ -1099,9 +1318,9 @@ export default function Settings({ onOpenPrivacy }) {
                   </SettingsSection>
                 )}
 
-                <SettingsSection title="备份不会包含什么" compact>
+                <SettingsSection title="API Key 怎么处理" compact>
                   <p className="settings-note">
-                    备份不会恢复 API Key。桌面版导入失败时，会尽量恢复到导入前的书库状态。
+                    备份只恢复书库内容。API Key 继续使用本机已保存的配置；桌面版导入失败时，会尽量恢复到导入前的书库状态。
                   </p>
                   {backupMsg && <Hint msg={backupMsg} />}
                 </SettingsSection>
@@ -1131,12 +1350,109 @@ export default function Settings({ onOpenPrivacy }) {
                       浏览器版会把 API Key 保存在当前浏览器；桌面版会把 API Key 保存在系统钥匙串。
                     </p>
                     <p>
-                      桌面版进入设置页时不会自动把已保存密钥读回输入框，避免打开设置页就触发系统密码弹窗。
+                      桌面版进入设置页时会保留已保存密钥；只有测试连接或生成内容时才需要读取密钥。
                     </p>
                     <p>
                       建议使用单独的 API Key，并在模型服务商后台设置额度或限额。自定义 Base URL 时，请确认目标服务可信。
                     </p>
                   </div>
+                </SettingsSection>
+              </SettingsPanel>
+            )}
+
+            {activePanel === "diagnostics" && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="本机诊断"
+                  title="诊断与支持"
+                  desc="查看桌面健康状态、导出诊断包，并复制最近 AI 错误摘要。"
+                />
+                <SettingsSection
+                  title="桌面健康检查"
+                  desc="诊断包只包含脱敏摘要，不包含 API Key、prompt、正文、笔记或聊天全文。"
+                >
+                  {desktopDiagnosticsAvailable ? (
+                    <>
+                      <div className="settings-action-row">
+                        <button
+                          type="button"
+                          onClick={handleRunHealthCheck}
+                          disabled={diagnosticBusy}
+                          className="settings-secondary-button"
+                        >
+                          {diagnosticBusy ? "处理中..." : "运行健康检查"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportDiagnosticPackage}
+                          disabled={diagnosticBusy}
+                          className="settings-primary-button"
+                        >
+                          导出诊断包
+                        </button>
+                      </div>
+                      <DesktopHealthReportView report={desktopHealthReport} />
+                      {diagnosticPackageResult && (
+                        <div className="settings-diagnostic-export">
+                          <p className="settings-diagnostic-title">
+                            {diagnosticPackageResult.fileName}
+                          </p>
+                          <p className="settings-diagnostic-detail">
+                            {diagnosticPackageResult.path}
+                          </p>
+                          <div className="settings-metric-grid settings-metric-grid-compact">
+                            <Metric
+                              label="包大小"
+                              value={formatBytes(diagnosticPackageResult.byteSize)}
+                            />
+                            <Metric
+                              label="健康状态"
+                              value={formatHealthStatus(diagnosticPackageResult.healthStatus)}
+                            />
+                            <Metric
+                              label="日志条数"
+                              value={diagnosticPackageResult.logEntryCount || 0}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="settings-note">桌面健康检查和诊断包仅在桌面版可用。</p>
+                  )}
+                </SettingsSection>
+
+                <SettingsSection title="AI 错误详情" desc="复制内容只包含最近调用的脱敏摘要。">
+                  <div className="settings-action-row">
+                    <button
+                      type="button"
+                      onClick={refreshAiDiagnostics}
+                      className="settings-secondary-button"
+                    >
+                      刷新
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAiDiagnostics}
+                      className="settings-secondary-button"
+                      disabled={!aiDiagnostics.entries?.length}
+                    >
+                      清空诊断
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyLatestErrorDetails}
+                      className="settings-secondary-button"
+                      disabled={!findLatestDiagnosticIssueEntry(aiDiagnostics)}
+                    >
+                      复制最近错误
+                    </button>
+                  </div>
+                  <AiDiagnosticsView
+                    diagnostics={aiDiagnostics}
+                    onCopyErrorDetails={handleCopyErrorDetails}
+                  />
+                  {diagnosticsMsg && <Hint msg={diagnosticsMsg} />}
                 </SettingsSection>
               </SettingsPanel>
             )}
@@ -1152,7 +1468,7 @@ export default function Settings({ onOpenPrivacy }) {
                   <div className="settings-danger-zone">
                     <div>
                       <p className="settings-danger-title">清空全部本地数据</p>
-                      <p className="settings-note">这个操作无法恢复。建议先完成本地备份。</p>
+                      <p className="settings-note">清空后会永久删除本机数据。建议先完成本地备份。</p>
                     </div>
                     <button type="button" onClick={handleClearAll} className="settings-danger-button">
                       清空全部数据
@@ -1177,7 +1493,9 @@ function SettingsNavButton({ panel, active, onClick }) {
       className={`settings-nav-button ${active ? "is-active" : ""}`}
       aria-current={active ? "page" : undefined}
     >
-      <span className="settings-nav-dot" />
+      <span className="settings-nav-icon">
+        <ChineseIcon name={panel.icon} className="h-4 w-4" decorative />
+      </span>
       <span>
         <span className="settings-nav-label">{panel.label}</span>
         <span className="settings-nav-desc">{panel.desc}</span>
@@ -1420,6 +1738,474 @@ function OpenAICompatibleSettings({
   );
 }
 
+function AiProfileSettings({ enabled, tasks, onEnabledChange, onTaskChange }) {
+  const [activeTaskId, setActiveTaskId] = useState(AI_PROFILE_TASKS[0].id);
+  const activeTask = AI_PROFILE_TASKS.find((task) => task.id === activeTaskId) || AI_PROFILE_TASKS[0];
+  const profile = tasks?.[activeTask.id] || DEFAULT_AI_PROFILES.tasks[activeTask.id];
+  const provider = profile.provider || "";
+  const selectedModelOption = findModelOption(profile.openaiBaseUrl, profile.openaiModel);
+  const selectedModelValue = selectedModelOption
+    ? getModelOptionValue(selectedModelOption)
+    : "custom";
+
+  function applyProfileModelOption(optionValue) {
+    if (optionValue === "custom") {
+      onTaskChange(activeTask.id, {
+        openaiBaseUrl: "",
+        openaiModel: "",
+        inputPricePerMTok: "",
+        outputPricePerMTok: "",
+      });
+      return;
+    }
+
+    const option = OPENAI_COMPATIBLE_MODEL_OPTIONS.find(
+      (candidate) => getModelOptionValue(candidate) === optionValue
+    );
+    if (!option) return;
+
+    onTaskChange(activeTask.id, {
+      openaiBaseUrl: option.baseUrl,
+      openaiModel: option.model,
+      inputPricePerMTok: option.inputPricePerMTok || "",
+      outputPricePerMTok: option.outputPricePerMTok || "",
+    });
+  }
+
+  return (
+    <div className="settings-form-stack">
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => onEnabledChange(event.target.checked)}
+        />
+        <span>启用任务模型 Profile</span>
+      </label>
+
+      <div className="settings-form-grid">
+        <label className="settings-field">
+          <span>任务</span>
+          <select
+            value={activeTask.id}
+            onChange={(event) => setActiveTaskId(event.target.value)}
+            disabled={!enabled}
+            className="settings-input"
+          >
+            {AI_PROFILE_TASKS.map((task) => (
+              <option key={task.id} value={task.id}>
+                {task.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="settings-field">
+          <span>任务默认输出上限</span>
+          <input value={activeTask.defaultMaxTokens} disabled className="settings-input" />
+        </label>
+      </div>
+
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={Boolean(profile.enabled)}
+          disabled={!enabled}
+          onChange={(event) => onTaskChange(activeTask.id, { enabled: event.target.checked })}
+        />
+        <span>这个任务使用独立 Profile</span>
+      </label>
+
+      {profile.enabled && (
+        <>
+          <div className="settings-form-grid">
+            <label className="settings-field">
+              <span>供应商</span>
+              <select
+                value={provider}
+                onChange={(event) =>
+                  onTaskChange(activeTask.id, {
+                    provider: event.target.value,
+                  })
+                }
+                disabled={!enabled}
+                className="settings-input"
+              >
+                <option value="">继承全局供应商</option>
+                {PROVIDER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="settings-field">
+              <span>Temperature</span>
+              <input
+                value={profile.temperature}
+                onChange={(event) =>
+                  onTaskChange(activeTask.id, { temperature: event.target.value })
+                }
+                placeholder={activeTask.defaultTemperature}
+                inputMode="decimal"
+                disabled={!enabled}
+                className="settings-input"
+              />
+            </label>
+          </div>
+
+          {!provider && (
+            <p className="settings-note">
+              供应商留空时，这个任务会继承全局模型；仍可单独覆盖输出上限和 temperature。
+            </p>
+          )}
+
+          {provider === PROVIDERS.anthropic ? (
+            <label className="settings-field">
+              <span>Claude 模型</span>
+              <select
+                value={profile.anthropicModel || ""}
+                onChange={(event) =>
+                  onTaskChange(activeTask.id, { anthropicModel: event.target.value })
+                }
+                disabled={!enabled}
+                className="settings-input"
+              >
+                <option value="">继承全局 Claude 模型</option>
+                {ANTHROPIC_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : provider === PROVIDERS.openaiCompatible ? (
+            <>
+              <label className="settings-field">
+                <span>OpenAI-compatible 模型清单</span>
+                <select
+                  value={selectedModelValue}
+                  onChange={(event) => applyProfileModelOption(event.target.value)}
+                  disabled={!enabled}
+                  className="settings-input"
+                >
+                  <option value="custom">继承全局或手动填写</option>
+                  {MODEL_OPTION_GROUPS.map((group) => (
+                    <optgroup key={group} label={group}>
+                      {OPENAI_COMPATIBLE_MODEL_OPTIONS.filter(
+                        (option) => option.provider === group
+                      ).map((option) => (
+                        <option key={getModelOptionValue(option)} value={getModelOptionValue(option)}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+
+              <div className="settings-form-grid">
+                <label className="settings-field">
+                  <span>Base URL</span>
+                  <input
+                    value={profile.openaiBaseUrl}
+                    onChange={(event) =>
+                      onTaskChange(activeTask.id, { openaiBaseUrl: event.target.value })
+                    }
+                    placeholder="留空继承全局 Base URL"
+                    disabled={!enabled}
+                    className="settings-input"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>模型名</span>
+                  <input
+                    value={profile.openaiModel}
+                    onChange={(event) =>
+                      onTaskChange(activeTask.id, { openaiModel: event.target.value })
+                    }
+                    placeholder="留空继承全局模型"
+                    disabled={!enabled}
+                    className="settings-input"
+                  />
+                </label>
+              </div>
+
+              <div className="settings-form-grid">
+                <label className="settings-field">
+                  <span>输入价格（美元 / 百万 token）</span>
+                  <input
+                    value={profile.inputPricePerMTok}
+                    onChange={(event) =>
+                      onTaskChange(activeTask.id, { inputPricePerMTok: event.target.value })
+                    }
+                    placeholder="留空继承全局价格"
+                    inputMode="decimal"
+                    disabled={!enabled}
+                    className="settings-input"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>输出价格（美元 / 百万 token）</span>
+                  <input
+                    value={profile.outputPricePerMTok}
+                    onChange={(event) =>
+                      onTaskChange(activeTask.id, { outputPricePerMTok: event.target.value })
+                    }
+                    placeholder="留空继承全局价格"
+                    inputMode="decimal"
+                    disabled={!enabled}
+                    className="settings-input"
+                  />
+                </label>
+              </div>
+            </>
+          ) : null}
+
+          <label className="settings-field">
+            <span>输出 token 上限</span>
+            <input
+              value={profile.maxTokens}
+              onChange={(event) => onTaskChange(activeTask.id, { maxTokens: event.target.value })}
+              placeholder={`留空使用任务默认 ${activeTask.defaultMaxTokens}`}
+              inputMode="numeric"
+              disabled={!enabled}
+              className="settings-input"
+            />
+          </label>
+        </>
+      )}
+
+      <p className="settings-note">
+        Profile 不保存 API Key；切到另一个供应商时，会继续使用该供应商在本机保存的 Key。
+      </p>
+    </div>
+  );
+}
+
+function DesktopHealthReportView({ report }) {
+  if (!report) {
+    return <p className="settings-note">尚未运行健康检查。</p>;
+  }
+
+  const fileReport = report.files || {};
+  const backupReport = report.backups || {};
+  const keyStatus = report.settingsKeyStatus || {};
+
+  return (
+    <div className="settings-diagnostic-report">
+      <div className="settings-metric-grid settings-metric-grid-compact">
+        <Metric label="状态" value={formatHealthStatus(report.status)} />
+        <Metric label="问题" value={report.issueCount || 0} />
+        <Metric
+          label="Schema"
+          value={`${report.schemaVersion || "未知"} / ${report.expectedSchemaVersion || "未知"}`}
+        />
+        <Metric label="SQLite" value={report.sqliteQuickCheck || "未记录"} />
+        <Metric label="缺失文件" value={fileReport.missingFileCount || 0} />
+        <Metric label="孤儿文件" value={fileReport.orphanCount || 0} />
+      </div>
+
+      <div className="settings-diagnostic-kv">
+        <span>备份目录：{backupReport.writable ? "可写" : backupReport.issue || "不可写"}</span>
+        <span>Claude Key：{keyStatus.anthropicHasApiKey ? "已保存" : "未保存"}</span>
+        <span>
+          OpenAI-compatible Key：{keyStatus.openaiCompatibleHasApiKey ? "已保存" : "未保存"}
+        </span>
+      </div>
+
+      {report.issues?.length > 0 && <IssueList issues={report.issues} />}
+    </div>
+  );
+}
+
+function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
+  const entries = diagnostics?.entries || [];
+  if (!entries.length) {
+    return <p className="settings-note">暂无 AI 调用诊断。</p>;
+  }
+
+  return (
+    <div className="settings-diagnostic-list">
+      {entries.map((entry) => (
+        <article key={entry.id} className="settings-diagnostic-item">
+          <div className="settings-diagnostic-head">
+            <div>
+              <p className="settings-diagnostic-title">
+                {entry.taskLabel || "AI 请求"} · {entry.mode === "stream" ? "流式" : "非流式"}
+              </p>
+              <p className="settings-diagnostic-meta">
+                {formatDateTime(entry.startedAt)} · {entry.provider || "未知供应商"} ·{" "}
+                {entry.model || "未知模型"}
+              </p>
+            </div>
+            <div className="settings-diagnostic-actions">
+              <span className={`settings-diagnostic-badge settings-diagnostic-${entry.status}`}>
+                {formatDiagnosticStatus(entry.status)}
+              </span>
+              {isDiagnosticIssueEntry(entry) && (
+                <button
+                  type="button"
+                  onClick={() => onCopyErrorDetails(entry)}
+                  className="settings-diagnostic-copy"
+                >
+                  复制
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-metric-grid settings-metric-grid-compact">
+            <Metric label="耗时" value={formatDuration(entry.durationMs)} />
+            <Metric label="输入 token" value={entry.inputTokens || 0} />
+            <Metric label="输出 token" value={entry.outputTokens || 0} />
+            <Metric label="费用" value={formatUsd(entry.actualCost || entry.estimatedCost || 0)} />
+            <Metric label="尝试" value={entry.attempts || "未记录"} />
+            <Metric label="Profile" value={entry.profileApplied ? "已应用" : "默认"} />
+          </div>
+
+          {(entry.errorCode || entry.finishReason || entry.truncated) && (
+            <p className="settings-diagnostic-detail">
+              {entry.errorCode ? `错误码：${entry.errorCode}` : `结束原因：${entry.finishReason || "未记录"}`}
+              {entry.httpStatus ? ` · HTTP ${entry.httpStatus}` : ""}
+              {entry.retryable ? " · 可重试" : ""}
+              {entry.truncated ? " · 输出截断" : ""}
+            </p>
+          )}
+          {entry.errorMessage && (
+            <p className="settings-diagnostic-detail">{entry.errorMessage}</p>
+          )}
+          {entry.baseUrlOrigin && (
+            <p className="settings-diagnostic-detail">Base URL：{entry.baseUrlOrigin}</p>
+          )}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="settings-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function formatDiagnosticStatus(status) {
+  if (status === "success") return "成功";
+  if (status === "blocked") return "已拦截";
+  if (status === "cancelled") return "已取消";
+  return "失败";
+}
+
+function formatHealthStatus(status) {
+  if (status === "ok") return "正常";
+  if (status === "warn") return "有提示";
+  if (status === "error") return "需处理";
+  return "未知";
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDuration(value) {
+  const ms = Number(value) || 0;
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "时间未知";
+  return date.toLocaleString();
+}
+
+function AiBudgetSettings({
+  enabled,
+  maxInputTokensPerRequest,
+  maxOutputTokensPerRequest,
+  maxEstimatedCostPerRequest,
+  maxEstimatedCostPerDay,
+  onEnabledChange,
+  onMaxInputTokensChange,
+  onMaxOutputTokensChange,
+  onMaxRequestCostChange,
+  onMaxDayCostChange,
+}) {
+  return (
+    <div className="settings-form-stack">
+      <label className="settings-check-row">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => onEnabledChange(event.target.checked)}
+        />
+        <span>启用预算保护</span>
+      </label>
+
+      <div className="settings-form-grid">
+        <label className="settings-field">
+          <span>单次输入 token 上限</span>
+          <input
+            value={maxInputTokensPerRequest}
+            onChange={(event) => onMaxInputTokensChange(event.target.value)}
+            placeholder={DEFAULT_AI_BUDGET.maxInputTokensPerRequest}
+            inputMode="numeric"
+            disabled={!enabled}
+            className="settings-input"
+          />
+        </label>
+        <label className="settings-field">
+          <span>单次输出 token 上限</span>
+          <input
+            value={maxOutputTokensPerRequest}
+            onChange={(event) => onMaxOutputTokensChange(event.target.value)}
+            placeholder={DEFAULT_AI_BUDGET.maxOutputTokensPerRequest}
+            inputMode="numeric"
+            disabled={!enabled}
+            className="settings-input"
+          />
+        </label>
+      </div>
+
+      <div className="settings-form-grid">
+        <label className="settings-field">
+          <span>单次费用上限（美元，可选）</span>
+          <input
+            value={maxEstimatedCostPerRequest}
+            onChange={(event) => onMaxRequestCostChange(event.target.value)}
+            placeholder="例如 0.20"
+            inputMode="decimal"
+            disabled={!enabled}
+            className="settings-input"
+          />
+        </label>
+        <label className="settings-field">
+          <span>每日费用上限（美元，可选）</span>
+          <input
+            value={maxEstimatedCostPerDay}
+            onChange={(event) => onMaxDayCostChange(event.target.value)}
+            placeholder="例如 2.00"
+            inputMode="decimal"
+            disabled={!enabled}
+            className="settings-input"
+          />
+        </label>
+      </div>
+
+      <p className="settings-note">
+        留空表示不限制对应费用；预算用量只保存日期、任务类型、token 和估算费用。
+      </p>
+    </div>
+  );
+}
+
 function KeyInput({
   value,
   hasSavedKey,
@@ -1436,10 +2222,10 @@ function KeyInput({
       ? `已填写新 Key；保存后会替换${storageLabel}里的密钥。`
       : `已填写 Key；保存后会保存在${storageLabel}。`
     : hasSavedKey
-    ? `已保存 Key（不会显示明文）；留空保存会继续保留。`
+    ? `已保存 Key；输入框留空时会继续保留。`
     : keyStatusUnknown
-    ? "没有读取已保存密钥；如果之前保存过，留空也会继续保留。填写并保存新 Key 后会更新状态。"
-    : "尚未保存 Key。";
+    ? "已保存密钥的状态需要在使用时确认；输入框留空时会继续保留，填写并保存新 Key 后会更新状态。"
+    : "等待保存 Key。";
   const statusColor = hasDraftKey
     ? "text-amber-700"
     : hasSavedKey
@@ -1483,6 +2269,33 @@ function Hint({ msg }) {
   return <p className={`settings-hint ${color}`}>{msg.text}</p>;
 }
 
+function collectOpenAICompatibleTargets(settings) {
+  const targets = [];
+  if (settings.provider === PROVIDERS.openaiCompatible) {
+    targets.push({
+      label: "全局模型配置",
+      baseUrl: settings.openaiCompatible.baseUrl,
+    });
+  }
+
+  if (settings.aiProfiles?.enabled) {
+    for (const task of AI_PROFILE_TASKS) {
+      const profile = settings.aiProfiles.tasks?.[task.id];
+      if (!profile?.enabled || profile.provider !== PROVIDERS.openaiCompatible) continue;
+      targets.push({
+        label: `${task.label} Profile`,
+        baseUrl: profile.openaiBaseUrl || settings.openaiCompatible.baseUrl,
+      });
+    }
+  }
+
+  return targets.filter(
+    (target, index, all) =>
+      target.baseUrl &&
+      all.findIndex((candidate) => candidate.baseUrl === target.baseUrl) === index
+  );
+}
+
 function assessOpenAICompatibleBaseUrl(value) {
   const text = (value || DEFAULT_OPENAI_COMPATIBLE_BASE_URL).trim();
   let url;
@@ -1491,7 +2304,7 @@ function assessOpenAICompatibleBaseUrl(value) {
     url = new URL(text);
   } catch {
     return {
-      error: "Base URL 不是有效地址，请使用类似 https://api.openai.com/v1 的完整 URL。",
+      error: "请填写完整的 Base URL，例如 https://api.openai.com/v1。",
     };
   }
 

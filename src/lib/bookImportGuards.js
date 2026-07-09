@@ -110,7 +110,7 @@ export function validateExtractedTextPresence(format, extractedChars) {
   const hint =
     format === BOOK_FORMATS.pdf
       ? "它可能是扫描版或图片版 PDF，需要先 OCR 成可复制文本。"
-      : "它可能没有可读取正文，或文件结构不兼容当前解析器。";
+      : "文件里可能缺少可读取正文，或文件结构不兼容当前解析器。";
 
   throw createBookImportError(
     "empty-extracted-text",

@@ -8,6 +8,19 @@ export async function getReadingNotes(bookId, itemKey) {
   return normalizeNotes(saved?.[itemKey] || []);
 }
 
+export async function getAllReadingNotes(bookId) {
+  if (!bookId) return [];
+  const saved = await getItem(KEYS.bookNotes(bookId), {});
+  if (Array.isArray(saved)) return normalizeNotes(saved);
+
+  return Object.entries(saved || {}).flatMap(([itemKey, notes]) =>
+    normalizeNotes(notes).map((note) => ({
+      ...note,
+      itemKey: note.itemKey || itemKey,
+    }))
+  );
+}
+
 export async function addReadingNote(bookId, itemKey, note) {
   if (!bookId || !itemKey) return [];
   const saved = await getItem(KEYS.bookNotes(bookId), {});

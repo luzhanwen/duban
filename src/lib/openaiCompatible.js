@@ -1,3 +1,5 @@
+import { isAiOutputTruncated } from "./aiCompletion.js";
+
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 export async function callOpenAICompatibleDetailed({
@@ -7,9 +9,11 @@ export async function callOpenAICompatibleDetailed({
   system,
   messages,
   maxTokens = 1024,
+  signal,
+  temperature,
 }) {
-  if (!apiKey) throw new Error("尚未设置 API Key，请先到「设置」里填写。");
-  if (!model) throw new Error("尚未设置模型名，请先到「设置」里填写。");
+  if (!apiKey) throw new Error("请先到「设置」里填写 API Key。");
+  if (!model) throw new Error("请先到「设置」里填写模型名。");
 
   const endpoint = `${normalizeBaseUrl(baseUrl)}/chat/completions`;
   const chatMessages = system
@@ -21,6 +25,8 @@ export async function callOpenAICompatibleDetailed({
     messages: chatMessages,
     ...buildTokenLimitPayload(baseUrl, maxTokens),
   };
+  const normalizedTemperature = normalizeTemperature(temperature);
+  if (normalizedTemperature !== null) body.temperature = normalizedTemperature;
 
   let res;
   try {
@@ -31,8 +37,10 @@ export async function callOpenAICompatibleDetailed({
         "content-type": "application/json",
       },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     throw new Error(
       "网络请求失败，或该 OpenAI-compatible 服务不允许浏览器直连（CORS）。如果持续失败，后续需要加本地/后端代理。"
     );
@@ -45,13 +53,15 @@ export async function callOpenAICompatibleDetailed({
 
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content || "";
+  const finishReason = data.choices?.[0]?.finish_reason || "";
 
   return {
     text,
     usage: normalizeUsage(data.usage),
     model: data.model || model,
     id: data.id,
-    finishReason: data.choices?.[0]?.finish_reason || "",
+    finishReason,
+    truncated: isAiOutputTruncated(finishReason),
   };
 }
 
@@ -63,9 +73,11 @@ export async function streamOpenAICompatibleDetailed({
   messages,
   maxTokens = 1024,
   onText,
+  signal,
+  temperature,
 }) {
-  if (!apiKey) throw new Error("尚未设置 API Key，请先到「设置」里填写。");
-  if (!model) throw new Error("尚未设置模型名，请先到「设置」里填写。");
+  if (!apiKey) throw new Error("请先到「设置」里填写 API Key。");
+  if (!model) throw new Error("请先到「设置」里填写模型名。");
 
   const endpoint = `${normalizeBaseUrl(baseUrl)}/chat/completions`;
   const chatMessages = system
@@ -77,6 +89,8 @@ export async function streamOpenAICompatibleDetailed({
     stream: true,
     ...buildTokenLimitPayload(baseUrl, maxTokens),
   };
+  const normalizedTemperature = normalizeTemperature(temperature);
+  if (normalizedTemperature !== null) body.temperature = normalizedTemperature;
 
   let res;
   try {
@@ -87,8 +101,10 @@ export async function streamOpenAICompatibleDetailed({
         "content-type": "application/json",
       },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     throw new Error(
       "网络请求失败，或该 OpenAI-compatible 服务不允许浏览器直连（CORS）。如果持续失败，后续需要加本地/后端代理。"
     );
@@ -148,6 +164,7 @@ export async function streamOpenAICompatibleDetailed({
     model: responseModel,
     id,
     finishReason,
+    truncated: isAiOutputTruncated(finishReason),
   };
 }
 
@@ -191,4 +208,15 @@ function humanizeError(status, message) {
   if (status === 429) return "请求过于频繁或额度不足（429），请稍后再试或检查账户额度。";
   if (status >= 500) return "模型服务暂时不可用，请稍后重试。";
   return message || `请求失败：${status}`;
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
+}
+
+function normalizeTemperature(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.min(2, Math.max(0, number));
 }

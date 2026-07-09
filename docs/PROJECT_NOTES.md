@@ -1,10 +1,10 @@
 # 读伴项目记录
 
-> 最后更新：2026-06-18
+> 最后更新：2026-07-08
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
-文档分工见 [docs/README.md](./README.md)。简单来说：本文件记录项目总上下文和完整开发日志；路线优先级写入 [ROADMAP.md](./ROADMAP.md)；阶段 5 之后的生产级升级步骤写入 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)；具体 UI 与交互改动写入 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+文档分工见 [docs/README.md](./README.md)。简单来说：本文件记录项目总上下文和完整开发日志；路线优先级写入 [ROADMAP.md](./ROADMAP.md)；App 化专项记录写入 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)；阶段 5 之后的生产级升级步骤写入 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)；产品内提示词规范写入 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)；具体 UI 与交互改动写入 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 
 ## 产品愿景
 
@@ -102,7 +102,7 @@
 - Tailwind CSS
 - PDF.js
 - 浏览器版使用 localforage + IndexedDB
-- Tauri 桌面版已接入 SQLite + App 数据目录文件存储，API Key 保存到系统 Keychain
+- Tauri 桌面版已接入 SQLite + App 数据目录文件存储，API Key 保存到系统 Keychain；真正 AI 使用路径允许在当前进程内短期缓存已解析密钥，减少连续系统授权弹窗
 - Claude / OpenAI-compatible BYOK，用户在设置页填自己的 API Key
 - 模型调用已抽象为供应商接口，当前支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
 - 后端开发标准记录在 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md)，后续 AI 接手提示词记录在 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md)。
@@ -125,7 +125,7 @@
 
 - 继续通过 `storage.js` / `books.js` 封装数据访问。
 - 当前已增加「导出书库 / 导入书库」能力；桌面版使用目录式 `manifest.json + files/` v3 备份，并支持预览、manifest/file sha256 校验、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入。
-- 阶段 5 之后已完成 P6.1 数据安全收口主体、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体；后续优先推进 P6.4 AI transport 生产化，再进入安全隐私、诊断、正式签名、公证、自动更新、CI 和 public alpha。
+- 阶段 5 之后已完成 P6.1 数据安全收口主体、P6.2 存储结构收束、P6.3 大文件与解析韧性主体、P6.4 AI transport 生产化主体和 P6.5 安全与隐私加固基础版；后续优先进入 P6.6 本地诊断与可支持性，再推进正式签名、公证、自动更新、CI 和 public alpha。
 - 如果产品变成长期个人书库，考虑 Tauri 或 Electron 桌面版。
 - 桌面版可使用本地文件系统 + SQLite，网页端保留 IndexedDB 作为轻量试用。
 - 云同步可以作为可选能力，不强制上传 PDF 原文件。
@@ -138,9 +138,12 @@
 - `wholeBookGuide.md`：整本书开书导读 prompt，生成全书地图、阅读难点、建议读法和读伴侧重点选项。
 - `readingGuide.md`：章节读前导读 prompt。
 - `readingChat.md`：阅读中 sidebar 伴读问答 prompt。
+- `bookCompanionChat.md`：书架独立「和读伴聊聊」页面的本书级聊天 prompt，围绕全书地图、读伴记忆、阅读进度、当前阅读项摘录、最近笔记和读中/读后交流回答。
 - `readingReflection.md`：读后交流 prompt，负责读完后的开放式追问和连续追问。
 
 代码通过 `src/lib/promptTemplates.js` 使用 Vite `?raw` 导入 Markdown 模板，并替换 `{{变量名}}`。这样既方便维护 prompt 文案，又不需要引入后端或运行时 fetch。
+
+产品内 prompt 的写作规范维护在 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)。当前重点是让读伴更像成熟、克制、有判断力的讲书人：可以调用可靠的公共背景知识和常见评价，但不能编造具体事实；展示文本要减少“不是……而是……”这类高频模板转折；整本书导读和章节导读会写入 `styleVersion`，用于后续识别文风版本，但不能仅因旧缓存缺少版本就判定内容失效。
 
 注意：[AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md) 记录的是后续 AI 接手项目时使用的工程协作提示词，不属于产品内读伴 prompt；不要把它打包进前端功能。
 
@@ -149,7 +152,7 @@
 当前本地存储统一封装在 `src/lib/storage.js` 和 `src/lib/books.js`。
 
 - 浏览器版：基于 localforage + IndexedDB。
-- Tauri 桌面版：`storageAdapter` 切到 Tauri command；书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流、章节导读缓存、非敏感设置、封面缓存和 AI 排版缓存已进入结构化 SQLite / App 数据目录；API Key 写入系统 Keychain；读取设置页只返回非敏感配置，不主动读回 Keychain 密钥，并用 `hasApiKey` 非敏感标记提示本机是否已保存过 Key；`kv_store` 仅保留兼容旧 key 或临时低风险 JSON；原始 `File/Blob` 写入 App 数据目录 `files/`，SQLite 保存文件索引；目录式备份写入 App 数据目录 `backups/`。
+- Tauri 桌面版：`storageAdapter` 切到 Tauri command；书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流、章节导读缓存、非敏感设置、封面缓存和 AI 排版缓存已进入结构化 SQLite / App 数据目录；API Key 写入系统 Keychain；读取设置页只返回非敏感配置，不主动读回 Keychain 密钥，并用 `hasApiKey` 非敏感标记提示本机是否已保存过 Key；真正发起 AI 请求时，如果请求体没有明文 Key，Rust 后端才按需读取 Keychain，并允许在当前进程内短期缓存以减少重复弹窗；`kv_store` 仅保留兼容旧 key 或临时低风险 JSON；原始 `File/Blob` 写入 App 数据目录 `files/`，SQLite 保存文件索引；目录式备份写入 App 数据目录 `backups/`。
 - Tauri 首次启动会把旧 IndexedDB 数据自动迁移到 SQLite / 文件目录；如果 SQLite 已有数据，会跳过迁移并写入迁移标记。
 - 设置页支持本地备份导出/导入；桌面版备份包含书库、原始文件、分页、进度、导读、笔记和聊天记录，支持导入前预览、manifest/file sha256 校验、合并导入、覆盖恢复、失败自动回滚、备份名称/备注、删除和外部路径导入，默认不包含 API Key。
 - 桌面存储 schema 记录在 [DESKTOP_STORAGE_SCHEMA.md](./DESKTOP_STORAGE_SCHEMA.md)。
@@ -160,9 +163,9 @@
 - `books`：书籍元数据数组；桌面版已映射到结构化 `books` / `book_chapters` 表，并同步 `reading_plans` / `reading_plan_items`
 - `book:{id}:file`：原始书籍文件 Blob；桌面版已映射到 `book_files`，重开后读取返回本地文件引用
 - `book:{id}:pages`：按页或文本页提取的文本数组；桌面版已映射到 `book_pages`
-- `book:{id}:chat`：伴读问答记录，内部按阅读项 key 分组；桌面版已映射到 `chat_messages`
+- `book:{id}:chat`：伴读问答记录，内部按阅读项 key 分组；桌面版已映射到 `chat_messages`；本书级聊天使用保留 key `__book_companion__` 存在同一分组对象中，不单独升 schema
 - `book:{id}:reflection`：读后交流记录，内部按阅读项 key 分组；桌面版已映射到 `reflection_messages`
-- `book:{id}:notes`：高亮和笔记，内部按阅读项 key 分组；桌面版已映射到 `notes`
+- `book:{id}:notes`：高亮和笔记，内部按阅读项 key 分组；桌面版已映射到 `notes`；本书聊天回答记到笔记时优先写入当前阅读项，无法定位阅读项时写入 `__book_companion__` 分组，并以 `source = "book-companion-chat"` 标记来源
 - `book:{id}:questions:{planItemKey}`：当前阅读项的 AI 章节导读缓存；桌面版已映射到 `reading_guides`
 - `book:{id}:quiz:{chapterId}`：预留，章节测验
 - `progress:{id}`：阅读进度、当前阅读项、每个阅读项的最近页码、每个阅读项的完成时间和打卡日期；桌面版已映射到 `reading_progress` / `reading_item_progress`
@@ -471,6 +474,21 @@ readingProfile: {
   - PDF 阅读器会识别当前可见页，伴读问答会优先带入当前页提取文本，用户问“这一页/这里/这段”时能获得更贴近页面的回答。
   - PDF text layer 选中文字后显示跟随式小按钮，支持“问 读伴”和“添加笔记”；“问 读伴”会把页码和引用文本放到输入框上方作为引子，等待用户补充问题。
   - 选中文字可保存为高亮笔记；读伴回答也可以一键记到笔记，有原文引用时会尽量挂回对应页高亮。
+- 已接入本书级「和读伴聊聊」P0-P2：
+  - 书架菜单进入独立本书读伴聊天页，页面会加载本书级历史消息。
+  - 本书聊天已从占位回复升级为真实流式 AI 回答，支持 Enter 发送、停止生成、错误提示、模型/Token/费用展示和本地持久化。
+  - 本书聊天上下文带入书名作者、读伴记忆 `readingProfile.companionFocus`、整本书地图 `wholeBookGuide`、阅读计划、当前阅读位置、当前阅读项少量摘录、最近笔记、高亮、阅读中问答和读后交流。
+  - 为避免泛聊天和无意剧透，默认不把整本书全文塞进模型；用户问到未读后文时，prompt 要求先提醒可能剧透，并优先给不剧透回答。
+  - 数据层复用 `book:{id}:chat`，用保留 item key `__book_companion__` 区分本书级聊天，不影响按阅读项保存的 sidebar 问答。
+  - P2 增加“记到笔记”和“清空聊天”：读伴回答可沉淀到当前阅读项笔记并回流到后续本书聊天上下文，清空聊天只清除本书级历史，不删除书籍、进度或已保存笔记。
+- 已插入本书「整理这本书 / 复盘」前端阶段：
+  - 新增 `BookSalon` 页面，从书架菜单和本书聊天页进入。
+  - 「整理这本书」聚合书籍、阅读进度、全书笔记、本书聊天和读后交流，作为单本书的复盘工作台。
+  - 页面遵循「现代数字书斋」视觉标准，收敛为左侧本书状态栏 + 右侧主案面标签页，不做大 banner，也不把知识卡和复盘常驻堆在首屏。
+  - 当前已支持在整理页里筛选、编辑、保存和二次确认删除笔记；「重点」和「复盘」作为主案面标签页，先基于本地已有导读与沉淀生成轻量视图。
+  - 入口文案改为更直白的「整理这本书」，主控件改为标题下方轻量页签和左对齐筛选片，减少右上角大胶囊组带来的杂乱感。
+  - 会客厅首版视觉已继续收敛：页面内部明确为「本书会客厅」，使用朱砂进度小章、本书状态、笔记列表和轻分隔整理区，弱化后台管理台感；桌面端进一步改成固定一屏的案面布局，并二次删掉解释性文案，减少页面滚动、左右失衡和无效占位。
+  - 本轮不新增 schema，也不接入 AI 自动知识库；后续再评估标签、知识点卡片持久化、AI 自动归纳、导出和跨书关联。
 - 正文阅读页采用独立滚动布局：正文区域有独立边框和滚动条，sidebar 也独立滚动，互不牵扯。
 - 阅读器内隐藏全局顶部导航，正式阅读时只保留阅读会话自身的退出入口。
 - 已接入读后交流第一版：用户点“我读完了”后进入读伴追问式对话，读伴先问一个读后问题，再根据用户回答继续追问；读后页可选择是否带入本阅读项的伴读问答、高亮和笔记作为追问上下文。
@@ -806,10 +824,78 @@ readingProfile: {
 - 阅读器 sidebar 新增「记忆」面板，用户可以在阅读过程中调整本书读伴记忆；保存只影响 `readingProfile.companionFocus`，不清空导读、聊天、读后交流、笔记或阅读进度。
 - 新增 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)，集中记录上下文字段、兼容策略、三类 prompt 接入进展和后续验证重点。
 
+### 2026-07-01 至 2026-07-02：Keychain 体验与提示词规范收口
+
+- 桌面版 AI 使用路径新增进程内 API Key 缓存：真正模型请求缺少明文 Key 时，Rust 后端先查内存缓存，缓存缺失才读取系统 Keychain；缓存不写入 SQLite、备份、日志或错误信息。
+- 保存新 Key、删除 Key 或清空数据时会清空缓存，避免继续使用旧密钥；Keychain 读取和缓存写入在同一锁内完成，减少并发请求触发多次系统授权。
+- P6.4.1 + P6.4.2 已完成：Tauri AI command 统一返回脱敏错误结构，包含用户文案、诊断码、错误分类、可重试标记和 HTTP 状态；桌面 AI 请求加入 15 秒连接超时、180 秒总请求超时、最多 3 次请求尝试和 400ms/1000ms 退避。
+- 错误分类已覆盖网络/超时、鉴权、权限、限流/额度、模型或 Base URL、上下文过长、响应格式异常和服务端临时错误；不把供应商原始错误或敏感请求内容直接展示给用户。
+- P6.4.3 已完成请求取消：`callModelDetailed` / `streamModelDetailed` 支持 AbortSignal，Tauri transport 通过 requestId 调用取消 command，Rust 后端中止发送、重试退避和流式读取；开书分析、章节导读、伴读聊天和读后交流都有停止入口。
+- P6.4.4 已完成输出截断识别：浏览器和桌面 AI response 统一带 `truncated`；`max_tokens` / `length` / `max_output_tokens` / `output_token_limit` 不会被当作完整输出；章节导读和 AI 正文整理命中截断会失败并拒绝保存半截结果，整本书导读保存 failed 诊断态，聊天和读后追问保留回答但提示“已到输出上限”。
+- P6.4.5 已完成费用/token 预算保护：正式 AI 请求发出前统一估算输入 token、最大输出 token 和最高费用；设置页可配置单次输入/输出上限、单次费用上限和每日费用上限；预算用量只保存日期、任务类型、token 和估算费用，内部 key `__duban:ai-budget:{date}` 不进入浏览器或桌面备份。
+- P6.4.6 已完成模型 profile 管理：设置页支持按整本书导读、章节导读、伴读问答、读后追问和正文整理分别配置供应商、模型、Base URL、价格、输出 token 上限和 temperature；正式 AI 请求会先解析任务 profile，再经过预算、截断、取消和 transport 统一入口；profile 不保存 API Key。
+- P6.4 收尾已完成脱敏 AI 调用诊断：正式 AI 请求会记录最近 20 条本机诊断，包含任务、模型、Base URL origin、耗时、状态、错误码、尝试次数、token 和费用估算；设置页新增「诊断」入口，可查看和清空；内部 key `__duban:ai-diagnostics` 不进入浏览器或桌面备份。
+- 新增 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)，把产品内提示词的文风要求、慎用句式、背景知识边界和验收流程固定下来。
+- 更新 `mentorPersona.md`、`wholeBookGuide.md`、`readingGuide.md`、`readingChat.md`、`readingReflection.md` 和 `readingTextFormat.md`，减少模板腔和高频“不是……而是……”对照转折，强调渊博但不编造、专业但不卖弄。
+- `wholeBookGuide` 和 `readingGuide` 写入 `styleVersion`，为后续识别文风版本和缓存治理预留元数据。
+- `readingContract.js` 复用 `normalizeWholeBookGuide` 解析整本书导读，减少重复 JSON 修复逻辑。
+
+### 2026-07-06：开书设置改为多轮设定读伴对话
+
+- 开书设置第一步从“先生成整本书导读”调整为“先通过几轮对话设定这本书的读伴”：第一步隐藏顶部步骤卡、书籍统计摘要和开书地图内容，只保留空白读伴、气泡、当前问题、回答框和进度。
+- 新增五个对话状态：Intro、来处、好奇心、陪读方式和成形；读伴用“Hi，我是读伴，你的阅读助手。接下来，我们会进行几轮对话，真正定制你的阅读体验。”开场。
+- 读伴形态会随轮次逐步完善：从空白书页开始，依次显现眼睛、书签、线条和完成标记，让开书更像一段入书前的相识。
+- 原独立「陪读方式」步骤已取消；抓主线、补背景、拆论证、联系现实、沉淀输出和自定义选择并入最后一轮设定读伴对话。
+- 成形阶段新增名字、颜色和表情定制，并保存为 `readingProfile.companionFocus.companionProfile`。
+- `readingProfile.companionFocus` 新增 `openingAnswers`、`openingMessage`、`companionProfile` 和 `customFocus` 写入路径；同时继续维护 `userText`、`aiSummary` 和 `promptInstruction`，保持 `buildReadingContractContext({ book, item })` 的后续读取方式不变。
+- 整本书导读不再压在第一步里；开书地图作为后续可选增强能力保留，不打断第一步对话。
+- `wholeBookGuide.md` 将用户输入从“用户已知阅读意图”改为“用户给读伴捎的话”，并要求 `overview` 第一句正面说明这本书是什么或带用户进入什么问题，避免用“这本书不是……”开头。
+- 新增 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)，集中记录这次“设定读伴式开书”的背景、目标、界面流程、数据字段、prompt 约束、验证记录和后续建议。
+
+### 2026-07-07：P6.5 安全与隐私加固基础版完成
+
+- Tauri 存储 command 输入边界收束：读写/删除 key 会拒绝空值、过长值、控制字符、路径分隔符和 `..`；删除书籍会校验 book id；外部备份路径会先做文本校验再 canonicalize。
+- 本地文件路径改为白名单形态：普通书籍 blob 只允许顶层文件，封面缓存只允许 `covers/` 下文件；封面读取、备份读取和孤儿文件清理都走统一安全路径拼接。
+- 导入/备份链路继续保留 manifest/file sha256、导入前预览、校验报告、merge/replace 和失败自动回滚；本轮没有改变备份格式版本。
+- Tauri 配置新增正式 CSP、dev CSP、`X-Content-Type-Options` 和 `Permissions-Policy`；Web 静态部署新增 `public/_headers`，包含 `Referrer-Policy`。
+- 新增 `scripts/security_scan.mjs` 与 `npm run security:scan`，检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时运行 `npm audit`、Rust 重复依赖树和安全扫描。
+- 更新根目录 `SECURITY.md`、`PRIVACY.md`，以及 P6.5 审计、生产级路线、后端标准、AI 接手提示词、公开成熟度和 App 化日志文档。
+- 已知限制：`cargo audit` 尚未纳入当前本机命令，需要在 P6.9 CI 或发布机补齐；`public/_headers` 只覆盖支持该约定的静态托管平台。
+
+### 2026-07-07：P6.6.1 + P6.6.2 诊断规范与本地日志基础
+
+- 新增 [DIAGNOSTICS_PRIVACY_SPEC.md](./DIAGNOSTICS_PRIVACY_SPEC.md)，定义本地日志、后续诊断包、错误详情复制和数据库健康检查的字段边界。
+- 新增 Rust 本地诊断日志模块，日志写入 App 数据目录 `logs/duban-diagnostics.jsonl`，超过 1 MB 后轮转为 `duban-diagnostics.1.jsonl`。
+- 诊断日志写入前统一脱敏：密钥类字段、Authorization、prompt、messages、content、text、note、chat、base64、raw_json 等字段会被过滤；URL 字段只保留 origin；字符串内 `sk-...` 与 `Bearer ...` 会被替换。
+- App 启动会记录运行环境、debug 状态、系统、架构和 schema 版本；SQLite 初始化成功/失败会记录摘要。
+- AI 请求会记录开始、成功、失败和取消摘要，包括 provider、model、Base URL origin、messageCount、attempts、finishReason、truncated、错误码和 HTTP 状态；不记录 prompt、正文、笔记、聊天或 API Key。
+- 截至 P6.6.2，当时仍未实现诊断包导出、数据库健康检查 command、备份操作日志和设置页入口，这些放入 P6.6 后续步骤。
+
+### 2026-07-07：P6.6.3 + P6.6.4 健康检查与诊断包导出
+
+- 新增 `duban_diagnostics_health_check` Tauri command，检查 schema 版本、SQLite quick_check、关键表计数、本地文件缺失/不安全路径、孤儿文件、备份目录读写和非敏感 Key 状态。
+- 新增 `duban_diagnostics_export_package` Tauri command，导出脱敏 JSON 诊断包到 App 数据目录 `diagnostics/duban-diagnostics-{timestamp}.json`。
+- 诊断包包含 App 摘要、存储健康检查、备份摘要、设置摘要、AI 调用诊断和最近本地诊断日志；导出前再次执行统一隐私过滤。
+- 新增 `src/lib/diagnostics.js`，为后续设置页入口提供 `runDiagnosticHealthCheck` 和 `exportDiagnosticPackage`。
+- Rust 测试新增健康检查覆盖：空初始化存储应为 `ok`，索引文件缺失应为 `error`。
+- 截至该小阶段，设置页 UI 入口和错误详情复制仍未实现，这两项放到 P6.6.5。
+
+### 2026-07-07：P6.6.5 + P6.6.6 诊断入口、错误详情复制与收尾
+
+- 设置页「诊断」面板新增桌面健康检查入口，展示 schema、SQLite quick_check、文件健康、备份目录和非敏感 Key 状态。
+- 设置页新增导出诊断包入口，显示导出文件名、本机路径、包大小、健康状态和日志条数。
+- 新增 AI 错误详情复制：可以复制最近异常调用，也可以复制单条异常摘要；复制内容不包含 API Key、prompt、正文、笔记或聊天全文。
+- 备份导出、导入、删除和元数据更新会写入脱敏本地诊断日志；不记录外部路径、备注正文或书籍内容。
+- P6.6 文档、路线图、后端标准和 AI 接手提示词已收口；下一步进入 P6.7 正式 macOS 发布包。
+
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
+- P6.4 AI transport 生产化主体已完成：Keychain 连续弹窗、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断均已落地。
+- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成，下一步进入 P6.7 正式 macOS 发布包。
+- 2026-07-08：桌面版主窗口点叉号改为隐藏到后台，不直接退出进程；macOS 点击 Dock 图标会重新显示并聚焦主窗口。
+- 2026-07-08：`tauri:dev` 下 Dock 右键退出可能短暂显示终端/调试进程图标；这是开发态未打包二进制的身份问题。Dock 图标一致性请用 `src-tauri/target/release/bundle/macos/读伴.app` 这类真实 bundle 测试包验证。
 - PDF 图片、表格、扫描件 OCR 暂未支持。
 - MOBI 当前提供文本阅读，不渲染 Kindle 原版版式，也暂不显示 MOBI 内嵌图片或真实内嵌封面。
 - 章节识别已加入 PDF 递归 outline、页面版式标题候选和质量评分兜底；复杂目录页、扫描版 PDF 或标题版式异常的书仍可能需要用户手动调整。

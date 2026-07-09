@@ -38,9 +38,9 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
 
     for (const chapter of chapters) {
       if (!chapter.title.trim()) return "每个章节都需要标题。";
-      if (chapter.startPage < 1 || chapter.endPage < 1) return `${rangeUnitLabel}不能小于 1。`;
-      if (chapter.startPage > chapter.endPage) return `章节起始${rangeUnitLabel}不能大于结束${rangeUnitLabel}。`;
-      if (chapter.endPage > book.totalPages) return `结束${rangeUnitLabel}不能超过 ${book.totalPages}。`;
+      if (chapter.startPage < 1 || chapter.endPage < 1) return `${rangeUnitLabel}请填写 1 或更大的数字。`;
+      if (chapter.startPage > chapter.endPage) return `章节起始${rangeUnitLabel}请早于或等于结束${rangeUnitLabel}。`;
+      if (chapter.endPage > book.totalPages) return `结束${rangeUnitLabel}请填写在 ${book.totalPages} 以内。`;
     }
 
     return "";
@@ -278,7 +278,7 @@ export default function BookSetup({ bookId, onBack, onSaved }) {
           disabled={saving}
           className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-60"
         >
-          {saving ? "保存中…" : "保存并进入开书分析"}
+          {saving ? "保存中…" : "保存并设定读伴"}
         </button>
         <button
           onClick={onBack}

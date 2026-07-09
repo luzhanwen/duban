@@ -132,7 +132,7 @@ function parseBackupText(text) {
   try {
     backup = JSON.parse(text);
   } catch {
-    throw new Error("备份文件不是有效的 JSON。");
+    throw new Error("备份文件格式异常，请选择有效 JSON 文件。");
   }
 
   validateBackup(backup);
@@ -282,7 +282,7 @@ function buildBrowserPreview(backup) {
     preview.issues.push({
       severity: "warn",
       code: "includes-api-keys",
-      message: "备份声明包含 API Key；当前导入不会恢复 API Key。",
+      message: "备份声明包含 API Key；导入时会保留本机现有密钥。",
     });
   }
 
@@ -407,7 +407,12 @@ function countGroupedItems(value) {
 }
 
 function shouldSkipBackupKey(key) {
-  return typeof key === "string" && key.startsWith("__duban:migration:");
+  return (
+    typeof key === "string" &&
+    (key.startsWith("__duban:migration:") ||
+      key.startsWith("__duban:ai-budget:") ||
+      key === KEYS.aiDiagnostics)
+  );
 }
 
 function fallbackFileName(key) {

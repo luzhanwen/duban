@@ -4,6 +4,8 @@
 // 后续桌面版可以在 adapter 层切到 SQLite / 文件系统。
 // ============================================================
 import { storageAdapter } from "./storageAdapter.js";
+import { normalizeAiBudgetSettings } from "./aiBudgetSettings.js";
+import { normalizeAiProfiles } from "./aiProfiles.js";
 
 // ------------------------------------------------------------
 // key 命名规范（集中管理，避免到处写字符串拼错）
@@ -22,6 +24,8 @@ export const KEYS = {
   bookFormattedText: (id, itemKey) => `book:${id}:formatted-text:${itemKey}`, // 某阅读项的 AI 排版文本
   bookQuiz: (id, chapterId) => `book:${id}:quiz:${chapterId}`, // 某章小测题目与作答
   progress: (id) => `progress:${id}`, // 某本书的每日阅读进度
+  aiBudgetUsage: (date) => `__duban:ai-budget:${date}`, // AI 预算日用量，仅保存脱敏统计
+  aiDiagnostics: "__duban:ai-diagnostics", // 最近 AI 调用诊断，仅保存脱敏摘要
 };
 
 // ------------------------------------------------------------
@@ -89,6 +93,8 @@ export function normalizeSettings(saved = {}) {
       inputPricePerMTok: openaiCompatible.inputPricePerMTok || "",
       outputPricePerMTok: openaiCompatible.outputPricePerMTok || "",
     },
+    aiBudget: normalizeAiBudgetSettings(saved.aiBudget),
+    aiProfiles: normalizeAiProfiles(saved.aiProfiles),
   };
 }
 

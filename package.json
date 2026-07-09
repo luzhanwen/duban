@@ -16,7 +16,10 @@
     "tauri:build": "npm run tauri -- build --bundles app",
     "tauri:build:all": "npm run tauri -- build",
     "icons:generate": "npm run tauri -- icon public/logo.svg",
-    "package:mac-local": "npm run tauri:build && ./scripts/build-local-dmg.sh"
+    "package:mac-local": "npm run tauri:build && ./scripts/build-local-dmg.sh",
+    "security:audit": "npm audit && npm run security:rust-duplicates && npm run security:scan",
+    "security:scan": "node scripts/security_scan.mjs",
+    "security:rust-duplicates": "cd src-tauri && cargo tree -d"
   },
   "dependencies": {
     "@lingo-reader/mobi-parser": "^0.4.6",

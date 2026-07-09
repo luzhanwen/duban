@@ -17,7 +17,7 @@ export async function renderPdfFirstPageCover(file, { maxWidth = 520 } = {}) {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d", { alpha: false });
 
-    if (!context) throw new Error("当前浏览器无法生成封面。");
+    if (!context) throw new Error("当前浏览器缺少生成封面所需能力。");
 
     canvas.width = Math.ceil(coverViewport.width);
     canvas.height = Math.ceil(coverViewport.height);

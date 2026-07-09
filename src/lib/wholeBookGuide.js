@@ -1,4 +1,5 @@
 import { callModelDetailed } from "./ai.js";
+import { isAiOutputTruncated } from "./aiCompletion.js";
 import { updateBook } from "./books.js";
 import { buildWholeBookGuidePrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
@@ -9,8 +10,9 @@ const MAX_GUIDE_CHAPTER_CHARS = 7000;
 const MAX_SAMPLE_TEXT_CHARS = 16000;
 const SAMPLE_CHARS_PER_CHAPTER = 1800;
 const WHOLE_BOOK_GUIDE_MAX_TOKENS = 6500;
+const WHOLE_BOOK_GUIDE_STYLE_VERSION = 2;
 
-export async function generateWholeBookGuide({ book, pages, userIntent = "" }) {
+export async function generateWholeBookGuide({ book, pages, userIntent = "", signal }) {
   const settings = await getSettings();
   const prompts = buildWholeBookGuidePrompts({
     bookTitle: toText(book.title),
@@ -32,11 +34,13 @@ export async function generateWholeBookGuide({ book, pages, userIntent = "" }) {
         content: prompts.user,
       },
     ],
+    signal,
+    taskType: "wholeBookGuide",
   });
 
   let parsed;
   try {
-    if (isTokenLimitFinish(result)) {
+    if (isAiOutputTruncated(result)) {
       throw new Error("模型输出达到上限后被截断，JSON 没有完整返回。");
     }
     parsed = parseWholeBookGuide(result.text);
@@ -50,10 +54,12 @@ export async function generateWholeBookGuide({ book, pages, userIntent = "" }) {
     ...parsed,
     raw: result.text,
     schemaVersion: 1,
+    styleVersion: WHOLE_BOOK_GUIDE_STYLE_VERSION,
     status: "ready",
     provider: settings.provider,
     model: result.model || getActiveModel(settings),
     finishReason: result.finishReason || "",
+    truncated: false,
     usage: result.usage,
     cost: estimateWholeBookGuideCost(settings, result),
     generatedAt: new Date().toISOString(),
@@ -181,7 +187,12 @@ function buildChapterTextBlock(chapter, pages, maxChars) {
 
 function parseWholeBookGuide(raw) {
   const jsonText = extractJson(raw);
-  return normalizeWholeBookGuide(parseJsonWithRepair(jsonText));
+  return normalizeWholeBookGuide(
+    {
+      ...parseJsonWithRepair(jsonText),
+      styleVersion: WHOLE_BOOK_GUIDE_STYLE_VERSION,
+    }
+  );
 }
 
 function extractJson(text) {
@@ -211,7 +222,7 @@ function parseJsonWithRepair(jsonText) {
     }
   }
 
-  throw new Error(lastError?.message || "模型返回内容不是合法 JSON。");
+  throw new Error(lastError?.message || "模型返回内容格式异常。");
 }
 
 function escapeLiteralNewlinesInStrings(text) {
@@ -265,24 +276,22 @@ function escapeLiteralNewlinesInStrings(text) {
   return output;
 }
 
-function isTokenLimitFinish(result) {
-  const reason = toText(result?.finishReason).toLowerCase();
-  return reason === "max_tokens" || reason === "length";
-}
-
 function buildFailedWholeBookGuide({ book, settings, result, error }) {
-  const errorMessage = isTokenLimitFinish(result)
+  const truncated = isAiOutputTruncated(result);
+  const errorMessage = truncated
     ? "这次整本书导读写得太长，被模型输出上限截断了。已经保留诊断信息，请重新分析这本书。"
-    : "模型返回的整本书导读不是合法 JSON，已经保留诊断信息，请重新分析这本书。";
+    : "模型返回的整本书导读格式异常，已经保留诊断信息，请重新分析这本书。";
 
   return {
     ...emptyWholeBookGuideFields(),
     raw: result.text,
     schemaVersion: 1,
+    styleVersion: WHOLE_BOOK_GUIDE_STYLE_VERSION,
     status: "failed",
     provider: settings.provider,
     model: result.model || getActiveModel(settings),
     finishReason: result.finishReason || "",
+    truncated,
     usage: result.usage,
     cost: estimateWholeBookGuideCost(settings, result),
     generatedAt: new Date().toISOString(),
@@ -301,6 +310,7 @@ function buildStoredFailedGuide(raw, error) {
   return {
     ...emptyWholeBookGuideFields(),
     raw,
+    styleVersion: WHOLE_BOOK_GUIDE_STYLE_VERSION,
     status: "failed",
     errorMessage: "上次整本书导读解析失败，请重新分析这本书。",
     errorDetail: toText(error?.message),
@@ -397,10 +407,11 @@ function getActiveModel(settings) {
 }
 
 function estimateWholeBookGuideCost(settings, result) {
-  if (settings.provider === "openai-compatible") {
-    return estimateCustomCost(settings.openaiCompatible || {}, result.usage);
+  const costSettings = result.settingsUsed || settings;
+  if (costSettings.provider === "openai-compatible") {
+    return estimateCustomCost(costSettings.openaiCompatible || {}, result.usage);
   }
-  return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
+  return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
 export const DEFAULT_FOCUS_OPTIONS = [

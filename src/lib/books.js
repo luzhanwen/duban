@@ -136,19 +136,29 @@ export async function createBookFromParsedFile(file, parsed) {
   };
 
   const writtenKeys = [];
+  let savedBooks = [];
+  let bookAdded = false;
 
   try {
+    savedBooks = await listBooks();
+    await setItem(KEYS.books, [book, ...savedBooks]);
+    bookAdded = true;
+
     await setItem(KEYS.bookFile(id), file);
     writtenKeys.push(KEYS.bookFile(id));
     await setItem(KEYS.bookPages(id), parsed.pages);
     writtenKeys.push(KEYS.bookPages(id));
 
-    const books = await listBooks();
-    await setItem(KEYS.books, [book, ...books]);
-
     return book;
   } catch (error) {
-    await Promise.all(writtenKeys.map((key) => removeItem(key).catch(() => {})));
+    await Promise.allSettled(writtenKeys.map((key) => removeItem(key)));
+    if (bookAdded) {
+      try {
+        await deleteBook(id);
+      } catch {
+        await setItem(KEYS.books, savedBooks).catch(() => {});
+      }
+    }
     throw error;
   }
 }
@@ -213,6 +223,11 @@ export async function deleteBook(id) {
   const book = books.find((item) => item.id === id);
   const nextBooks = books.filter((item) => item.id !== id);
 
+  if (typeof store.deleteBook === "function") {
+    const deleted = await store.deleteBook(id);
+    return Boolean(book || deleted);
+  }
+
   if (!book) {
     await setItem(KEYS.books, nextBooks);
     return false;
@@ -248,7 +263,7 @@ export async function deleteBook(id) {
     ]),
   ];
 
-  await Promise.all([...new Set(keysToRemove)].map((key) => removeItem(key)));
+  await Promise.allSettled([...new Set(keysToRemove)].map((key) => removeItem(key)));
   await setItem(KEYS.books, nextBooks);
   return true;
 }

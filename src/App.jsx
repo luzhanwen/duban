@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
+import BookCompanionChat from "./components/BookCompanionChat.jsx";
+import BookSalon from "./components/BookSalon.jsx";
 import BookSetup from "./components/BookSetup.jsx";
 import Reader from "./components/Reader.jsx";
 import ReadingPlanSetup from "./components/ReadingPlanSetup.jsx";
 import Settings from "./components/Settings.jsx";
 import Shelf from "./components/Shelf.jsx";
 import BrandLogo from "./components/BrandLogo.jsx";
+import ChineseIcon from "./components/ChineseIcon.jsx";
 import Privacy from "./components/Privacy.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 import { initializeDesktopWindowIcon } from "./lib/desktopIcon.js";
@@ -50,6 +53,16 @@ export default function App() {
     setView("readingPlan");
   }
 
+  function openBookCompanionChat(bookId) {
+    setCurrentBookId(bookId);
+    setView("bookCompanionChat");
+  }
+
+  function openBookSalon(bookId) {
+    setCurrentBookId(bookId);
+    setView("bookSalon");
+  }
+
   function openReader(bookId, options = {}) {
     setCurrentBookId(bookId);
     setReaderRequest({
@@ -62,11 +75,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-full">
+    <div className="app-root min-h-full">
       {showSplash && <SplashScreen leaving={splashLeaving} />}
 
       {!inReader && (
-        <header className="border-b border-line bg-paper-card">
+        <header className="border-b border-line bg-paper-card/90 backdrop-blur">
           <div className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-3 sm:px-10 lg:px-16">
             <button
               onClick={() => setView("shelf")}
@@ -76,12 +89,14 @@ export default function App() {
             </button>
             <nav className="literary-ui flex items-center gap-1 text-sm">
               <NavTab
+                icon="books"
                 active={view === "shelf"}
                 onClick={() => setView("shelf")}
               >
-                书架
+                藏书
               </NavTab>
               <NavTab
+                icon="seal"
                 active={view === "settings"}
                 onClick={() => setView("settings")}
               >
@@ -102,6 +117,26 @@ export default function App() {
             onSetupBook={openBookSetup}
             onPlanBook={openReadingPlan}
             onReadBook={openReader}
+            onChatBook={openBookCompanionChat}
+            onOpenSalon={openBookSalon}
+          />
+        )}
+        {view === "bookCompanionChat" && currentBookId && (
+          <BookCompanionChat
+            bookId={currentBookId}
+            onBack={() => setView("shelf")}
+            onReadBook={openReader}
+            onPlanBook={openReadingPlan}
+            onOpenSalon={openBookSalon}
+          />
+        )}
+        {view === "bookSalon" && currentBookId && (
+          <BookSalon
+            bookId={currentBookId}
+            onBack={() => setView("shelf")}
+            onReadBook={openReader}
+            onPlanBook={openReadingPlan}
+            onChatBook={openBookCompanionChat}
           />
         )}
         {view === "bookSetup" && currentBookId && (
@@ -146,7 +181,7 @@ function DesktopDownloadLink() {
       target="_blank"
       rel="noreferrer"
       aria-label="下载读伴桌面版"
-      className="rounded-lg px-3 py-1.5 text-ink-soft transition-colors hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
+      className="relative rounded-lg px-3 py-1.5 text-ink-soft transition-colors hover:bg-paper-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
     >
       <span className="hidden sm:inline">下载桌面版</span>
       <span className="sm:hidden">桌面版</span>
@@ -155,14 +190,17 @@ function DesktopDownloadLink() {
 }
 
 // 顶部导航的单个标签
-function NavTab({ active, onClick, children }) {
+function NavTab({ icon, active, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 transition-colors ${
-        active ? "bg-paper text-ink" : "text-ink-soft hover:bg-paper"
+      className={`relative inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition-colors after:absolute after:inset-x-3 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-accent after:content-[''] ${
+        active
+          ? "bg-paper-muted/70 text-ink after:opacity-100"
+          : "text-ink-soft hover:bg-paper-muted hover:text-ink after:opacity-0"
       }`}
     >
+      {icon && <ChineseIcon name={icon} className="h-4 w-4" decorative />}
       {children}
     </button>
   );

@@ -1,11 +1,11 @@
 export default function BrandLogo({ className = "", showWordmark = true }) {
   return (
-    <span className={`inline-flex items-center gap-2.5 text-ink ${className}`}>
-      <LogoMark className="h-9 w-9 shrink-0" />
+    <span className={`inline-flex items-center gap-3 text-ink ${className}`}>
+      <LogoMark className="h-10 w-10 shrink-0" />
       {showWordmark && (
         <span className="flex flex-col items-start leading-none">
-          <BrandName className="text-xl leading-none text-ink" />
-          <span className="mt-1 text-[10px] font-medium uppercase text-ink-soft">Duban</span>
+          <BrandName className="text-[1.65rem] leading-none text-ink" />
+          <span className="mt-1.5 text-[10px] font-medium uppercase text-ink-soft">DUBAN</span>
         </span>
       )}
     </span>
@@ -45,61 +45,45 @@ export function LogoMark({ className = "" }) {
       focusable="false"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect className="logo-frame-fill" x="5" y="5" width="54" height="54" rx="14" fill="#FFFDF8" />
-      <rect
-        className="logo-frame-line"
-        x="5"
-        y="5"
-        width="54"
-        height="54"
-        rx="14"
-        stroke="#E6DDCF"
-        strokeWidth="2"
-      />
-      <path
-        className="logo-page-left"
-        d="M18 20.5C23.1 18.2 28 18.8 32 22.3V47C28 43.6 23 42.9 18 45.2V20.5Z"
-        fill="#F7F3EC"
-        stroke="#2B2622"
+      <defs>
+        <filter id="logo-seal-soften" x="-12%" y="-12%" width="124%" height="124%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="9" />
+          <feDisplacementMap in="SourceGraphic" scale="0.28" />
+        </filter>
+      </defs>
+      <g
+        className="logo-seal"
+        filter="url(#logo-seal-soften)"
+        stroke="#C64B37"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2.4"
-      />
-      <path
-        className="logo-page-right"
-        d="M46 20.5C40.9 18.2 36 18.8 32 22.3V47C36 43.6 41 42.9 46 45.2V20.5Z"
-        fill="#F7F3EC"
-        stroke="#2B2622"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.4"
-      />
-      <path
-        className="logo-page-lines logo-page-lines-left"
-        d="M23 27.5H27.8M23 33H28.8"
-        stroke="#9C6B3F"
-        strokeLinecap="round"
-        strokeWidth="2.3"
-      />
-      <path
-        className="logo-page-lines logo-page-lines-right"
-        d="M39.8 27.5H41.2M36.3 33H41.2"
-        stroke="#9C6B3F"
-        strokeLinecap="round"
-        strokeWidth="2.3"
-      />
-      <path
-        className="logo-bubble"
-        d="M39.3 16.5C44.9 16.5 49.5 20.1 49.5 24.6C49.5 27.5 47.6 30 44.8 31.4L45.4 36L40.9 32.6H39.3C33.6 32.6 29 29 29 24.6C29 20.1 33.6 16.5 39.3 16.5Z"
-        fill="#9C6B3F"
-        stroke="#FFFDF8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2.2"
-      />
-      <circle className="logo-bubble-dot logo-bubble-dot-1" cx="36.2" cy="24.7" r="1.35" fill="#FFFDF8" />
-      <circle className="logo-bubble-dot logo-bubble-dot-2" cx="40.2" cy="24.7" r="1.35" fill="#FFFDF8" />
-      <circle className="logo-bubble-dot logo-bubble-dot-3" cx="44.2" cy="24.7" r="1.35" fill="#FFFDF8" />
+      >
+        <rect className="logo-seal-frame" x="7.5" y="7.5" width="49" height="49" rx="8.5" strokeWidth="4.4" />
+        <path className="logo-book-spread" d="M11.6 45.5C18.8 43.2 26.2 43.8 32 49.2C37.8 43.8 45.2 43.2 52.4 45.5" strokeWidth="4" />
+        <path className="logo-book-gutter" d="M32 49.2V41.8" strokeWidth="2.8" />
+
+        <g className="logo-cat" transform="translate(6.4 0)">
+          <path
+            className="logo-cat-head"
+            d="M17.1 19.4L18.5 14.4L23.1 18.1C24.6 17.6 26.1 17.6 27.6 18.1L32.2 14.4L33.6 19.4C35.3 21.1 36.1 23.2 35.6 25.7C34.8 30.2 30.9 32.6 25.4 32.6C19.9 32.6 16 30.2 15.2 25.7C14.8 23.2 15.5 21.1 17.1 19.4Z"
+            fill="#C64B37"
+            strokeWidth="0"
+          />
+          <path className="logo-cat-face" d="M21.5 24.2C22.5 25.3 24.1 25.3 25.1 24.2M28.1 24.2C29.1 25.3 30.7 25.3 31.7 24.2M26.6 27.1C26 28.2 24.8 28.7 23.6 28.2M27.1 27.1C27.7 28.2 28.9 28.7 30.1 28.2" stroke="#FFF9EE" strokeWidth="1.65" />
+          <path className="logo-cat-whiskers" d="M13.7 24.6H18.1M13.5 28L18.4 27.2M36.9 24.6H32.6M37.1 28L32.2 27.2" strokeWidth="1.8" />
+          <path
+            className="logo-cat-book"
+            d="M17.2 34.2C21.1 32.4 24.8 33 27.2 35.6V44.3C24.4 42 20.6 41.5 17.2 43.1V34.2ZM27.2 35.6C30 33.1 33.7 32.8 37 34.2V43.1C33.5 41.5 29.8 42 27.2 44.3V35.6Z"
+            fill="#C64B37"
+            strokeWidth="0"
+          />
+          <path className="logo-cat-book-gutter" d="M27.2 35.8V44.2" stroke="#FFF9EE" strokeWidth="1.55" />
+          <path className="logo-cat-tail" d="M18 42.5C13.1 43.7 12.2 38.9 14.9 36.9C17.4 35 20.2 37.7 17.5 39.9" strokeWidth="3" />
+          <path className="logo-cat-paw-left" d="M18.6 34.7C17.1 33.3 15.4 33.7 15.2 35.7C15 37.5 16.1 38.8 17.8 39.2" strokeWidth="2.2" />
+          <path className="logo-cat-paw-right" d="M35.2 34.7C36.6 33.3 38.2 33.8 38.4 35.8C38.6 37.5 37.5 38.8 35.9 39.2" strokeWidth="2.2" />
+        </g>
+
+      </g>
     </svg>
   );
 }

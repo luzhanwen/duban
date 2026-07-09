@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandName, renderBrandNameText } from "./BrandLogo.jsx";
 import PdfReader from "./PdfReader.jsx";
+import ReadingCompanionAvatar from "./ReadingCompanionAvatar.jsx";
 import TextBookReader from "./TextBookReader.jsx";
 import { getBookPageUnitLabel, isPdfBook } from "../lib/bookFormats.js";
 import {
@@ -8,7 +9,6 @@ import {
   getBookPages,
   getReadingProgress,
   saveReadingProgress,
-  updateBookCompanionFocus,
 } from "../lib/books.js";
 import {
   generateReadingGuide,
@@ -33,7 +33,7 @@ import {
   formatLocalDate,
   isPlanItemDue,
 } from "../lib/readingSchedule.js";
-import { buildReadingContractContext } from "../lib/readingContract.js";
+import { isAiAbortError } from "../lib/aiCancellation.js";
 import { toText } from "../lib/text.js";
 
 const SESSION_STAGES = {
@@ -49,6 +49,38 @@ const READER_VIEW_MODES = {
 };
 
 const PAGE_TURN_TRANSITION_MS = 1460;
+const DEFAULT_READER_COMPANION_PROFILE = {
+  name: "读伴",
+  color: "sage",
+  expression: "gentle",
+};
+
+const READER_COMPANION_COLOR_OPTIONS = [
+  {
+    id: "sage",
+    accent: "#6f8a74",
+    soft: "#eff6ed",
+    ribbon: "#8a765f",
+  },
+  {
+    id: "amber",
+    accent: "#a87543",
+    soft: "#fbf0df",
+    ribbon: "#b98654",
+  },
+  {
+    id: "rose",
+    accent: "#a46f79",
+    soft: "#fbedef",
+    ribbon: "#b07a84",
+  },
+  {
+    id: "ink",
+    accent: "#64788f",
+    soft: "#eef3f8",
+    ribbon: "#6b7f96",
+  },
+];
 
 export default function Reader({
   bookId,
@@ -94,6 +126,9 @@ export default function Reader({
   const progressRef = useRef(progress);
   const pendingOpenModeRef = useRef("default");
   const pageTurnFinishTimeoutRef = useRef(null);
+  const guideAbortRef = useRef(null);
+  const chatAbortRef = useRef(null);
+  const reflectionAbortRef = useRef(null);
 
   useEffect(() => {
     progressRef.current = progress;
@@ -104,6 +139,7 @@ export default function Reader({
       if (pageTurnFinishTimeoutRef.current) {
         window.clearTimeout(pageTurnFinishTimeoutRef.current);
       }
+      cancelActiveAiRequests();
     },
     []
   );
@@ -262,13 +298,13 @@ export default function Reader({
         <section className="mt-8 rounded-xl border border-line bg-paper-card p-8 text-center shadow-sm">
           <h2 className="font-serif text-2xl text-ink">还没有阅读计划</h2>
           <p className="mt-3 text-sm text-ink-soft">
-            先完成开书分析和阅读计划，再开始按章节阅读。
+            先设定读伴和阅读计划，再开始按章节阅读。
           </p>
           <button
             onClick={() => onPlan(book.id)}
             className="mt-6 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
-            前往开书设置
+            前往设定读伴
           </button>
         </section>
       </div>
@@ -276,6 +312,7 @@ export default function Reader({
   }
 
   async function openPlanItem(index, mode = "default") {
+    cancelActiveAiRequests();
     const nextIndex = clampIndex(index, planItems.length);
     const nextItem = planItems[nextIndex] || null;
     const nextKey = getPlanItemKey(nextItem, nextIndex);
@@ -318,6 +355,7 @@ export default function Reader({
   }
 
   function enterReadingStage(options = {}) {
+    cancelGuideGeneration();
     const scrollBehavior = options?.scrollBehavior || "smooth";
     const trackActivity = options?.trackActivity !== false;
     setSessionStage(SESSION_STAGES.reading);
@@ -363,6 +401,7 @@ export default function Reader({
   }
 
   function openReflection() {
+    cancelChatGeneration();
     ensureReflectionStarted();
     setSessionStage(SESSION_STAGES.reflection);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -380,6 +419,7 @@ export default function Reader({
   }
 
   async function finishToday() {
+    cancelActiveAiRequests();
     const key = getPlanItemKey(currentItem, currentIndex);
     const now = new Date().toISOString();
     const nextKeys = completedKeys.includes(key) ? completedKeys : [...completedKeys, key];
@@ -402,6 +442,7 @@ export default function Reader({
   }
 
   async function startNextItemEarly() {
+    cancelActiveAiRequests();
     const nextIndex = currentIndex + 1;
     if (nextIndex >= planItems.length) {
       onBack();
@@ -470,6 +511,9 @@ export default function Reader({
   }
 
   async function handleGenerateGuide() {
+    cancelGuideGeneration();
+    const controller = new AbortController();
+    guideAbortRef.current = controller;
     setGuideError("");
     setGuideLoading(true);
     setGuideStartedAt(Date.now());
@@ -481,28 +525,27 @@ export default function Reader({
         chapterSections,
         currentIndex,
         planItems,
+        signal: controller.signal,
       });
       setGuide(generated);
     } catch (e) {
-      setGuideError(e.message || "导读生成失败，请稍后重试。");
+      if (!isAiAbortError(e)) {
+        setGuideError(e.message || "导读生成失败，请稍后重试。");
+      }
     } finally {
-      setGuideLoading(false);
-      setGuideStartedAt(null);
+      if (guideAbortRef.current === controller) {
+        guideAbortRef.current = null;
+        setGuideLoading(false);
+        setGuideStartedAt(null);
+      }
     }
-  }
-
-  async function handleSaveCompanionMemory(companionFocus) {
-    if (!book?.id) throw new Error("没有找到这本书，暂时无法保存读伴记忆。");
-    const savedBook = await updateBookCompanionFocus(book.id, companionFocus);
-    if (savedBook) {
-      setBook(savedBook);
-    }
-    return savedBook;
   }
 
   async function handleSendChat(content, options = {}) {
     const text = toText(content).trim();
     if (!text || chatLoading) return;
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
 
     const optimisticMessage = {
       id: `chat-local-${Date.now()}`,
@@ -535,7 +578,9 @@ export default function Reader({
         messages: previousMessages,
         content: text,
         quote: options.quote || null,
+        signal: controller.signal,
         onDelta: (delta) => {
+          if (controller.signal.aborted) return;
           setChatMessages((current) =>
             current.map((message) =>
               message.id === streamingMessage.id
@@ -548,15 +593,22 @@ export default function Reader({
       setChatMessages(result.messages);
     } catch (e) {
       setChatMessages(previousMessages);
-      setChatError(e.message || "暂时没有回答出来，请稍后重试。");
+      if (!isAiAbortError(e)) {
+        setChatError(e.message || "回答生成中断，请稍后重试。");
+      }
     } finally {
-      setChatLoading(false);
+      if (chatAbortRef.current === controller) {
+        chatAbortRef.current = null;
+        setChatLoading(false);
+      }
     }
   }
 
   async function handleSendReflection(content) {
     const text = toText(content).trim();
     if (!text || reflectionLoading) return;
+    const controller = new AbortController();
+    reflectionAbortRef.current = controller;
 
     const openingMessages =
       reflectionMessages.length > 0
@@ -591,7 +643,9 @@ export default function Reader({
         readingNotes: includeReflectionContext ? notes : [],
         messages: openingMessages,
         content: text,
+        signal: controller.signal,
         onDelta: (delta) => {
+          if (controller.signal.aborted) return;
           setReflectionMessages((current) =>
             current.map((message) =>
               message.id === streamingMessage.id
@@ -604,10 +658,33 @@ export default function Reader({
       setReflectionMessages(result.messages);
     } catch (e) {
       setReflectionMessages(openingMessages);
-      setReflectionError(e.message || "暂时没有追问出来，请稍后再试。");
+      if (!isAiAbortError(e)) {
+        setReflectionError(e.message || "追问生成中断，请稍后再试。");
+      }
     } finally {
-      setReflectionLoading(false);
+      if (reflectionAbortRef.current === controller) {
+        reflectionAbortRef.current = null;
+        setReflectionLoading(false);
+      }
     }
+  }
+
+  function cancelActiveAiRequests() {
+    cancelGuideGeneration();
+    cancelChatGeneration();
+    cancelReflectionGeneration();
+  }
+
+  function cancelGuideGeneration() {
+    guideAbortRef.current?.abort();
+  }
+
+  function cancelChatGeneration() {
+    chatAbortRef.current?.abort();
+  }
+
+  function cancelReflectionGeneration() {
+    reflectionAbortRef.current?.abort();
   }
 
   function handleAskSelection(selection) {
@@ -791,9 +868,10 @@ export default function Reader({
         onIntro={() => setSessionStage(SESSION_STAGES.intro)}
         onReflection={openReflection}
         onGenerateGuide={handleGenerateGuide}
-        onSaveCompanionMemory={handleSaveCompanionMemory}
+        onCancelGuide={cancelGuideGeneration}
         onStartGuideNote={handleStartGuideNote}
         onSendChat={handleSendChat}
+        onCancelChat={cancelChatGeneration}
         onAskSelection={handleAskSelection}
         onCurrentPageChange={handleCurrentPageChange}
         onJump={jumpTo}
@@ -820,6 +898,7 @@ export default function Reader({
         onBack={onBack}
         onReading={startReading}
         onSend={handleSendReflection}
+        onCancel={cancelReflectionGeneration}
         onComplete={finishToday}
       />
     );
@@ -859,6 +938,7 @@ export default function Reader({
       onBack={onBack}
       onStartReading={() => startReading({ withPageTurn: true })}
       onGenerateGuide={handleGenerateGuide}
+      onCancelGuide={cancelGuideGeneration}
       onJump={jumpTo}
       onMarkUnfinished={markUnfinished}
     />
@@ -883,14 +963,15 @@ function IntroStage({
   onBack,
   onStartReading,
   onGenerateGuide,
+  onCancelGuide,
   onJump,
   onMarkUnfinished,
 }) {
-  const bridge = buildReadingBridge({ book, item, currentIndex, planItems, completedKeys });
   const pageUnitLabel = getBookPageUnitLabel(book);
+  const companion = getReaderCompanion(book);
 
   return (
-    <div className="reader-intro-page min-h-screen bg-paper px-6 py-8">
+    <div className="reader-intro-page min-h-screen px-6 py-8">
       {readingTransitioning && (
         <span className="sr-only" role="status" aria-live="polite">
           正在进入阅读页
@@ -915,20 +996,29 @@ function IntroStage({
           {planItems.length} 个阅读日
         </p>
 
-        <section className="reader-intro-card mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm">
-          <p className="text-xs font-medium text-ink-soft">
-            读前提示
-          </p>
-          <p className="reader-bridge-text mt-3 text-lg leading-9 text-ink">{bridge}</p>
-
-          <TutorBriefing
-            guide={guide}
-            loading={guideLoading}
-            startedAt={guideStartedAt}
-            error={guideError}
-            disabled={chapterSections.length === 0}
-            onGenerate={onGenerateGuide}
+        <section
+          className="reader-intro-card reader-companion-guide-card mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm"
+          style={companion.style}
+        >
+          <CompanionGuideHeader
+            companion={companion}
+            title={<><BrandName />今天陪你读</>}
+            subtitle="读前先轻轻对齐一下方向"
+            thinking={guideLoading}
           />
+
+          <div className="reader-companion-dialogue">
+            <TutorBriefing
+              companion={companion}
+              guide={guide}
+              loading={guideLoading}
+              startedAt={guideStartedAt}
+              error={guideError}
+              disabled={chapterSections.length === 0}
+              onGenerate={onGenerateGuide}
+              onCancel={onCancelGuide}
+            />
+          </div>
         </section>
 
         <div className="reader-intro-actions mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1055,9 +1145,10 @@ function ReadingStage({
   onIntro,
   onReflection,
   onGenerateGuide,
-  onSaveCompanionMemory,
+  onCancelGuide,
   onStartGuideNote,
   onSendChat,
+  onCancelChat,
   onAskSelection,
   onCurrentPageChange,
   onJump,
@@ -1125,7 +1216,7 @@ function ReadingStage({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-paper">
+    <div className="flex h-screen flex-col overflow-hidden">
       <header className="shrink-0 border-b border-line bg-paper/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -1240,9 +1331,10 @@ function ReadingStage({
           pageUnitLabel={pageUnitLabel}
           disabled={chapterSections.length === 0 && !currentPageHasText}
           onGenerate={onGenerateGuide}
-          onSaveCompanionMemory={onSaveCompanionMemory}
+          onCancelGuide={onCancelGuide}
           onStartGuideNote={onStartGuideNote}
           onSendChat={onSendChat}
+          onCancelChat={onCancelChat}
           onJump={onJump}
           onMarkUnfinished={onMarkUnfinished}
         />
@@ -1367,6 +1459,7 @@ function ReflectionStage({
   onBack,
   onReading,
   onSend,
+  onCancel,
   onComplete,
 }) {
   const [draft, setDraft] = useState("");
@@ -1381,6 +1474,7 @@ function ReflectionStage({
     : "完成今天的阅读";
   const answered = messages.some((message) => message.role === "user");
   const hasReadingContext = readingContextStats.total > 0;
+  const companion = getReaderCompanion(book);
 
   useEffect(() => {
     const node = messagesRef.current;
@@ -1407,7 +1501,7 @@ function ReflectionStage({
   }
 
   return (
-    <div className="min-h-screen bg-paper px-6 py-8">
+    <div className="min-h-screen px-6 py-8">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
         <p className="text-sm text-ink-soft">读后交流</p>
         <button onClick={onBack} className="text-sm text-accent underline">
@@ -1426,22 +1520,37 @@ function ReflectionStage({
           先不急着总结全章。把印象最深的一处、一个疑问或一个判断写下来，再顺着它往下看。
         </p>
 
-        <section className="mt-10 flex min-h-[520px] flex-col rounded-xl border border-line bg-paper-card p-4 shadow-sm sm:p-5">
+        <section
+          className="mt-10 flex min-h-[520px] flex-col rounded-xl border border-line bg-paper-card p-4 shadow-sm sm:p-5"
+          style={companion.style}
+        >
           <div className="flex shrink-0 flex-col gap-1 border-b border-line pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-serif text-2xl text-ink">
-                <BrandName />追问
-              </h2>
-              <p className="mt-1 text-sm text-ink-soft">
-                {answered ? "沿着刚才的判断继续。" : "先回答下面这个问题。"}
-              </p>
+            <div className="reader-chat-heading">
+              <CompanionAvatarBadge companion={companion} size="tiny" thinking={loading} />
+              <div>
+                <h2 className="font-serif text-2xl text-ink">
+                  <BrandName />追问
+                </h2>
+                <p className="mt-1 text-sm text-ink-soft">
+                  {answered ? "沿着刚才的判断继续。" : "先回答下面这个问题。"}
+                </p>
+              </div>
             </div>
             <div className="mt-3 flex flex-col items-start gap-2 sm:mt-0 sm:items-end">
               {loading && (
-                <div className="flex w-fit items-center gap-1 rounded-full bg-paper px-3 py-1">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
+                <div className="flex items-center gap-2">
+                  <div className="flex w-fit items-center gap-1 rounded-full bg-paper px-3 py-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="rounded-full border border-line bg-paper px-3 py-1 text-xs text-ink-soft hover:text-accent"
+                  >
+                    停止追问
+                  </button>
                 </div>
               )}
               <label
@@ -1482,10 +1591,10 @@ function ReflectionStage({
           <div ref={messagesRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 py-5">
             {messages.map((message) =>
               message.streaming && !toText(message.content).trim() ? null : (
-                <ReflectionMessage key={message.id} message={message} />
+                <ReflectionMessage key={message.id} message={message} companion={companion} />
               )
             )}
-            {loading && <ThinkingStatus />}
+            {loading && <ThinkingStatus companion={companion} />}
           </div>
 
           {error && <p className="mb-3 text-sm leading-6 text-red-600">{error}</p>}
@@ -1530,11 +1639,14 @@ function ReflectionStage({
   );
 }
 
-function ReflectionMessage({ message }) {
+function ReflectionMessage({ message, companion }) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex items-start gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
+      {!isUser && (
+        <CompanionAvatarBadge companion={companion} size="mini" thinking={message.streaming} />
+      )}
       <div
         className={`max-w-[86%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm ${
           isUser
@@ -1573,7 +1685,7 @@ function DailyCompleteStage({
   const pageUnitLabel = getBookPageUnitLabel(book);
 
   return (
-    <div className="min-h-screen bg-paper px-6 py-8">
+    <div className="min-h-screen px-6 py-8">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
         <p className="text-sm text-ink-soft">今日阅读完成</p>
         <button onClick={onBack} className="text-sm text-accent underline">
@@ -1647,49 +1759,181 @@ function DailyCompleteStage({
   );
 }
 
-function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate }) {
+function getReaderCompanion(book) {
+  const { name, color, expression } = DEFAULT_READER_COMPANION_PROFILE;
+  const colorOption =
+    READER_COMPANION_COLOR_OPTIONS.find((option) => option.id === color) ||
+    READER_COMPANION_COLOR_OPTIONS[0];
+
+  return {
+    name,
+    color,
+    expression,
+    style: {
+      "--companion-accent": colorOption.accent,
+      "--companion-soft": colorOption.soft,
+      "--companion-ribbon": colorOption.ribbon,
+    },
+  };
+}
+
+function CompanionAvatarBadge({ companion, size = "normal", thinking = false }) {
+  const displayCompanion = companion || DEFAULT_READER_COMPANION_PROFILE;
+  const expression = thinking ? "thinking" : displayCompanion.expression;
+
   return (
-    <div className="guide-briefing mt-6">
-      {disabled && (
-        <p className="guide-message rounded-lg bg-paper px-4 py-3 text-sm text-ink-soft">
-          当前阅读项没有可用章节文本，暂时不能生成导读。
+    <div
+      className={`reader-companion-avatar-badge reader-companion-avatar-${size}`}
+      style={displayCompanion.style}
+      aria-hidden="true"
+    >
+      <ReadingCompanionAvatar stage={4} expression={expression} />
+    </div>
+  );
+}
+
+function CompanionGuideHeader({ companion, title, subtitle, thinking = false }) {
+  return (
+    <div className="reader-companion-guide-header">
+      <CompanionAvatarBadge companion={companion} thinking={thinking} />
+      <div className="reader-companion-guide-copy">
+        <p>{subtitle}</p>
+        <h2>{title}</h2>
+      </div>
+    </div>
+  );
+}
+
+function GuideSpeechBubble({ label, tone = "default", children }) {
+  return (
+    <div className={`guide-speech-bubble guide-speech-bubble-${tone}`}>
+      {label && (
+        <p className="guide-speech-label">
+          {renderBrandNameText(label, `guide-speech-label-${label}`)}
         </p>
+      )}
+      <div className="guide-speech-body">{children}</div>
+    </div>
+  );
+}
+
+function GuideOverviewBubbles({ overview }) {
+  const chunks = splitGuideDialogueChunks(overview);
+  if (chunks.length === 0) return null;
+
+  return chunks.map((chunk, index) => (
+    <GuideSpeechBubble
+      key={`guide-overview-bubble-${index}`}
+      label={index === 0 ? "读伴给你的读前话" : "接着说"}
+      tone={index === 0 ? "primary" : "default"}
+    >
+      <GuideMarkdownText value={chunk} />
+    </GuideSpeechBubble>
+  ));
+}
+
+function GuideBubbleList({ kicker, title, items }) {
+  const list = toList(items).slice(0, 3);
+  if (list.length === 0) return null;
+
+  return (
+    <section className="guide-bubble-group">
+      <p className="guide-bubble-kicker">
+        {renderBrandNameText(kicker, `guide-bubble-kicker-${title}`)}
+      </p>
+      <h3>{title}</h3>
+      <ul>
+        {list.map((item, index) => (
+          <li
+            key={`${title}-${index}`}
+            className="guide-mini-bubble"
+            style={{ "--guide-item-delay": `${index * 70}ms` }}
+          >
+            <GuideMarkdownText value={item} compact />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function splitGuideDialogueChunks(value) {
+  const text = toText(value).trim();
+  if (!text) return [];
+  return text
+    .split(/\n\s*---\s*\n/g)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function TutorBriefing({
+  companion,
+  guide,
+  loading,
+  startedAt,
+  error,
+  disabled,
+  onGenerate,
+  onCancel,
+}) {
+  return (
+    <div className="guide-briefing">
+      {disabled && (
+        <GuideSpeechBubble label="读伴小声说" tone="muted">
+          <p>当前阅读项需要先有章节文本，才能生成导读。</p>
+        </GuideSpeechBubble>
       )}
 
       {error && (
-        <p className="guide-message rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-          {error}
-        </p>
+        <GuideSpeechBubble label="读伴遇到了一点问题" tone="error">
+          <p>{error}</p>
+        </GuideSpeechBubble>
       )}
 
-      {loading && <GuideLoading startedAt={startedAt} />}
+      {loading && (
+        <GuideSpeechBubble label="读伴正在整理" tone="soft">
+          <GuideLoading startedAt={startedAt} compact />
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-3 rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper"
+          >
+            停止生成
+          </button>
+        </GuideSpeechBubble>
+      )}
 
       {!guide && !disabled && !error && !loading && (
-        <div className="guide-empty-callout rounded-lg bg-paper px-5 py-4">
-          <p className="text-sm leading-6 text-ink-soft">
-            生成后会看到一段读前提示，以及今天最值得带走的目标和问题。
+        <GuideSpeechBubble label="读伴还没准备读前话" tone="soft">
+          <p>
+            我可以先把今天这段整理成几句好入口的话，再给你留几条轻轻带着读的提醒。
           </p>
           <button
             onClick={onGenerate}
             className="guide-primary-button mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
-            生成读前提示
+            让<BrandName />准备导读
           </button>
-        </div>
+        </GuideSpeechBubble>
       )}
 
       {guide && !loading && (
-        <div className="guide-ready space-y-5">
-          {guide.overview && (
-            <div className="guide-overview rounded-lg bg-paper px-5 py-4 text-base leading-8 text-ink">
-              <GuideMarkdownText value={guide.overview} />
-            </div>
-          )}
-          <div className="guide-list-grid grid gap-5 lg:grid-cols-2">
-            <GuideList title="读完这一段，可以带走" items={guide.goals} />
-            <GuideList title="阅读时留意" items={guide.questions} />
+        <div className="guide-ready guide-dialogue-stack">
+          <GuideOverviewBubbles overview={guide.overview} />
+          <div className="guide-bubble-columns">
+            <GuideBubbleList
+              kicker="读伴会提醒你"
+              title="读完可以带走"
+              items={guide.goals}
+            />
+            <GuideBubbleList
+              kicker="读伴想问你"
+              title="读的时候想一想"
+              items={guide.questions}
+            />
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="guide-dialogue-actions">
             <button
               onClick={onGenerate}
               disabled={loading || disabled}
@@ -1698,7 +1942,6 @@ function TutorBriefing({ guide, loading, startedAt, error, disabled, onGenerate 
               重新生成导读
             </button>
           </div>
-          <GuideUsage guide={guide} />
         </div>
       )}
     </div>
@@ -1738,13 +1981,19 @@ function TutorSidebar({
   pageUnitLabel,
   disabled,
   onGenerate,
-  onSaveCompanionMemory,
+  onCancelGuide,
   onStartGuideNote,
   onSendChat,
+  onCancelChat,
   onJump,
   onMarkUnfinished,
 }) {
   const [activePanel, setActivePanel] = useState("chat");
+  const companion = getReaderCompanion(book);
+  const companionThinking = chatLoading || loading;
+  const companionStatus = currentPage
+    ? `${formatPageLabel(currentPage, pageUnitLabel)}，随时问我`
+    : "我会陪你读这一段";
 
   useEffect(() => {
     if (selectedQuoteDraft?.text) {
@@ -1759,11 +2008,26 @@ function TutorSidebar({
 
   return (
     <aside className="overflow-visible lg:h-full lg:min-h-0 lg:overflow-hidden">
-      <section className="flex flex-col gap-3 rounded-xl border border-line bg-paper-card p-3 shadow-sm lg:h-full lg:min-h-0">
+      <section
+        className="flex flex-col gap-3 rounded-xl border border-line bg-paper-card p-3 shadow-sm lg:h-full lg:min-h-0"
+        style={companion.style}
+      >
+        <div className="reader-companion-sidebar-card">
+          <CompanionAvatarBadge companion={companion} size="tiny" thinking={companionThinking} />
+          <div className="min-w-0">
+            <p><BrandName />正在旁边</p>
+            <h2>{companionStatus}</h2>
+            {currentPage && (
+              <span>{currentPageHasText ? "这页可以直接问" : "这页暂时没有可用文本"}</span>
+            )}
+          </div>
+        </div>
+
         <SidebarPanelTabs activePanel={activePanel} onChange={setActivePanel} />
 
         {activePanel === "chat" ? (
           <ChatPanel
+            companion={companion}
             guide={guide}
             messages={chatMessages}
             notes={notes}
@@ -1773,11 +2037,9 @@ function TutorSidebar({
             selectedQuoteDraft={selectedQuoteDraft}
             onQuoteDraftUsed={onQuoteDraftUsed}
             onAddMessageToNote={onAddChatMessageToNote}
-            currentPage={currentPage}
-            currentPageHasText={currentPageHasText}
-            pageUnitLabel={pageUnitLabel}
             disabled={disabled}
             onSend={onSendChat}
+            onCancel={onCancelChat}
           />
         ) : (
           <SidebarPanel
@@ -1812,7 +2074,7 @@ function TutorSidebar({
             onSavePendingNote={onSavePendingNote}
             onCancelPendingNote={onCancelPendingNote}
             onGenerate={onGenerate}
-            onSaveCompanionMemory={onSaveCompanionMemory}
+            onCancelGuide={onCancelGuide}
             onJump={onJump}
             onMarkUnfinished={onMarkUnfinished}
           />
@@ -1823,16 +2085,15 @@ function TutorSidebar({
 }
 
 const SIDEBAR_PANEL_OPTIONS = [
-  { key: "chat", label: <span className="inline-flex items-baseline gap-1">问<BrandName /></span> },
+  { key: "chat", label: "问读伴" },
   { key: "guide", label: "提示" },
   { key: "notes", label: "笔记" },
-  { key: "memory", label: "记忆" },
   { key: "items", label: "阅读项" },
 ];
 
 function SidebarPanelTabs({ activePanel, onChange }) {
   return (
-    <div className="grid grid-cols-5 rounded-lg bg-paper p-1">
+    <div className="grid grid-cols-4 rounded-lg bg-paper p-1">
       {SIDEBAR_PANEL_OPTIONS.map((option) => (
         <button
           key={option.key}
@@ -1844,7 +2105,7 @@ function SidebarPanelTabs({ activePanel, onChange }) {
               : "text-ink-soft hover:bg-paper-card hover:text-ink"
           }`}
         >
-          {option.label}
+          {renderBrandNameText(option.label, `sidebar-tab-${option.key}`)}
         </button>
       ))}
     </div>
@@ -1871,6 +2132,7 @@ const GUIDE_TAB_OPTIONS = [
 const LONG_ANSWER_CHARS = 100;
 
 function ChatPanel({
+  companion,
   guide,
   messages,
   notes,
@@ -1880,11 +2142,9 @@ function ChatPanel({
   selectedQuoteDraft,
   onQuoteDraftUsed,
   onAddMessageToNote,
-  currentPage,
-  currentPageHasText,
-  pageUnitLabel = "页",
   disabled,
   onSend,
+  onCancel,
 }) {
   const [draft, setDraft] = useState("");
   const [activeQuote, setActiveQuote] = useState(null);
@@ -1935,47 +2195,45 @@ function ChatPanel({
   }
 
   return (
-    <section className="flex h-[440px] min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-paper p-2 sm:h-[520px] sm:p-3 lg:h-auto lg:flex-1 lg:basis-0">
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <div>
-          <p className="text-xs text-ink-soft">
-            <span className="inline-flex items-baseline gap-1">问<BrandName /></span>
-          </p>
-          <h3 className="mt-1 text-sm font-medium text-ink">
-            {currentPage ? `${formatPageLabel(currentPage, pageUnitLabel)}伴读` : "当前章节伴读"}
-          </h3>
-          {currentPage && (
-            <p className="mt-1 text-[11px] leading-4 text-ink-soft">
-              {currentPageHasText ? "提问时会优先参考当前页面。" : "当前页面暂时没有可用文本。"}
-            </p>
-          )}
-        </div>
-        {loading && (
+    <section
+      className="flex h-[440px] min-h-0 flex-col gap-2 overflow-hidden rounded-xl border border-line bg-paper p-2 sm:h-[520px] sm:p-3 lg:h-auto lg:flex-1 lg:basis-0"
+      style={companion?.style}
+    >
+      {noteNotice && (
+        <p className="rounded-lg bg-paper-card px-3 py-2 text-xs text-accent">
+          {noteNotice}
+        </p>
+      )}
+
+      {loading && (
+        <div className="reader-chat-loading-strip">
           <div className="flex items-center gap-1 rounded-full bg-paper-card px-3 py-1">
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
           </div>
-        )}
-      </div>
-
-      {noteNotice && (
-        <p className="mt-2 rounded-lg bg-paper-card px-3 py-2 text-xs text-accent">
-          {noteNotice}
-        </p>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-full border border-line bg-paper-card px-3 py-1 text-xs text-ink-soft hover:text-accent"
+          >
+            停止回答
+          </button>
+        </div>
       )}
 
       <div
         ref={messagesRef}
-        className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto rounded-lg bg-paper-card px-3 py-3"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-lg bg-paper-card px-3 py-3"
       >
         {messages.length === 0 ? (
-          <AssistantWelcome />
+          <AssistantWelcome companion={companion} />
         ) : (
           messages.map((message, index) =>
             message.streaming && !toText(message.content).trim() ? null : (
               <ChatMessage
                 key={message.id}
+                companion={companion}
                 message={message}
                 previousMessage={messages[index - 1]}
                 latest={index === messages.length - 1}
@@ -1985,7 +2243,7 @@ function ChatPanel({
             )
           )
         )}
-        {loading && <ThinkingStatus />}
+        {loading && <ThinkingStatus companion={companion} />}
       </div>
 
       {error && <p className="mt-3 text-xs leading-5 text-red-600">{error}</p>}
@@ -2268,26 +2526,30 @@ function NoteComposer({
   );
 }
 
-function AssistantWelcome() {
+function AssistantWelcome({ companion }) {
   return (
     <article className="flex items-start gap-2">
-      <Avatar label="伴" />
+      <CompanionAvatarBadge companion={companion} size="mini" />
       <div className="max-w-[88%] rounded-2xl rounded-tl-sm bg-paper px-4 py-3 text-sm leading-6 text-ink shadow-sm">
-        可以直接问某个概念、某段话的意思；如果选中原文再提问，回答会更贴近那一句。
+        我是<BrandName />。可以直接问某个概念、某段话的意思；如果选中原文再提问，我会更贴近那一句。
       </div>
     </article>
   );
 }
 
-function ThinkingStatus() {
+function ThinkingStatus({ companion }) {
   return (
-    <p className="px-2 text-xs leading-5 text-ink-soft">
-      <BrandName />正在整理回答…
-    </p>
+    <div className="reader-thinking-status">
+      {companion && <CompanionAvatarBadge companion={companion} size="mini" thinking />}
+      <p>
+        <BrandName />正在整理回答…
+      </p>
+    </div>
   );
 }
 
 function ChatMessage({
+  companion,
   message,
   previousMessage,
   latest = false,
@@ -2299,7 +2561,9 @@ function ChatMessage({
 
   return (
     <article className={`flex items-start gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
-      {!isUser && <Avatar label="伴" />}
+      {!isUser && (
+        <CompanionAvatarBadge companion={companion} size="mini" thinking={message.streaming} />
+      )}
       <div
         className={`max-w-[86%] px-4 py-3 text-sm leading-6 shadow-sm ${
           isUser
@@ -2539,18 +2803,19 @@ function ChatMessageUsage({ message }) {
   const usage = message.usage;
   const cost = message.cost;
   const hitOutputLimit =
-    usage?.output_tokens &&
-    message.maxOutputTokens &&
-    usage.output_tokens >= message.maxOutputTokens * 0.98;
+    message.truncated ||
+    (usage?.output_tokens &&
+      message.maxOutputTokens &&
+      usage.output_tokens >= message.maxOutputTokens * 0.98);
 
-  if (!usage && !cost && !message.model) return null;
+  if (!usage && !cost && !message.model && !message.truncated) return null;
 
   return (
     <p className="mt-2 border-t border-line pt-2 text-[11px] leading-4 text-ink-soft">
       {message.model ? `${message.model} · ` : ""}
       输入 {usage?.input_tokens ?? "未知"} / 输出 {usage?.output_tokens ?? "未知"}
       {cost ? ` · ${formatUsd(cost.totalCost)}` : ""}
-      {hitOutputLimit ? " · 可能已到输出上限" : ""}
+      {hitOutputLimit ? ` · ${message.truncated ? "已到输出上限" : "可能已到输出上限"}` : ""}
     </p>
   );
 }
@@ -2581,25 +2846,44 @@ function SidebarPanel({
   onSavePendingNote,
   onCancelPendingNote,
   onGenerate,
-  onSaveCompanionMemory,
+  onCancelGuide,
   onJump,
   onMarkUnfinished,
 }) {
+  const companion = getReaderCompanion(book);
+
   if (activePanel === "guide") {
     return (
-      <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
-        <div className="shrink-0">
-          <p className="text-xs text-ink-soft">阅读提示</p>
-          <h3 className="mt-1 text-sm font-medium text-ink">今天这段怎么读</h3>
+      <section
+        className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1"
+        style={companion.style}
+      >
+        <div className="reader-sidebar-guide-heading shrink-0">
+          <CompanionAvatarBadge companion={companion} size="tiny" thinking={loading} />
+          <div>
+            <p className="text-xs text-ink-soft">阅读提示</p>
+            <h3 className="mt-1 text-sm font-medium text-ink">
+              <BrandName />今天想提醒你
+            </h3>
+          </div>
         </div>
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
           {loading && <GuideLoading startedAt={startedAt} compact />}
+          {loading && (
+            <button
+              type="button"
+              onClick={onCancelGuide}
+              className="mt-3 rounded-lg border border-line px-3 py-2 text-xs text-ink-soft hover:bg-paper-card"
+            >
+              停止生成
+            </button>
+          )}
           {error && <p className="text-sm leading-6 text-red-600">{error}</p>}
           {!guide && !loading && (
             <div className="guide-empty-callout rounded-xl border border-line bg-paper-card px-4 py-4 shadow-sm">
               <p className="text-sm font-medium text-ink">还没有阅读提示</p>
               <p className="mt-2 text-xs leading-5 text-ink-soft">
-                生成后会整理出 3 个阅读目标和 3 个读前问题。
+                生成后会变成几条轻量提示，读的时候随时可以回来看看。
               </p>
               <div className="mt-4 space-y-2">
                 <span className="guide-skeleton-bar block h-2.5 w-24 rounded-full bg-line" />
@@ -2611,7 +2895,7 @@ function SidebarPanel({
                 disabled={disabled}
                 className="guide-primary-button mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
-                生成阅读提示
+                让<BrandName />准备提示
               </button>
             </div>
           )}
@@ -2655,15 +2939,6 @@ function SidebarPanel({
     );
   }
 
-  if (activePanel === "memory") {
-    return (
-      <CompanionMemoryPanel
-        book={book}
-        onSave={onSaveCompanionMemory}
-      />
-    );
-  }
-
   return (
     <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
       <div className="shrink-0">
@@ -2681,225 +2956,6 @@ function SidebarPanel({
         onMarkUnfinished={onMarkUnfinished}
       />
     </section>
-  );
-}
-
-const COMPANION_MEMORY_OPTIONS = [
-  {
-    type: "mainline",
-    label: "帮我抓主线",
-    aiSummary: "减少被细节带走，持续提醒这段和全书问题的关系。",
-    promptInstruction: "后续导读、问答和读后追问都要优先帮助用户抓住全书主线，避免只堆细节。",
-  },
-  {
-    type: "background",
-    label: "帮我补背景",
-    aiSummary: "在必要时解释人物、制度、概念和时代背景。",
-    promptInstruction: "后续导读、问答和读后追问都要用克制的背景补充帮助用户读懂当前文本。",
-  },
-  {
-    type: "argument",
-    label: "帮我拆论证",
-    aiSummary: "追问作者的判断、证据和推理是否站得住。",
-    promptInstruction: "后续导读、问答和读后追问都要帮助用户看见概念、证据和论证链。",
-  },
-  {
-    type: "application",
-    label: "帮我联系现实",
-    aiSummary: "把书中的问题和现实经验、工作生活或其他知识连接起来。",
-    promptInstruction: "后续导读、问答和读后追问都要帮助用户把当前文本和现实经验建立连接。",
-  },
-  {
-    type: "output",
-    label: "帮我沉淀输出",
-    aiSummary: "把阅读转成笔记、文章、讲稿或可复用表达。",
-    promptInstruction: "后续导读、问答和读后追问都要主动提示可沉淀的观点、结构和表达。",
-  },
-  {
-    type: "custom",
-    label: "我自己指定",
-    aiSummary: "",
-    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标收束。",
-  },
-];
-
-function CompanionMemoryPanel({ book, onSave }) {
-  const initialMemory = useMemo(() => normalizeCompanionMemory(book), [book]);
-  const [form, setForm] = useState(initialMemory);
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    setForm(initialMemory);
-    setError("");
-  }, [initialMemory]);
-
-  const dirty = !sameCompanionMemory(form, initialMemory);
-
-  function updateField(field, value) {
-    setNotice("");
-    setError("");
-    setForm((current) => ({ ...current, [field]: value }));
-  }
-
-  function updateType(type) {
-    setNotice("");
-    setError("");
-    setForm((current) => {
-      const currentDefault = getCompanionMemoryOption(current.type);
-      const nextDefault = getCompanionMemoryOption(type);
-      const shouldUseNextSummary =
-        !toText(current.aiSummary).trim() || current.aiSummary === currentDefault.aiSummary;
-      const shouldUseNextInstruction =
-        !toText(current.promptInstruction).trim() ||
-        current.promptInstruction === currentDefault.promptInstruction;
-
-      return {
-        ...current,
-        type: nextDefault.type,
-        label: nextDefault.label,
-        aiSummary: shouldUseNextSummary ? nextDefault.aiSummary : current.aiSummary,
-        promptInstruction: shouldUseNextInstruction
-          ? nextDefault.promptInstruction
-          : current.promptInstruction,
-      };
-    });
-  }
-
-  async function handleSave(event) {
-    event.preventDefault();
-    if (!dirty || saving) return;
-
-    setSaving(true);
-    setError("");
-    setNotice("");
-
-    try {
-      const option = getCompanionMemoryOption(form.type);
-      await onSave?.({
-        ...initialMemory.raw,
-        schemaVersion: initialMemory.raw?.schemaVersion || 1,
-        type: option.type,
-        label: option.label,
-        userText: toText(form.userText).trim(),
-        aiSummary: toText(form.aiSummary).trim(),
-        promptInstruction: toText(form.promptInstruction).trim(),
-      });
-      setNotice("已更新本书读伴记忆，后续导读、问答和读后交流会按新的方向继续。");
-    } catch (saveError) {
-      setError(saveError.message || "这次没有保存成功，请稍后再试。");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <section className="flex h-[520px] min-h-0 flex-col overflow-hidden rounded-lg bg-paper p-3 lg:h-auto lg:flex-1">
-      <div className="shrink-0">
-        <p className="text-xs text-ink-soft">读伴记忆</p>
-        <h3 className="mt-1 text-sm font-medium text-ink">本书读伴记忆</h3>
-      </div>
-
-      <form onSubmit={handleSave} className="mt-3 flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-          <CompanionMemoryTextarea
-            label="我读这本书主要想解决什么"
-            value={form.userText}
-            rows={3}
-            placeholder="例如：想抓住作者解释明代政治运转的主线。"
-            onChange={(value) => updateField("userText", value)}
-          />
-
-          <label className="block">
-            <span className="text-xs font-medium text-ink-soft">希望读伴重点帮我</span>
-            <select
-              value={form.type}
-              onChange={(event) => updateType(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-line bg-paper-card px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-            >
-              {COMPANION_MEMORY_OPTIONS.map((option) => (
-                <option key={option.type} value={option.type}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <CompanionMemoryTextarea
-            label="读伴当前理解"
-            value={form.aiSummary}
-            rows={4}
-            placeholder="读伴如何理解你这本书的陪读方向。"
-            onChange={(value) => updateField("aiSummary", value)}
-          />
-
-          <CompanionMemoryTextarea
-            label="后续陪读规则"
-            value={form.promptInstruction}
-            rows={4}
-            placeholder="后续导读、问答和读后交流要怎样围绕这本书陪你。"
-            onChange={(value) => updateField("promptInstruction", value)}
-          />
-        </div>
-
-        {notice && <p className="mt-3 rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-accent">{notice}</p>}
-        {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-600">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={!dirty || saving}
-          className="mt-3 w-full shrink-0 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {saving ? "保存中…" : "保存记忆"}
-        </button>
-      </form>
-    </section>
-  );
-}
-
-function CompanionMemoryTextarea({ label, value, rows, placeholder, onChange }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-medium text-ink-soft">{label}</span>
-      <textarea
-        value={value}
-        rows={rows}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full resize-y rounded-lg border border-line bg-paper-card px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
-      />
-    </label>
-  );
-}
-
-function normalizeCompanionMemory(book) {
-  const focus = buildReadingContractContext({ book }).companionFocus || {};
-  const option = getCompanionMemoryOption(focus.type);
-
-  return {
-    raw: focus,
-    type: option.type,
-    label: option.label,
-    userText: toText(focus.userText),
-    aiSummary: toText(focus.aiSummary) || option.aiSummary,
-    promptInstruction: toText(focus.promptInstruction) || option.promptInstruction,
-  };
-}
-
-function sameCompanionMemory(left, right) {
-  return (
-    left.type === right.type &&
-    toText(left.userText).trim() === toText(right.userText).trim() &&
-    toText(left.aiSummary).trim() === toText(right.aiSummary).trim() &&
-    toText(left.promptInstruction).trim() === toText(right.promptInstruction).trim()
-  );
-}
-
-function getCompanionMemoryOption(type) {
-  return (
-    COMPANION_MEMORY_OPTIONS.find((option) => option.type === type) ||
-    COMPANION_MEMORY_OPTIONS[0]
   );
 }
 
@@ -3430,17 +3486,6 @@ function buildChapterSections(chapters, pages, item) {
   }));
 }
 
-function buildReadingBridge({ book, item, currentIndex, planItems }) {
-  const title = toText(book.title) || "这本书";
-  const previous = planItems[currentIndex - 1];
-
-  if (currentIndex === 0) {
-    return `从《${title}》的开头进入，先看作者把问题摆在什么位置：他为什么从这里起笔，哪些背景需要留意，哪些判断可以暂时放在心里。读完这一段，再决定后面该用怎样的节奏。`;
-  }
-
-  return `上一项是「${previous?.title || "前一部分"}」。今天继续沿着这条线往前读：留意作者是在补一层背景、推进一个判断，还是改变看问题的角度。把这处变化看清，后面的内容会更容易接上。`;
-}
-
 function buildPendingNoteFromSelection(selection) {
   return {
     id: `note-draft-${Date.now()}`,
@@ -3597,7 +3642,7 @@ function GuideLoading({ startedAt, compact = false }) {
   const elapsed = useElapsedSeconds(startedAt);
   const activeStepIndex = Math.min(Math.floor(elapsed / 5), GUIDE_LOADING_STEPS.length - 1);
   const activeStep = GUIDE_LOADING_STEPS[activeStepIndex];
-  const progressWidth = `${Math.min(88, 18 + activeStepIndex * 22 + (elapsed % 5) * 4)}%`;
+  const progressWidth = `${useGuideLoadingProgress(startedAt, elapsed)}%`;
 
   if (compact) {
     return (
@@ -3612,7 +3657,7 @@ function GuideLoading({ startedAt, compact = false }) {
         </div>
         <div className="guide-progress-track mt-3 h-1.5 overflow-hidden rounded-full bg-line">
           <span
-            className="guide-progress-bar block h-full rounded-full bg-accent transition-all duration-500"
+            className="guide-progress-bar block h-full rounded-full bg-accent"
             style={{ width: progressWidth }}
           />
         </div>
@@ -3643,7 +3688,7 @@ function GuideLoading({ startedAt, compact = false }) {
       </div>
       <div className="guide-progress-track mt-5 h-1.5 overflow-hidden rounded-full bg-line">
         <span
-          className="guide-progress-bar block h-full rounded-full bg-accent transition-all duration-500"
+          className="guide-progress-bar block h-full rounded-full bg-accent"
           style={{ width: progressWidth }}
         />
       </div>
@@ -4004,4 +4049,20 @@ function useElapsedSeconds(startedAt) {
   }, [startedAt]);
 
   return elapsed;
+}
+
+function useGuideLoadingProgress(startedAt, elapsed) {
+  const progressRef = useRef(0);
+  const previousStartRef = useRef(startedAt);
+
+  if (previousStartRef.current !== startedAt) {
+    previousStartRef.current = startedAt;
+    progressRef.current = 0;
+  }
+
+  const activeStepIndex = Math.min(Math.floor(elapsed / 5), GUIDE_LOADING_STEPS.length - 1);
+  const rawProgress = Math.min(90, 18 + activeStepIndex * 22 + (elapsed % 5) * 4);
+  progressRef.current = Math.max(progressRef.current, rawProgress);
+
+  return progressRef.current;
 }

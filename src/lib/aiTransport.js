@@ -15,13 +15,15 @@ import { tauriAiTransport } from "./tauriAiTransport.js";
 export const browserAiTransport = {
   target: RUNTIME_TARGETS.browser,
 
-  callModelDetailed({ settings, system, messages, maxTokens }) {
+  callModelDetailed({ settings, system, messages, maxTokens, signal, temperature }) {
     if (settings.provider === PROVIDERS.openaiCompatible) {
       return callOpenAICompatibleDetailed({
         ...settings.openaiCompatible,
         system,
         messages,
         maxTokens,
+        signal,
+        temperature,
       });
     }
 
@@ -30,10 +32,12 @@ export const browserAiTransport = {
       system,
       messages,
       maxTokens,
+      signal,
+      temperature,
     });
   },
 
-  streamModelDetailed({ settings, system, messages, maxTokens, onText }) {
+  streamModelDetailed({ settings, system, messages, maxTokens, onText, signal, temperature }) {
     if (settings.provider === PROVIDERS.openaiCompatible) {
       return streamOpenAICompatibleDetailed({
         ...settings.openaiCompatible,
@@ -41,6 +45,8 @@ export const browserAiTransport = {
         messages,
         maxTokens,
         onText,
+        signal,
+        temperature,
       });
     }
 
@@ -50,6 +56,8 @@ export const browserAiTransport = {
         system,
         messages,
         maxTokens,
+        signal,
+        temperature,
       },
       onText
     );

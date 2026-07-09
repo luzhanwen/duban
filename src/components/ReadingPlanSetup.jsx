@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { renderBrandNameText } from "./BrandLogo.jsx";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BrandName, renderBrandNameText } from "./BrandLogo.jsx";
+import ChineseIcon from "./ChineseIcon.jsx";
+import ReadingCompanionScene from "./ReadingCompanionScene.jsx";
 import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { getBook, getBookPages, updateBook } from "../lib/books.js";
 import { formatUsd } from "../lib/pricing.js";
+import { isAiAbortError } from "../lib/aiCancellation.js";
 import { toText } from "../lib/text.js";
 import {
   DEFAULT_FOCUS_OPTIONS,
@@ -47,23 +50,128 @@ const WEEKDAYS = [
 const OPENING_STEPS = [
   {
     id: "guide",
-    title: "开书地图",
-    desc: "先理解整本书",
+    title: "设定读伴",
+    desc: "确定陪读方式",
+    icon: "seal",
   },
   {
     id: "pace",
     title: "阅读节奏",
     desc: "决定怎么读",
-  },
-  {
-    id: "focus",
-    title: "读伴记忆",
-    desc: "设定陪读方向",
+    icon: "pace",
   },
   {
     id: "plan",
     title: "计划预览",
     desc: "确认并保存",
+    icon: "plan",
+  },
+];
+
+const EMPTY_OPENING_ANSWERS = {
+  context: "",
+  curiosity: "",
+  companion: "",
+};
+
+const DEFAULT_COMPANION_PROFILE = {
+  name: "读伴",
+  color: "sage",
+  expression: "gentle",
+};
+
+const COMPANION_COLOR_OPTIONS = [
+  {
+    id: "sage",
+    label: "青绿",
+    accent: "#6f8a74",
+    soft: "#eff6ed",
+    ribbon: "#8a765f",
+  },
+  {
+    id: "amber",
+    label: "琥珀",
+    accent: "#a87543",
+    soft: "#fbf0df",
+    ribbon: "#b98654",
+  },
+  {
+    id: "rose",
+    label: "浅玫",
+    accent: "#a46f79",
+    soft: "#fbedef",
+    ribbon: "#b07a84",
+  },
+  {
+    id: "ink",
+    label: "墨蓝",
+    accent: "#64788f",
+    soft: "#eef3f8",
+    ribbon: "#6b7f96",
+  },
+];
+
+const OPENING_DIALOG_ROUNDS = [
+  {
+    id: "intro",
+    stage: 0,
+    title: "空白读伴",
+    message:
+      "Hi，我是读伴，你的阅读助手。接下来，我们会进行几轮对话，真正定制你的阅读体验。",
+    actionLabel: "开始设定",
+  },
+  {
+    id: "context",
+    stage: 1,
+    title: "先知道你从哪里来",
+    message: "在翻开这本书之前，你已经带着什么印象、经验或疑问来到这里？",
+    field: "context",
+    placeholder:
+      "比如：我以前在历史课本里见过这段时期，也听别人推荐过这本书，但一直没真正读进去。",
+    suggestions: [
+      "我以前听过这本书，但还没有真正读过。",
+      "我对这本书相关的时代或话题有一点印象。",
+      "我之前读这类书容易被名字、年份和概念劝退。",
+    ],
+    actionLabel: "告诉你了，下一轮",
+  },
+  {
+    id: "curiosity",
+    stage: 2,
+    title: "再点亮你的好奇心",
+    message: "这本书里，你最想找到什么？可以是一个问题、一种感觉，或者一个你想弄明白的地方。",
+    field: "curiosity",
+    placeholder:
+      "比如：我想知道这些历史事件和普通人的生活有什么关系，也想看制度为什么会这样运转。",
+    suggestions: [
+      "我想抓住这本书真正关心的问题。",
+      "我想知道它和今天的生活或工作有什么关系。",
+      "我想读出能写进笔记或文章里的东西。",
+    ],
+    actionLabel: "好奇心也给你了",
+  },
+  {
+    id: "companion",
+    stage: 3,
+    title: "最后定下陪读方式",
+    message: "接下来读的时候，你希望我更像什么样的读伴？",
+    field: "companion",
+    placeholder:
+      "比如：少打断我，先帮我抓主线；我卡住时再补背景；读完一节后帮我整理成几句能记住的话。",
+    suggestions: [
+      "先抓主线，必要时再补背景。",
+      "多用白话解释，不要一上来堆概念。",
+      "读完后帮我沉淀成笔记和可复述的话。",
+    ],
+    actionLabel: "读伴成形",
+  },
+  {
+    id: "ready",
+    stage: 4,
+    title: "读伴已成形",
+    message:
+      "好了。我会带着这些记忆陪你读这本书。接下来保存读伴，我们就可以开始安排阅读节奏。",
+    actionLabel: "保存读伴，定阅读节奏",
   },
 ];
 
@@ -74,7 +182,11 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
   const [guideLoading, setGuideLoading] = useState(false);
   const [guideStartedAt, setGuideStartedAt] = useState(null);
   const [guideError, setGuideError] = useState("");
+  const [guideNotice, setGuideNotice] = useState("");
   const [userIntent, setUserIntent] = useState("");
+  const [openingAnswers, setOpeningAnswers] = useState(EMPTY_OPENING_ANSWERS);
+  const [openingRound, setOpeningRound] = useState(0);
+  const [companionProfile, setCompanionProfile] = useState(DEFAULT_COMPANION_PROFILE);
   const [paceMode, setPaceMode] = useState("standard");
   const [startDate, setStartDate] = useState(today());
   const [weekdays, setWeekdays] = useState([1, 2, 3, 4, 5]);
@@ -83,6 +195,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
   const [customFocus, setCustomFocus] = useState("");
   const [activeStep, setActiveStep] = useState("guide");
   const [message, setMessage] = useState(null);
+  const guideAbortRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -110,13 +223,22 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
         profilePace.splitLongChapters ?? guideAdvice.splitLongChapters ?? true
       );
       setFocusType(profileFocus?.type || guideFocus?.type || "mainline");
-      setCustomFocus(profileFocus?.userText || "");
-      setUserIntent(profileFocus?.userText || "");
+      setCustomFocus(profileFocus?.customFocus || "");
+      const savedOpeningMessage = profileFocus?.openingMessage || profileFocus?.userText || "";
+      const savedOpeningAnswers = normalizeOpeningAnswers(
+        profileFocus?.openingAnswers,
+        savedOpeningMessage
+      );
+      setOpeningAnswers(savedOpeningAnswers);
+      setUserIntent(buildOpeningMessage(savedOpeningAnswers));
+      setOpeningRound(savedOpeningMessage ? OPENING_DIALOG_ROUNDS.length - 1 : 0);
+      setCompanionProfile(normalizeCompanionProfile(profileFocus?.companionProfile));
     }
 
     load();
     return () => {
       alive = false;
+      cancelGuideGeneration();
     };
   }, [bookId]);
 
@@ -174,13 +296,23 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
   }
 
   async function handleGenerateGuide() {
+    cancelGuideGeneration();
+    const controller = new AbortController();
+    const previousGuide = wholeBookGuide;
+    const openingMessage = buildOpeningMessage(openingAnswers) || userIntent;
+    guideAbortRef.current = controller;
     setGuideError("");
+    setGuideNotice("");
     setMessage(null);
     setGuideLoading(true);
     setGuideStartedAt(Date.now());
-    setWholeBookGuide(null);
     try {
-      const generated = await generateWholeBookGuide({ book, pages, userIntent });
+      const generated = await generateWholeBookGuide({
+        book,
+        pages,
+        userIntent: openingMessage,
+        signal: controller.signal,
+      });
       const normalized = normalizeWholeBookGuide(generated);
       setWholeBookGuide(normalized);
       setBook((current) => (current ? { ...current, wholeBookGuide: normalized } : current));
@@ -191,19 +323,35 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
       if (normalized?.companionFocusOptions?.[0]?.type) {
         setFocusType(normalized.companionFocusOptions[0].type);
       }
+      setGuideNotice("读伴地图已准备好，后续陪读会参考它。");
     } catch (e) {
-      setGuideError(e.message || "整本书导读生成失败，请稍后重试。");
+      if (isAiAbortError(e)) {
+        setWholeBookGuide(previousGuide);
+      } else {
+        setGuideError(e.message || "整本书导读生成失败，请稍后重试。");
+      }
     } finally {
-      setGuideLoading(false);
-      setGuideStartedAt(null);
+      if (guideAbortRef.current === controller) {
+        guideAbortRef.current = null;
+        setGuideLoading(false);
+        setGuideStartedAt(null);
+      }
     }
+  }
+
+  function cancelGuideGeneration() {
+    guideAbortRef.current?.abort();
   }
 
   async function handleSave() {
     const now = new Date().toISOString();
+    const openingMessage = buildOpeningMessage(openingAnswers) || userIntent;
     const companionFocus = buildCompanionFocus({
       selectedFocus,
       customFocus,
+      openingMessage,
+      openingAnswers,
+      companionProfile,
       now,
       fromGuide: Boolean(wholeBookGuide),
     });
@@ -248,7 +396,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
       status: "planned",
     });
 
-    setMessage({ type: "ok", text: "开书设置已保存，阅读计划也准备好了。" });
+    setMessage({ type: "ok", text: "读伴设定已保存，阅读计划也准备好了。" });
     if (onDone) onDone(book.id);
   }
 
@@ -264,6 +412,31 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
     setActiveStep(stepId);
   }
 
+  function updateOpeningAnswer(field, value) {
+    setOpeningAnswers((current) => {
+      const next = { ...current, [field]: value };
+      setUserIntent(buildOpeningMessage(next));
+      if (field === "companion" && focusType === "custom") {
+        setCustomFocus(value);
+      }
+      return next;
+    });
+  }
+
+  function addOpeningSuggestion(field, text) {
+    updateOpeningAnswer(field, appendOpeningAnswer(openingAnswers[field], text));
+  }
+
+  function goPreviousOpeningRound() {
+    setOpeningRound((current) => Math.max(0, current - 1));
+  }
+
+  function goNextOpeningRound() {
+    setOpeningRound((current) =>
+      Math.min(OPENING_DIALOG_ROUNDS.length - 1, current + 1)
+    );
+  }
+
   function goPreviousStep() {
     if (!canGoBackStep) return;
     goToStep(OPENING_STEPS[activeStepIndex - 1].id);
@@ -274,96 +447,74 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
     goToStep(OPENING_STEPS[activeStepIndex + 1].id);
   }
 
+  const isCompanionOpening = activeStep === "guide";
+
   return (
-    <div className="opening-page mx-auto max-w-6xl px-6 py-10">
-      <button onClick={onBack} className="text-sm text-accent underline">
+    <div
+      className={`opening-page mx-auto px-6 py-10 ${
+        isCompanionOpening ? "opening-page-companion max-w-5xl" : "max-w-6xl"
+      }`}
+    >
+      <button
+        onClick={onBack}
+        className={
+          isCompanionOpening
+            ? "opening-companion-back"
+            : "text-sm text-accent underline"
+        }
+      >
         返回书籍信息
       </button>
 
-      <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-sm text-ink-soft">开书分析</p>
-          <h2 className="mt-1 font-serif text-3xl text-ink">{toText(book.title)}</h2>
-          {toText(book.author) && (
-            <p className="mt-2 text-sm text-ink-soft">{toText(book.author)}</p>
-          )}
-        </div>
-        <div className="opening-summary-grid">
-          <OpeningSummaryTile label="正文" value={`${planPreview.mainCount} 章`} />
-          <OpeningSummaryTile label="计划" value={`${planPreview.items.length} 个阅读日`} />
-          <OpeningSummaryTile
-            label="导读"
-            value={guideLoading ? "生成中" : wholeBookGuide ? "已生成" : "可跳过"}
-          />
-        </div>
-      </div>
-
-      <OpeningStepTabs
-        steps={OPENING_STEPS}
-        activeStep={activeStep}
-        activeStepIndex={activeStepIndex}
-        guideLoading={guideLoading}
-        hasGuide={Boolean(wholeBookGuide)}
-        onChange={goToStep}
-      />
-
-      <section className="opening-panel mt-6" key={activeStep}>
-        {activeStep === "guide" && (
-          <>
-            <StepHeading
-              index="1"
-              title="先整理整本书的读法"
-              desc="全书导读会整理核心问题、结构推进、阅读难点和建议节奏。它不是必填项，但生成后后续陪读会更有方向。"
-            />
-
-            <textarea
-              value={userIntent}
-              onChange={(event) => setUserIntent(event.target.value)}
-              rows={3}
-              placeholder="可选：你为什么想读这本书？比如：想抓主线、写文章、补背景、准备分享……"
-              className="mt-5 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
-            />
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                onClick={handleGenerateGuide}
-                disabled={guideLoading}
-                className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {guideLoading ? "正在整理…" : wholeBookGuide ? "重新整理这本书" : "整理这本书"}
-              </button>
-              {wholeBookGuide?.generatedAt && (
-                <span className="text-xs text-ink-soft">
-                  已生成 · {formatDateTime(wholeBookGuide.generatedAt)}
-                </span>
+      {!isCompanionOpening && (
+        <>
+          <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm text-ink-soft">设定读伴</p>
+              <h2 className="mt-1 font-serif text-3xl text-ink">{toText(book.title)}</h2>
+              {toText(book.author) && (
+                <p className="mt-2 text-sm text-ink-soft">{toText(book.author)}</p>
               )}
             </div>
+            <div className="opening-summary-grid">
+              <OpeningSummaryTile label="正文" value={`${planPreview.mainCount} 章`} />
+              <OpeningSummaryTile label="计划" value={`${planPreview.items.length} 个阅读日`} />
+              <OpeningSummaryTile
+                label="地图"
+                value={guideLoading ? "准备中" : wholeBookGuide ? "已准备" : "可选"}
+              />
+            </div>
+          </div>
 
-            {guideError && (
-              <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-                {guideError}
-              </p>
-            )}
+          <OpeningStepTabs
+            steps={OPENING_STEPS}
+            activeStep={activeStep}
+            activeStepIndex={activeStepIndex}
+            guideLoading={guideLoading}
+            hasGuide={Boolean(wholeBookGuide)}
+            onChange={goToStep}
+          />
+        </>
+      )}
 
-            {guideLoading && <WholeBookGuideLoading startedAt={guideStartedAt} />}
-
-            {wholeBookGuide ? (
-              <WholeBookGuideView guide={wholeBookGuide} />
-            ) : (
-              !guideLoading && (
-                <div className="mt-5 rounded-lg bg-paper px-4 py-3 text-sm leading-6 text-ink-soft">
-                  没有生成整本书导读也可以继续设置计划；后续进入这本书时还可以再补生成。
-                </div>
-              )
-            )}
-
-            <OpeningPanelActions
-              onBack={onBack}
-              backLabel="返回书籍信息"
-              onNext={goNextStep}
-              nextLabel={wholeBookGuide ? "下一步：阅读节奏" : "先跳过，设置节奏"}
+      <section
+        className={isCompanionOpening ? "opening-companion-panel mt-5" : "opening-panel mt-6"}
+        key={activeStep}
+      >
+        {activeStep === "guide" && (
+          <div>
+            <OpeningCompanionIntro
+              bookTitle={toText(book.title)}
+              openingAnswers={openingAnswers}
+              openingRound={openingRound}
+              onChangeAnswer={updateOpeningAnswer}
+              onAddSuggestion={addOpeningSuggestion}
+              companionProfile={companionProfile}
+              onPreviousRound={goPreviousOpeningRound}
+              onNextRound={goNextOpeningRound}
+              onFinish={goNextStep}
             />
-          </>
+          </div>
         )}
 
         {activeStep === "pace" && (
@@ -436,45 +587,6 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
               onBack={goPreviousStep}
               backLabel="上一步"
               onNext={goNextStep}
-              nextLabel="下一步：读伴记忆"
-            />
-          </>
-        )}
-
-        {activeStep === "focus" && (
-          <>
-            <StepHeading
-              index="3"
-              title="选择这本书的阅读侧重"
-              desc="这个选择会影响后续导读、问答和读后交流，让提示更贴近你的目的。"
-            />
-
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {focusOptions.map((option) => (
-                <ChoiceCard
-                  key={option.type}
-                  active={focusType === option.type}
-                  title={option.label}
-                  desc={option.description}
-                  onClick={() => setFocusType(option.type)}
-                />
-              ))}
-            </div>
-
-            {focusType === "custom" && (
-              <textarea
-                value={customFocus}
-                onChange={(event) => setCustomFocus(event.target.value)}
-                rows={3}
-                placeholder="我读这本书，主要想解决……"
-                className="mt-4 w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent"
-              />
-            )}
-
-            <OpeningPanelActions
-              onBack={goPreviousStep}
-              backLabel="上一步"
-              onNext={goNextStep}
               nextLabel="下一步：预览计划"
             />
           </>
@@ -483,7 +595,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
         {activeStep === "plan" && (
           <>
             <StepHeading
-              index="4"
+              index="3"
               title="确认阅读计划"
               desc={planPreview.summary}
             />
@@ -531,7 +643,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
                 disabled={planPreview.mainCount === 0}
                 className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
-                保存开书设置并生成计划
+                保存读伴设定并生成计划
               </button>
               <button
                 onClick={goPreviousStep}
@@ -571,7 +683,7 @@ function OpeningStepTabs({
   onChange,
 }) {
   return (
-    <nav className="opening-step-tabs" aria-label="开书设置步骤">
+    <nav className="opening-step-tabs" aria-label="设定读伴步骤">
       {steps.map((step, index) => {
         const active = step.id === activeStep;
         const done =
@@ -589,10 +701,12 @@ function OpeningStepTabs({
             } ${loading ? "is-loading" : ""}`}
           >
             <span className="opening-step-index">
-              {loading ? "…" : done ? "✓" : index + 1}
+              {loading ? "…" : done ? "✓" : <ChineseIcon name={step.icon} className="h-3.5 w-3.5" decorative />}
             </span>
             <span>
-              <span className="opening-step-title">{step.title}</span>
+              <span className="opening-step-title">
+                {renderBrandNameText(step.title, `opening-step-title-${step.id}`)}
+              </span>
               <span className="opening-step-desc">{step.desc}</span>
             </span>
           </button>
@@ -637,6 +751,137 @@ function StepHeading({ index, title, desc }) {
   );
 }
 
+function OpeningCompanionIntro({
+  bookTitle,
+  openingAnswers,
+  openingRound,
+  onChangeAnswer,
+  onAddSuggestion,
+  companionProfile,
+  onPreviousRound,
+  onNextRound,
+  onFinish,
+}) {
+  const round = OPENING_DIALOG_ROUNDS[openingRound] || OPENING_DIALOG_ROUNDS[0];
+  const isIntro = round.id === "intro";
+  const isReady = round.id === "ready";
+  const answerValue = round.field ? openingAnswers[round.field] || "" : "";
+  const progress = Math.round((round.stage / (OPENING_DIALOG_ROUNDS.length - 1)) * 100);
+  const colorOption = getCompanionColorOption(companionProfile.color);
+  const companionStyle = {
+    "--companion-accent": colorOption.accent,
+    "--companion-soft": colorOption.soft,
+    "--companion-ribbon": colorOption.ribbon,
+  };
+
+  return (
+    <div className="opening-companion-shell" data-stage={round.stage} style={companionStyle}>
+      <div className="opening-companion-stage">
+        <div
+          className={`opening-companion-avatar is-stage-${round.stage} expression-${companionProfile.expression}`}
+          aria-hidden="true"
+        >
+          <ReadingCompanionScene
+            stage={round.stage}
+            expression={companionProfile.expression}
+          />
+        </div>
+
+        <div className="opening-chat-area">
+          <div className="opening-chat-progress" aria-label="读伴成形进度">
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <div className="opening-chat-meta">
+            <span>{renderBrandNameText(round.title, `opening-round-title-${round.id}`)}</span>
+            <span>{round.stage} / {OPENING_DIALOG_ROUNDS.length - 1}</span>
+          </div>
+
+          <div className="opening-chat-bubble opening-chat-bubble-assistant">
+            <p className="opening-chat-kicker">
+              {renderBrandNameText(
+                isIntro ? "新读伴正在生成" : isReady ? "定制完成" : `第 ${round.stage} 轮对话`,
+                `opening-round-kicker-${round.id}`
+              )}
+            </p>
+            <p>{renderBrandNameText(round.message, `opening-round-${round.id}`)}</p>
+            {isIntro && toText(bookTitle) && (
+              <p className="opening-chat-book-title">这一次，我会陪你读《{bookTitle}》。</p>
+            )}
+          </div>
+
+          {round.field && (
+            <>
+              <label className="opening-chat-composer">
+                <span>你的回答</span>
+                <textarea
+                  value={answerValue}
+                  onChange={(event) => onChangeAnswer(round.field, event.target.value)}
+                  rows={4}
+                  placeholder={round.placeholder}
+                />
+              </label>
+
+              <div className="opening-suggestion-row" aria-label="回答灵感">
+                {round.suggestions.map((text) => (
+                  <button
+                    key={text}
+                    type="button"
+                    onClick={() => onAddSuggestion(round.field, text)}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {isReady && (
+            <div className="opening-formed-note">
+              <span>准备保存</span>
+              <p>
+                <BrandName className="opening-companion-brand" />
+                已经记住你的阅读来处、好奇心和陪读方式。
+              </p>
+            </div>
+          )}
+
+          <div className="opening-dialog-actions">
+            {openingRound > 0 && (
+              <button type="button" className="opening-dialog-secondary" onClick={onPreviousRound}>
+                上一轮
+              </button>
+            )}
+            {isReady ? (
+              <button type="button" className="opening-dialog-primary" onClick={onFinish}>
+                {renderBrandNameText(round.actionLabel, `opening-action-${round.id}`)}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="opening-dialog-primary"
+                  onClick={onNextRound}
+                >
+                    {renderBrandNameText(round.actionLabel, `opening-action-${round.id}`)}
+                </button>
+                {!isIntro && (
+                  <button
+                    type="button"
+                    className="opening-dialog-quiet"
+                    onClick={onNextRound}
+                  >
+                    这一轮先空着
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChoiceCard({ active, title, desc, onClick }) {
   return (
     <button
@@ -669,8 +914,8 @@ function WholeBookGuideLoading({ startedAt }) {
   const loadingSteps = [
     "读取章节结构",
     "抽样正文与导读章节",
-    "整理全书问题和路线",
-    "压缩成可用的开书地图",
+    "整理这本书在问什么",
+    "压缩成后续陪读会用的地图",
   ];
 
   useEffect(() => {
@@ -690,8 +935,7 @@ function WholeBookGuideLoading({ startedAt }) {
           <div>
             <p className="text-sm font-medium text-ink">正在整理整本书的读法</p>
             <p className="mt-1 text-xs leading-5 text-ink-soft">
-              全书导读会参考章节结构、导读章节和正文抽样，通常比章节导读更久一点。
-              现在不是卡住，只是在等待模型返回。
+              你可以先继续定节奏。地图整理好以后，会自动带到后续导读和问答里。
             </p>
           </div>
           <span className="whole-book-loading-time">已等待 {elapsedSeconds}s</span>
@@ -717,42 +961,45 @@ function WholeBookGuideLoading({ startedAt }) {
 }
 
 function WholeBookGuideView({ guide }) {
-  const [showFullOverview, setShowFullOverview] = useState(false);
+  const [showGuideDetails, setShowGuideDetails] = useState(false);
   const hasFullOverview =
-    toText(guide.fullOverview) && toText(guide.fullOverview) !== toText(guide.overview);
+    cleanGuideDisplayText(guide.fullOverview) &&
+    cleanGuideDisplayText(guide.fullOverview) !== cleanGuideDisplayText(guide.overview);
 
   return (
-    <div className="mt-6 space-y-6">
-      <section className="rounded-xl bg-paper px-5 py-4">
+    <div className="mt-4">
+      <section className="opening-map-preview">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-ink-soft">快速导读</p>
-          {hasFullOverview && (
-            <button
-              onClick={() => setShowFullOverview((current) => !current)}
-              className="rounded-lg border border-line px-3 py-1 text-xs text-ink-soft hover:bg-paper-card"
-            >
-              {showFullOverview ? "收起完整导读" : "展开完整导读"}
-            </button>
-          )}
+          <p className="text-xs font-medium text-ink-soft">读伴小纸条</p>
+          <button
+            type="button"
+            onClick={() => setShowGuideDetails((current) => !current)}
+            className="rounded-lg border border-line px-3 py-1 text-xs text-ink-soft hover:bg-paper-card"
+          >
+            {showGuideDetails ? "收起读伴地图" : "查看读伴地图"}
+          </button>
         </div>
         <GuideMarkdown value={guide.overview} />
-        {hasFullOverview && showFullOverview && (
-          <div className="mt-5 rounded-lg border border-line bg-paper-card px-4 py-3">
-            <p className="mb-3 text-xs font-medium text-ink-soft">完整导读底稿</p>
-            <GuideMarkdown value={guide.fullOverview} />
+        {showGuideDetails && (
+          <div className="mt-5 space-y-5 border-t border-line pt-5">
+            {hasFullOverview && (
+              <section>
+                <p className="mb-3 text-xs font-medium text-ink-soft">完整导读</p>
+                <GuideMarkdown value={guide.fullOverview} />
+              </section>
+            )}
+            <GuideQuestionPanel guide={guide} />
+            <GuideRoute items={guide.structureMap || []} />
+            <GuideSupportList items={guide.difficultyMap || []} />
+            {guide.sourceLimitations && (
+              <p className="rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-ink-soft">
+                {cleanGuideDisplayText(guide.sourceLimitations)}
+              </p>
+            )}
+            <GuideUsage guide={guide} />
           </div>
         )}
-        {guide.sourceLimitations && (
-          <p className="mt-4 rounded-lg bg-paper-card px-3 py-2 text-xs leading-5 text-ink-soft">
-            {guide.sourceLimitations}
-          </p>
-        )}
-        <GuideUsage guide={guide} />
       </section>
-
-      <GuideQuestionPanel guide={guide} />
-      <GuideRoute items={guide.structureMap || []} />
-      <GuideSupportList items={guide.difficultyMap || []} />
     </div>
   );
 }
@@ -840,7 +1087,7 @@ function GuideSupportList({ items }) {
       <div>
         <p className="text-xs font-medium text-ink-soft">阅读时容易卡住的地方</p>
         <p className="mt-1 text-sm leading-6 text-ink-soft">
-          这些不是考试重点，而是读到中途容易失去方向的位置。
+          把这些地方当作阅读提醒即可；读到中途多留意，方向会更稳。
         </p>
       </div>
       <div className="mt-4 divide-y divide-line">
@@ -871,7 +1118,7 @@ function formatSupportStrategy(value) {
 }
 
 function GuideMarkdown({ value }) {
-  const lines = toText(value).split(/\n+/);
+  const lines = cleanGuideDisplayText(value).split(/\n+/);
   return (
     <div className="space-y-3 text-sm leading-7 text-ink">
       {lines.map((line, index) => {
@@ -896,6 +1143,10 @@ function GuideMarkdown({ value }) {
       })}
     </div>
   );
+}
+
+function cleanGuideDisplayText(value) {
+  return toText(value).replace(/\\n/g, "\n").replace(/\\r/g, "\n").replace(/\\t/g, " ");
 }
 
 function renderInlineMarkdown(text, keyPrefix) {
@@ -999,7 +1250,7 @@ function buildPlanPreview({
 
   const summary =
     mainChapters.length === 0
-      ? "还没有标记为正文的章节，请回到书籍信息页调整章节用途。"
+      ? "请先回到书籍信息页，把至少一个章节标记为正文。"
       : `${pace.title}节奏，每次约 ${pace.minutesPerSession} 分钟，按正文 ${mainChapters.length} 章安排，预计 ${items.length} 个阅读日完成。`;
 
   return {
@@ -1050,18 +1301,131 @@ function findWholeBookRole(guide, chapter) {
   return toText(section?.role);
 }
 
-function buildCompanionFocus({ selectedFocus, customFocus, now, fromGuide }) {
-  const userText = selectedFocus.type === "custom" ? customFocus.trim() : "";
+function buildCompanionFocus({
+  selectedFocus,
+  customFocus,
+  openingMessage,
+  openingAnswers,
+  companionProfile,
+  now,
+  fromGuide,
+}) {
+  const openingText = toText(openingMessage).trim();
+  const normalizedOpeningAnswers = normalizeOpeningAnswers(openingAnswers, openingText);
+  const normalizedCompanionProfile = normalizeCompanionProfile(companionProfile);
+  const customText =
+    selectedFocus.type === "custom"
+      ? toText(customFocus || normalizedOpeningAnswers.companion).trim()
+      : "";
+  const userText = [openingText, customText && customText !== openingText ? customText : ""]
+    .filter(Boolean)
+    .join("\n\n");
+  const aiSummary = buildCompanionMemorySummary({
+    selectedFocus,
+    openingText,
+    customText,
+  });
+  const promptInstruction = buildCompanionPromptInstruction({
+    selectedFocus,
+    openingText,
+    customText,
+  });
+
   return {
     schemaVersion: 1,
     type: selectedFocus.type || "mainline",
     label: selectedFocus.label || "帮我抓主线",
+    openingMessage: openingText,
+    openingAnswers: normalizedOpeningAnswers,
+    companionProfile: normalizedCompanionProfile,
+    customFocus: customText,
     userText,
-    aiSummary: userText || selectedFocus.description || "",
-    promptInstruction: selectedFocus.promptInstruction || "",
+    aiSummary,
+    promptInstruction,
     selectedFromWholeBookGuide: fromGuide,
     updatedAt: now,
   };
+}
+
+function normalizeOpeningAnswers(value, fallbackText = "") {
+  const fallback = toText(fallbackText).trim();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ...EMPTY_OPENING_ANSWERS,
+      context: fallback,
+    };
+  }
+
+  const answers = {
+    context: toText(value.context).trim(),
+    curiosity: toText(value.curiosity).trim(),
+    companion: toText(value.companion).trim(),
+  };
+
+  if (!answers.context && !answers.curiosity && !answers.companion && fallback) {
+    return {
+      ...answers,
+      context: fallback,
+    };
+  }
+
+  return answers;
+}
+
+function normalizeCompanionProfile() {
+  return { ...DEFAULT_COMPANION_PROFILE };
+}
+
+function getCompanionColorOption(color) {
+  return (
+    COMPANION_COLOR_OPTIONS.find((option) => option.id === color) ||
+    COMPANION_COLOR_OPTIONS[0]
+  );
+}
+
+function buildOpeningMessage(answers = EMPTY_OPENING_ANSWERS) {
+  const normalized = normalizeOpeningAnswers(answers);
+  const sections = [
+    ["我带着这些来读", normalized.context],
+    ["我想在书里寻找", normalized.curiosity],
+    ["我希望读伴这样陪我", normalized.companion],
+  ]
+    .filter(([, value]) => toText(value).trim())
+    .map(([label, value]) => `${label}：${toText(value).trim()}`);
+
+  return sections.join("\n");
+}
+
+function appendOpeningAnswer(current, text) {
+  const previous = toText(current).trim();
+  const next = toText(text).trim();
+  if (!next || previous.includes(next)) return previous;
+  return previous ? `${previous}\n${next}` : next;
+}
+
+function buildCompanionMemorySummary({ selectedFocus, openingText, customText }) {
+  const focusSummary = toText(selectedFocus.description).trim();
+  const customSummary = customText ? `特别关注：${customText}` : "";
+  if (!openingText && !customSummary) return focusSummary;
+  return [openingText ? `设定读伴时用户捎来的话：${openingText}` : "", customSummary, focusSummary]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCompanionPromptInstruction({
+  selectedFocus,
+  openingText,
+  customText,
+}) {
+  return [
+    toText(selectedFocus.promptInstruction).trim(),
+    openingText
+      ? `后续导读、问答和读后交流都要把这段设定读伴时捎来的话当作本书记忆：${openingText}`
+      : "",
+    customText ? `用户还特别指定了这本书的陪读目标：${customText}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function legacyPurposeFromFocus(type) {
@@ -1101,14 +1465,6 @@ function formatDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function formatDateTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${formatDate(date)} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes()
-  ).padStart(2, "0")}`;
 }
 
 function formatPlanPageRange(startPage, endPage, pageUnitLabel = "页") {

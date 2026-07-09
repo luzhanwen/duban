@@ -60,6 +60,11 @@ export function createTauriStorageAdapter(legacyAdapter) {
       await invokeStorage("duban_storage_remove_item", { key });
     },
 
+    async deleteBook(id) {
+      await ensureMigrated();
+      return invokeStorage("duban_storage_delete_book", { bookId: id });
+    },
+
     async clear() {
       await ensureMigrated();
       await invokeStorage("duban_storage_clear");

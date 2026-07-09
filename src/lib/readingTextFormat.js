@@ -1,4 +1,5 @@
 import { callModelDetailed } from "./ai.js";
+import { createAiOutputTruncatedError, isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingTextFormatPrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
 import { getItem, getSettings, KEYS, PROVIDERS, setItem } from "./storage.js";
@@ -15,7 +16,13 @@ export async function saveFormattedReadingText(bookId, itemKey, formatted) {
   return setItem(KEYS.bookFormattedText(bookId, itemKey), formatted);
 }
 
-export async function generateFormattedReadingText({ book, item, itemKey, chapterSections }) {
+export async function generateFormattedReadingText({
+  book,
+  item,
+  itemKey,
+  chapterSections,
+  signal,
+}) {
   const settings = await getSettings();
   const chapterText = chapterSections
     .map(
@@ -44,7 +51,16 @@ export async function generateFormattedReadingText({ book, item, itemKey, chapte
         content: prompts.user,
       },
     ],
+    signal,
+    taskType: "readingTextFormat",
   });
+
+  if (isAiOutputTruncated(result)) {
+    throw createAiOutputTruncatedError(
+      "这次正文整理写得太长，被模型输出上限截断了。请减少当前阅读范围后重试。",
+      result
+    );
+  }
 
   const formatted = {
     markdown: cleanupMarkdown(result.text),
@@ -52,6 +68,8 @@ export async function generateFormattedReadingText({ book, item, itemKey, chapte
     itemKey,
     provider: settings.provider,
     model: result.model || getActiveModel(settings),
+    finishReason: result.finishReason || "",
+    truncated: false,
     usage: result.usage,
     cost: estimateFormatCost(settings, result),
     generatedAt: new Date().toISOString(),
@@ -69,10 +87,11 @@ function cleanupMarkdown(value) {
 }
 
 function estimateFormatCost(settings, result) {
-  if (settings.provider === PROVIDERS.openaiCompatible) {
-    return estimateCustomCost(settings.openaiCompatible || {}, result.usage);
+  const costSettings = result.settingsUsed || settings;
+  if (costSettings.provider === PROVIDERS.openaiCompatible) {
+    return estimateCustomCost(costSettings.openaiCompatible || {}, result.usage);
   }
-  return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
+  return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
 function getActiveModel(settings) {

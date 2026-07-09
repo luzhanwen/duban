@@ -7,17 +7,24 @@ export default {
     extend: {
       // 自定义颜色：营造安静、偏暖的阅读氛围
       colors: {
-        paper: "#f7f3ec", // 偏暖的米白底色（页面背景）
-        "paper-card": "#fffdf8", // 卡片/面板背景，比底色略亮
-        ink: "#2b2622", // 正文主色（接近黑但偏暖的深褐）
-        "ink-soft": "#6b6258", // 次要文字（说明、提示）
-        accent: "#9c6b3f", // 强调色（按钮、链接，暖棕）
-        line: "#e6ddcf", // 分隔线/边框颜色
+        paper: "#F7F1E6", // 米纸底色（页面背景）
+        "paper-card": "#FBF6EC", // 卡片/面板背景，比底色略亮
+        "paper-muted": "#EFE5D6", // 次级分区、悬停底色
+        ink: "#2B2622", // 主墨色（标题、高优先级正文）
+        "ink-soft": "#5F554A", // 次墨色（正文、说明）
+        "ink-muted": "#8A7664", // 弱提示、时间、元信息
+        accent: "#B94132", // 朱砂强调色（按钮、链接、状态、印章）
+        "accent-hover": "#A7382D", // 朱砂 hover
+        "accent-soft": "#DFA093", // 浅朱砂背景、轻提示
+        line: "#E3D6C6", // 柔和纸边
+        "line-strong": "#D3C1AD", // 重点边框、选中框
+        "progress-track": "#E6DAC9", // 进度条轨道
       },
       // 字体：正文阅读区用衬线字体，界面其余部分用无衬线
       fontFamily: {
-        serif: ['"Noto Serif SC"', 'Georgia', 'serif'],
-        sans: ['"Noto Sans SC"', 'system-ui', 'sans-serif'],
+        serif: ['"Songti SC"', '"Noto Serif CJK SC"', '"Source Han Serif SC"', '"Noto Serif SC"', 'Georgia', 'serif'],
+        sans: ['"PingFang SC"', '"Microsoft YaHei"', '"Noto Sans CJK SC"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
+        latin: ['"Inter"', '"SF Pro Text"', 'system-ui', 'sans-serif'],
       },
     },
   },

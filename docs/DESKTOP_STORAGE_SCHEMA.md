@@ -1,6 +1,6 @@
 # 读伴桌面存储 Schema
 
-> 最后更新：2026-06-18
+> 最后更新：2026-07-08
 
 本文档记录 Tauri 桌面版从 IndexedDB 迁移到 SQLite + App 数据目录后的目标 schema。它服务于 App 化阶段 5，和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md) 的分工是：
 
@@ -260,6 +260,8 @@ book_id -> books.id ON DELETE CASCADE
 
 阶段 5.5 已实现。替代 `book:{id}:notes`，仍按阅读项 key 恢复成前端原来的分组对象。
 
+2026-07-08 起，本书级「和读伴聊聊」里保存的读伴回答也复用这张表。可定位当前阅读项时写入当前 `item_key`，否则写入保留 `item_key = "__book_companion__"`；`source = "book-companion-chat"` 用于区分来自本书级聊天的沉淀笔记，不改变 schema。
+
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `book_id` | `TEXT NOT NULL` | 所属书籍。 |
@@ -271,7 +273,7 @@ book_id -> books.id ON DELETE CASCADE
 | `note` | `TEXT` | 用户笔记。 |
 | `assistant_content` | `TEXT` | 从读伴回答保存来的内容。 |
 | `source_message_id` | `TEXT` | 关联的伴读消息 id。 |
-| `source` | `TEXT` | 来源，例如 `selection` / `assistant` / `guide`。 |
+| `source` | `TEXT` | 来源，例如 `selection` / `assistant` / `guide` / `book-companion-chat`。 |
 | `created_at` | `TEXT` | 创建时间。 |
 | `updated_at` | `TEXT` | 更新时间。 |
 | `raw_json` | `TEXT NOT NULL` | 完整笔记 JSON。 |
@@ -281,6 +283,8 @@ book_id -> books.id ON DELETE CASCADE
 ### `chat_messages`
 
 阶段 5.5 已实现。替代 `book:{id}:chat`，仍按阅读项 key 恢复成前端原来的消息分组对象。
+
+2026-07-08 起，本书级「和读伴聊聊」也复用这张表和 `book:{id}:chat` 分组对象，使用保留 `item_key = "__book_companion__"` 保存全书聊天历史。它不改变 schema，不覆盖各阅读项 sidebar 伴读问答；后续如果需要独立导出、搜索或长期记忆索引，再评估是否拆出 `book_companion_messages`。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -358,7 +362,12 @@ P6.2 已实现。替代 `kv_store.settings` 中的非敏感配置。
 - 进入设置页只读取 `app_settings`；设置页测试连接只使用当前输入的 API Key，不自动读取 Keychain。
 - schema 初始化如果发现旧 `kv_store.settings` 中残留 API Key，只做脱敏并迁入 `app_settings`，不再自动迁移到 Keychain。
 - 真正调用阅读页 AI 能力时，Tauri AI transport 才会在请求体缺少 API Key 的情况下从 Keychain 解析已保存密钥。
+- AI transport 可以在当前 Tauri 进程内缓存一次已解析的 Keychain 密钥，减少连续模型请求造成的重复系统密码弹窗；缓存只在内存中，保存或删除 Keychain 密钥后必须清空。Keychain 读取与缓存写入需要处于同一锁内，避免并发请求同时读取 Keychain。
 - 设置页 API Key 输入框留空保存不会删除既有 Keychain 密钥。
+- P6.4.5 起，`raw_json.aiBudget` 保存非敏感预算配置，包括是否启用、单次输入/输出 token 上限、单次费用上限和每日费用上限。
+- P6.4.6 起，`raw_json.aiProfiles` 保存非敏感任务模型 profile，包括任务开关、供应商、模型名、Base URL、价格、输出 token 上限和 temperature；不得保存 API Key。
+- AI 预算日用量使用内部兼容 KV key `__duban:ai-budget:{YYYY-MM-DD}` 保存，只包含日期、任务类型、token 和估算费用；该前缀不进入备份。
+- AI 调用诊断使用内部兼容 KV key `__duban:ai-diagnostics` 保存最近 20 条脱敏摘要，只包含任务、供应商、模型、Base URL origin、耗时、状态、错误码、HTTP 状态、尝试次数、token 和费用估算；该 key 不进入备份。
 
 ### `book_covers`
 
@@ -400,6 +409,26 @@ P6.2 新增孤儿文件扫描和清理命令：
 
 扫描范围仅限 App 数据目录的 `files/`。引用来源包括 `file_store.relative_path`、`book_files.relative_path` 和 `book_covers.relative_path`；清理逻辑不会删除仍被 SQLite 引用的原始文件或封面文件。
 
+## 书籍导入与删除约束
+
+结构化 `book_files`、`book_pages`、`book_chapters`、阅读计划、进度、笔记、聊天和导读缓存都通过 `book_id -> books.id ON DELETE CASCADE` 关联到 `books`。
+
+因此桌面端必须遵守以下顺序：
+
+- 新书导入时，先写入 `books` 记录，再写入 `book:{id}:file` 和 `book:{id}:pages`。
+- 如果文件或分页写入失败，需要回滚刚插入的 `books` 记录，避免书架留下半本书。
+- 删除书籍时，不应只依赖前端逐个兼容 key 删除；桌面端优先调用语义化 command：
+  - `duban_storage_delete_book(bookId)`
+
+`duban_storage_delete_book` 的职责：
+
+- 在删除数据库记录前收集原始文件和封面文件路径。
+- 在事务内删除该书籍的兼容 `kv_store` / `file_store` 记录和 `books` 记录。
+- 通过外键级联清理结构化 pages、计划、进度、笔记、聊天、读后交流、导读、封面和格式化正文缓存。
+- 数据库删除成功后 best-effort 删除本地文件；文件删除失败不应阻断书籍从书架移除，残留文件可由孤儿文件扫描/清理命令处理。
+
+该改动不提升 `schema_version`，因为表结构未变化，只是补充 Tauri command 和写入顺序约束。
+
 ## 备份格式
 
 阶段 5.8 已实现基础备份；阶段 5.9 已升级为目录式备份；P6.1 将备份格式升到 v3，补上 manifest/file hash 和导入失败自动恢复点。
@@ -416,6 +445,7 @@ P6.2 新增孤儿文件扫描和清理命令：
 - `label` / `notes`：用户可在设置页维护的备份短名称和备注；修改后会重写 manifest 校验和。
 - `includesApiKeys`：当前固定为 `false`
 - `items`：按兼容 key 保存 JSON 数据，例如 `books`、`settings`、`book:{id}:pages`、`progress:{id}`、笔记、聊天、读后交流、章节导读、封面和 AI 排版缓存。
+- 内部运行时 key 会跳过备份，例如 `__duban:migration:*` 和 `__duban:ai-budget:*`。
 - `files`：按兼容 key 保存原始文件索引，使用 `relativePath` 指向 `files/` 下的真实文件；每个文件记录 `byteSize` 和 `sha256`；旧版 base64 JSON 备份仍可兼容导入。
 
 导入边界：

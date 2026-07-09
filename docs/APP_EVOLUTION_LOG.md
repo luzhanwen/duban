@@ -1,6 +1,6 @@
 # 读伴 App 化路线与实施日志
 
-> 最后更新：2026-06-18
+> 最后更新：2026-07-07
 
 这份文档专门记录「读伴」从纯前端 MVP 演进为本地优先 App 的路线、阶段边界和每次实际完成的工作。
 
@@ -101,7 +101,7 @@
 - 提供从旧 IndexedDB 数据迁移或导出的路径。
 - 存储 adapter 可以按运行环境分流。
 
-状态：进行中。第一版本地数据后端已完成；阶段 5.2 schema 文档已建立；阶段 5.3 已把 `books` 迁到结构化 `books` / `book_chapters` 表；阶段 5.4 已把阅读计划和阅读进度迁到结构化表；阶段 5.5 已把笔记、聊天、读后交流和章节导读缓存迁到结构化表；阶段 5.6 已把原始文件索引和分页文本迁到结构化表，并让桌面读取文件时使用本地文件引用；阶段 5.7 已把桌面 API Key 迁入系统 Keychain；阶段 5.8 已加入备份导出/导入和显式 schema 迁移器；阶段 5.9 已把桌面备份升级为目录式、可预览、可校验、可合并导入；P6.1 已补 manifest/file sha256、失败自动回滚、外部路径导入和备份操作入口。封面、settings 结构化表、备份压缩归档、备份签名和迁移夹具仍待继续推进。
+状态：进行中。第一版本地数据后端已完成；阶段 5.2 schema 文档已建立；阶段 5.3 已把 `books` 迁到结构化 `books` / `book_chapters` 表；阶段 5.4 已把阅读计划和阅读进度迁到结构化表；阶段 5.5 已把笔记、聊天、读后交流和章节导读缓存迁到结构化表；阶段 5.6 已把原始文件索引和分页文本迁到结构化表，并让桌面读取文件时使用本地文件引用；阶段 5.7 已把桌面 API Key 迁入系统 Keychain；阶段 5.8 已加入备份导出/导入和显式 schema 迁移器；阶段 5.9 已把桌面备份升级为目录式、可预览、可校验、可合并导入；P6.1 已补 manifest/file sha256、失败自动回滚、外部路径导入和备份操作入口；P6.2 已把非敏感 settings、封面缓存和 AI 排版缓存迁到结构化表；P6.3 已完成大文件导入限制、进度、取消、重试和友好错误主体；P6.4 AI transport 生产化主体已完成；P6.5 安全与隐私加固基础版已完成。备份压缩归档、备份签名和迁移夹具仍待继续推进。
 
 ### 阶段 6：打包、备份和发布准备
 
@@ -115,9 +115,207 @@
 - 有数据 schema 版本和迁移策略。
 - 后续再评估签名、公证、自动更新和崩溃日志。
 
-状态：部分完成。已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；阶段 5.9 已提供目录式备份、导入前预览、校验报告和合并导入；正式签名、公证、自动更新和崩溃日志仍未开始。
+状态：部分完成。已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；阶段 5.9 已提供目录式备份、导入前预览、校验报告和合并导入；P6.1-P6.6 基础版已完成；桌面版关闭窗口进入后台的基础行为已完成；正式签名、公证、自动更新和崩溃日志仍未完成。
 
 ## 实施日志
+
+### 2026-07-08：桌面版关闭窗口进入后台
+
+阶段：P6.7 发布体验准备
+
+目标：
+
+- 让桌面版更符合常驻阅读 App 的预期：点窗口叉号不直接退出进程，而是隐藏窗口进入后台。
+- macOS 点击 Dock 图标时可以重新显示主窗口。
+
+改动：
+
+- Tauri 全局窗口事件中拦截主窗口 `CloseRequested`：
+  - 调用 `prevent_close()` 阻止进程退出。
+  - 调用 `hide()` 隐藏主窗口。
+  - 写入脱敏本地诊断日志 `app.window_hidden_to_background`。
+- Tauri 事件循环中处理 macOS `RunEvent::Reopen`：
+  - 当没有可见窗口时，重新 `show()` 主窗口并 `set_focus()`。
+- 真正退出仍交给系统级退出行为，例如 `Cmd+Q` 或应用菜单退出。
+
+验证：
+
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo check` 已通过。
+- `cd src-tauri && cargo test` 已通过，25 个 Rust 测试全部通过。
+- `git diff --check` 已通过。
+
+### 2026-07-08：Dock 右键退出的 dev 图标割裂定位
+
+阶段：P6.7 发布体验准备
+
+现象：
+
+- 在 `npm run tauri:dev` 启动的桌面测试环境中，从 Dock 右键退出时可能短暂看到终端/调试进程相关图标，视觉上不像正式 App。
+
+判断：
+
+- `tauri:dev` 运行的是未打包的 debug 二进制 `target/debug/duban`，不是最终 `.app` bundle。
+- 这类 Dock 图标闪烁属于开发态进程身份和 macOS Dock 缓存/启动进程的边界问题；正式安装包应以 `.app` bundle、`Info.plist` 和 `icon.icns` 作为 Dock 身份。
+
+处理：
+
+- 执行 `npm run tauri:build`，重新生成正式 `.app` 测试包：
+  - `src-tauri/target/release/bundle/macos/读伴.app`
+- 已打开该 `.app` 作为本轮视觉验证对象；后续检查 Dock 退出、Dock 唤回和图标一致性时，应优先使用这个 bundle 测试包，而不是 `tauri:dev`。
+
+验证：
+
+- `npm run tauri:build` 已通过；仍只有既有 Vite chunk 体积提示。
+
+### 2026-07-07：P6.6.1 + P6.6.2 诊断规范与本地日志基础
+
+阶段：P6.6，本地诊断与可支持性
+
+目标：
+
+- 先定义诊断字段和隐私过滤规则，避免后续诊断包把正文或密钥带出去。
+- 建立桌面版本地 JSONL 诊断日志，为后续数据库健康检查和诊断包导出打底。
+
+改动：
+
+- 新增 [DIAGNOSTICS_PRIVACY_SPEC.md](./DIAGNOSTICS_PRIVACY_SPEC.md)，记录允许字段、禁止字段、脱敏规则、日志格式和新增字段审核清单。
+- 新增 Rust 模块 `src-tauri/src/diagnostics.rs`：
+  - 写入 `logs/duban-diagnostics.jsonl`。
+  - 超过 1 MB 后轮转为 `duban-diagnostics.1.jsonl`。
+  - 写入前统一脱敏 API Key、Authorization、prompt、messages、content、text、note、chat、base64、raw_json 等字段。
+  - URL 字段只保留 origin。
+- Tauri 启动时记录 App 启动和 SQLite 初始化成功/失败。
+- AI 请求记录开始、成功、失败和取消事件，只记录供应商、模型、Base URL origin、消息数量、attempts、finishReason、truncated、错误码和 HTTP 状态等摘要。
+- 更新生产级路线、后端开发标准、隐私说明、文档索引和 Roadmap。
+
+验证：
+
+- 先运行了 `cargo test diagnostics`，5 个诊断模块测试通过。
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo test` 已通过，23 个 Rust 测试全部通过。
+- `cd src-tauri && cargo check` 已通过。
+- `npm run security:scan` 已通过。
+- `npm run build` 已通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 已通过。
+
+限制：
+
+- 目前还没有设置页导出诊断包入口。
+- 截至该小阶段，数据库健康检查 command、诊断包导出、备份操作日志和错误详情复制仍在 P6.6 后续步骤。
+
+### 2026-07-07：P6.6.3 + P6.6.4 健康检查与诊断包导出
+
+阶段：P6.6，本地诊断与可支持性
+
+目标：
+
+- 让桌面后端能主动检查本地数据库和文件系统健康状态。
+- 让用户后续可以一键导出一个不含密钥和正文的诊断包。
+
+改动：
+
+- 新增 `duban_diagnostics_health_check` Tauri command：
+  - 返回当前 schema 版本、期望 schema 版本和 SQLite `quick_check`。
+  - 返回关键 SQLite 表计数。
+  - 检查本地文件索引是否有缺失文件或不安全相对路径。
+  - 复用孤儿文件扫描，返回孤儿文件数量、体积和前 50 条相对路径。
+  - 检查备份目录是否存在、可读、可写。
+  - 返回非敏感 API Key 状态，只读 `app_settings.hasApiKey`，不读取 Keychain 明文。
+- 新增 `duban_diagnostics_export_package` Tauri command：
+  - 导出单个 JSON 诊断包到 App 数据目录 `diagnostics/duban-diagnostics-{timestamp}.json`。
+  - 包含 App 摘要、健康检查、备份摘要、设置摘要、AI 调用诊断和最近 400 条本地诊断日志。
+  - 导出前再次执行统一脱敏，不包含 API Key、prompt、章节正文、笔记正文、聊天全文、base64 文件内容或绝对文件路径。
+- 新增前端 helper `src/lib/diagnostics.js`，后续设置页可以调用健康检查和导出诊断包。
+- 更新诊断规范、生产路线、Roadmap、隐私说明和 docs 索引。
+
+验证：
+
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo test` 已通过，25 个 Rust 测试全部通过。
+- `cd src-tauri && cargo check` 已通过。
+- `npm run security:scan` 已通过。
+- `npm run build` 已通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 已通过。
+
+限制：
+
+- 目前只有后端 command 和前端 helper，设置页 UI 入口留到 P6.6.5。
+- 诊断包当前是单个 JSON 文件，不是 zip；后续如果要包含更多文件，可以在保持脱敏规则的前提下升级 packageVersion。
+- 备份导入/导出和 schema 迁移的更多事件日志仍待后续补齐。
+
+### 2026-07-07：P6.6.5 + P6.6.6 诊断入口、错误详情复制与收尾
+
+阶段：P6.6，本地诊断与可支持性
+
+目标：
+
+- 把 P6.6.3/P6.6.4 的后端诊断能力放进设置页。
+- 给用户一个可以复制给开发者的脱敏错误详情。
+- 固定 P6.6 的回归验证命令，并完成文档收口。
+
+改动：
+
+- 设置页「诊断」面板新增桌面健康检查入口：
+  - 调用 `duban_diagnostics_health_check`。
+  - 展示状态、问题数量、schema、SQLite quick_check、缺失文件、孤儿文件、备份目录状态和非敏感 Key 状态。
+- 设置页「诊断」面板新增导出诊断包入口：
+  - 调用 `duban_diagnostics_export_package`。
+  - 显示导出文件名、本机路径、包大小、健康状态和日志条数。
+- 新增错误详情复制：
+  - 可以复制最近一条异常 AI 调用摘要。
+  - 单条异常诊断也可以单独复制。
+  - 复制内容只包含任务、状态、错误码、HTTP 状态、供应商、模型、Base URL origin、耗时、token、费用估算和尝试次数。
+- 备份导出、导入、删除和元数据更新会写入脱敏本地诊断日志：
+  - 不记录外部路径、标签/备注正文、书籍内容、文件内容或 API Key。
+  - 日志失败不会阻断备份主流程。
+- 更新诊断规范、生产路线、Roadmap、项目笔记、后端标准和 AI 接手提示词。
+
+验证：
+
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo test` 已通过，25 个 Rust 测试全部通过。
+- `cd src-tauri && cargo check` 已通过。
+- `npm run security:scan` 已通过。
+- `npm run build` 已通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 已通过。
+
+限制：
+
+- 诊断包当前仍是单个 JSON 文件，不包含附件；如果后续需要更多文件，应升级 packageVersion。
+- 正式签名、公证、自动更新和崩溃日志进入 P6.7 之后继续推进。
+
+### 2026-07-07：P6.5 安全与隐私加固完整收尾
+
+阶段：P6.5，安全与隐私加固
+
+目标：
+
+- 在进入本地诊断包之前，先把发布前可预见的安全风险做一次基础收束。
+- 让依赖审计、Tauri 权限、CSP、安全头、输入校验和敏感信息边界有可复跑检查。
+
+改动：
+
+- Tauri 存储 command 新增 key、book id、外部备份路径和本地文件相对路径校验；封面、备份、孤儿文件清理等路径读取改为统一安全拼接。
+- 桌面配置新增正式 CSP、dev CSP、`X-Content-Type-Options` 和 `Permissions-Policy`；Web 静态部署新增 `public/_headers`，包含 `Referrer-Policy`。
+- 新增 `scripts/security_scan.mjs` 和 `npm run security:scan`，并把它并入 `npm run security:audit`。
+- 更新 `SECURITY.md`、`PRIVACY.md`、`SECURITY_PRIVACY_AUDIT.md`、`PRODUCTION_UPGRADE_PLAN.md`、`PUBLIC_READINESS_CHANGES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md` 和 `AI_HANDOFF_PROMPTS.md`。
+
+验证：
+
+- `npm run security:scan` 已通过。
+- `npm run security:audit` 已在联网权限下通过，`npm audit` 为 0 vulnerabilities。
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo test` 已通过，18 个 Rust 测试全部通过。
+- `cd src-tauri && cargo check` 已通过。
+- `npm run build` 已通过；仍只有既有 Vite chunk 体积提示。
+- `npm run build:formal` 已通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 已通过。
+
+限制：
+
+- `cargo audit` 仍未纳入当前本机命令，需要在 P6.9 CI 或本机安装后补齐 RustSec 漏洞审计。
+- `public/_headers` 只覆盖支持该约定的静态托管平台；未来部署到其他平台时要迁移同等响应头配置。
 
 ### 2026-06-18：创建 App 化路线与实施日志
 
@@ -1368,3 +1566,424 @@
 - PDF 仍需要先读取完整文件 ArrayBuffer；当前通过文件大小上限控制风险，尚未改成真正的流式或 worker 化解析。
 - 暂未引入版权受限的大书/坏书固定样本；后续需要用可公开样本补回归测试。
 - “只导入元数据/稍后解析”的降级路径尚未实现。
+
+### 2026-07-01：AI 使用时 Keychain 连续弹窗修复
+
+阶段：P6.4 前置问题修复 / Keychain 交互收口
+
+现象：
+
+- 桌面版真正使用 AI 时，macOS 会连续两次要求输入系统密码。
+- 进入设置页和测试连接路径此前已经避免自动读取 Keychain；本次问题集中在真正模型请求时的 Keychain 读取体验。
+
+原因判断：
+
+- Tauri AI transport 在请求体没有明文 API Key 时，会按需从系统 Keychain 读取已保存密钥。
+- 部分 AI 使用链路可能连续或并发触发多个模型请求，或系统对同一进程的连续 Keychain 读取逐次弹窗。
+- 原实现每次模型请求都会直接读取 Keychain，没有进程内复用。
+
+改动：
+
+- 在 Tauri Rust 后端新增进程内 `AI_KEY_CACHE`：
+  - 只缓存当前进程已从 Keychain 成功读出的供应商 API Key。
+  - 缓存只在内存中，不写入 SQLite、日志、备份或错误字符串。
+  - 请求体中显式传入 API Key 时优先使用请求体，不读缓存也不读 Keychain。
+- `resolve_api_key` 流程调整为：
+  - 先使用请求体中的临时明文 Key。
+  - 如果请求体为空，先查内存缓存。
+  - 缓存没有时才读取 Keychain，并在成功后写入内存缓存。
+  - Keychain 读取和缓存写入在同一锁内完成，避免并发模型请求同时 miss 缓存后触发两次系统授权。
+- Keychain 写入或删除后清空内存缓存：
+  - 保存新 Key 后不会继续使用旧缓存。
+  - 清空数据或删除 Key 后不会继续使用旧缓存。
+- 新增 Rust 单元测试，覆盖 AI Key 缓存可清理且不触发真实 Keychain 访问。
+- 更新后端标准、桌面 schema 和 AI 接手提示词，固定“允许进程内缓存，但不得落盘且必须失效”的边界。
+
+验证：
+
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 7 个 Rust 单元测试全部通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+
+限制：
+
+- 第一次真正使用某个供应商的已保存 Key 时，macOS 仍可能弹出一次系统授权，这是按需读取 Keychain 的预期行为。
+- 如果用户在系统 Keychain 外部手动修改密钥，当前进程内缓存不会自动感知；在设置页保存/删除密钥或重启 App 后会刷新。
+
+### 2026-07-02：P6.4.1 + P6.4.2 AI 错误分类与超时重试
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- 让桌面版 Rust AI 代理不再只返回裸字符串错误。
+- 模型请求失败时，用户能区分网络、配置、鉴权、额度、模型、Base URL、上下文过长、响应格式和服务端临时故障。
+- 对临时失败做有限重试，避免网络抖动直接打断导读或伴读聊天。
+
+改动：
+
+- Tauri AI command 的错误返回升级为结构化脱敏 `AiError`：
+  - `message`：用户可读文案。
+  - `code`：脱敏诊断码，例如 `AI_AUTH_INVALID`、`AI_RATE_LIMITED`、`AI_CONTENT_TOO_LONG`。
+  - `kind`：错误分类，例如 `network`、`auth`、`model`、`base_url`、`response_format`。
+  - `retryable`：是否属于可重试错误。
+  - `status`：可选 HTTP 状态码。
+- 流式错误事件同步带上 `code/kind/retryable/status`，为后续诊断面板预留字段。
+- 前端 `tauriAiTransport` 保持原有调用方式，但不再把对象错误压扁成普通字符串；抛出的 `Error` 会保留 `code/kind/retryable/status`。
+- Rust AI 请求统一接入 `send_ai_request_with_retry`：
+  - 连接超时 15 秒。
+  - 总请求超时 180 秒。
+  - 最多 3 次尝试。
+  - 退避间隔为 400ms、1000ms。
+  - 只对网络失败、超时、429、408/409/425 和 5xx/529 临时服务端错误重试。
+- 鉴权失败、权限不足、模型不存在、Base URL 格式错误、上下文过长、响应格式异常等错误直接返回，不盲目重试。
+- OpenAI-compatible Base URL 在 Rust 侧增加基本格式校验，仅允许 `http` / `https`。
+- 错误文案不直接回显供应商原始错误，避免未来把敏感请求细节带到 UI、日志或诊断包。
+- 显式声明 `tokio` 的 `time` feature，用于异步退避等待；依赖版本仍复用现有锁文件中的 Tokio。
+- 新增 Rust 单元测试：
+  - AI Key 缓存可清理且缓存命中不访问 Keychain。
+  - HTTP 错误分类覆盖鉴权、限流、模型不存在和上下文过长。
+  - 重试策略只覆盖临时失败。
+  - Base URL 校验保持可操作的错误提示。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md` 和 `AI_HANDOFF_PROMPTS.md`。
+
+验证：
+
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 10 个 Rust 单元测试全部通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+
+限制：
+
+- P6.4 仍未完整完成：请求取消、截断识别、费用/token 保护、模型 profile 管理和调用诊断仍待后续阶段推进。
+- 当前重试只覆盖发起请求阶段；流式响应已经开始输出后，如果中途断流，不会自动重试，以免向用户重复输出或保存混合结果。
+
+### 2026-07-02：P6.4.3 AI 请求取消
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- 用户离开页面、切换阅读项或主动停止生成时，桌面后端不继续跑无用的模型请求。
+- 长时间开书分析、章节导读、伴读聊天和读后交流都要有明确停止入口。
+- 用户主动取消不应被当作红色失败。
+
+改动：
+
+- Rust Tauri 后端新增请求取消能力：
+  - 新增 `duban_ai_cancel_request` command。
+  - 每个 Tauri AI 请求用 `requestId` 注册取消令牌。
+  - command 完成后注销取消令牌，避免 registry 长期积累。
+  - 请求取消返回结构化错误 `AI_REQUEST_CANCELLED` / `cancelled`。
+- 后端取消点覆盖：
+  - HTTP `.send()` 等待中。
+  - 重试退避等待中。
+  - 流式响应读取中。
+  - 取消后会 drop 掉对应 reqwest future，尽量中止在途请求。
+- 前端 AI 入口升级：
+  - `callModelDetailed` / `streamModelDetailed` 支持 `AbortSignal`。
+  - 浏览器版 Anthropic / OpenAI-compatible fetch 也透传 `signal`。
+  - Tauri transport 在 `signal.abort()` 时调用 `duban_ai_cancel_request`。
+  - Tauri 返回 `AI_REQUEST_CANCELLED` 时转成 `AbortError`，业务层按取消处理。
+- 业务函数透传 `signal`：
+  - 整本书导读。
+  - 章节读前导读。
+  - 伴读聊天。
+  - 读后交流。
+  - AI 正文排版生成。
+- UI 接入：
+  - 开书分析页生成中显示“停止整理”。
+  - 读前导读生成中显示“停止生成”。
+  - 伴读聊天等待时显示“停止回答”。
+  - 读后交流等待时显示“停止追问”。
+  - Reader 卸载、切换阅读项、进入正文、进入读后或完成阅读时，会中止对应在途 AI 请求。
+- 新增 `src/lib/aiCancellation.js`，统一识别 `AbortError` / `AI_REQUEST_CANCELLED` / `cancelled`。
+- 新增 Rust 单元测试，覆盖请求取消 registry 的注册、标记和注销。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md` 和 `AI_HANDOFF_PROMPTS.md`。
+
+验证：
+
+- `cargo test` 通过，当前 11 个 Rust 单元测试全部通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 通过。
+
+限制：
+
+- P6.4 仍未完整完成：截断识别、费用/token 保护、模型 profile 管理和调用诊断仍待后续推进。
+- 已开始流式输出后，用户主动取消会停止继续读取；不会保存取消中的临时 assistant 消息。
+- 取消依赖前端触发 AbortSignal；如果系统网络栈已经把请求发到模型服务，远端是否停止计费取决于供应商行为。
+
+### 2026-07-02：P6.4.4 模型输出截断识别
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- 模型返回 `max_tokens` / `length` 等输出上限结束原因时，不能把半截结果当成完整导读或正文整理保存。
+- 浏览器版和桌面版都要用同一套截断语义。
+- 聊天类流式回答可以保留已生成内容，但必须标记并提示用户这不是完整结束。
+
+改动：
+
+- 新增 `src/lib/aiCompletion.js`：
+  - 统一识别 `length`、`max_tokens`、`max_output_tokens` 和 `output_token_limit`。
+  - 新增 `AI_OUTPUT_TRUNCATED` / `output_truncated` 错误构造函数。
+- 浏览器直连 AI transport：
+  - Claude 非流式和流式返回 `truncated`。
+  - OpenAI-compatible 非流式和流式返回 `truncated`。
+- Tauri Rust AI 后端：
+  - `AiResponse` 新增 `truncated` 字段。
+  - Anthropic 和 OpenAI-compatible 的非流式/流式路径都根据 finish reason 设置截断标记。
+  - 新增 Rust 单元测试覆盖截断 finish reason 判定。
+- 业务保存保护：
+  - 章节读前导读命中截断时直接失败，不再解析或保存半截导读。
+  - AI 正文整理命中截断时直接失败，不再保存半截格式化正文。
+  - 整本书导读改用统一截断判断；截断时仍保存 failed 诊断态，不渲染成 ready。
+  - 伴读聊天和读后追问会把 `truncated` 写入 assistant message，保留回答但标明输出上限。
+- UI 提示：
+  - 聊天和读后追问的用量信息如果明确截断，显示“已到输出上限”。
+  - 仅靠输出 token 接近上限推断时，仍显示“可能已到输出上限”。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md` 和 `AI_HANDOFF_PROMPTS.md`。
+
+验证：
+
+- 前端 `aiCompletion` helper 断言通过。
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 12 个 Rust 单元测试全部通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 通过。
+
+限制：
+
+- P6.4 仍未完整完成：费用/token 预算保护、模型 profile 管理和调用诊断仍待后续推进。
+- 聊天/追问类回答目前只标记截断，不会自动续写；后续可在 profile 或重试策略里设计“继续生成”入口。
+
+### 2026-07-06：P6.4.5 费用/token 预算保护
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- AI 请求发出前先做输入 token、输出 token 和费用估算，避免明显超预算的请求直接打到模型服务。
+- 预算配置必须是非敏感设置，不包含 API Key、prompt、章节全文、笔记或聊天全文。
+- 预算日用量只记录脱敏统计，并且不进入备份。
+
+改动：
+
+- 新增 `src/lib/aiBudgetSettings.js`：
+  - 维护默认预算配置。
+  - 归一化 `aiBudget` 设置。
+  - 区分字段缺失和用户主动清空，缺失时回到默认 token 上限，清空时表示不限制该项。
+- 新增 `src/lib/aiBudget.js`：
+  - 在正式 AI 请求前估算输入 token 和最大输出 token。
+  - 支持单次输入 token 上限、单次输出 token 上限、单次估算费用上限和每日估算费用上限。
+  - 费用预算依赖模型价格；价格缺失时会提示先补价格或清空费用上限。
+  - 预算错误统一返回 `AI_BUDGET_*` / `budget`，前端按普通错误文案展示。
+  - 请求成功后记录当天脱敏用量：日期、任务类型、输入/输出 token 和估算费用。
+- `src/lib/ai.js` 成为预算保护总入口：
+  - `callModelDetailed` / `streamModelDetailed` 在调用 transport 前执行预算检查。
+  - 生成成功后记录预算用量；用量记录失败不会让本次模型结果失败。
+  - 测试连接不走预算拦截。
+- 核心 AI 任务已标记任务类型：
+  - 整本书导读。
+  - 章节导读。
+  - 伴读问答。
+  - 读后追问。
+  - AI 正文整理。
+- 设置页新增“预算保护”：
+  - 可开启/关闭预算保护。
+  - 可配置单次输入 token 上限、单次输出 token 上限、单次费用上限和每日费用上限。
+  - OpenAI-compatible 费用预算复用已有输入/输出价格字段。
+- AI 批量配置 TXT 支持 `[budget]` 分组，并会导出当前预算配置。
+- 新增内部日用量 key：`__duban:ai-budget:{date}`。
+  - 浏览器 JSON 备份和桌面目录式备份都会跳过该前缀。
+  - 不改变桌面 schema 版本。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md`、`AI_HANDOFF_PROMPTS.md` 和 `DESKTOP_STORAGE_SCHEMA.md`。
+
+验证：
+
+- 前端预算 helper 断言通过，覆盖默认值、token 拦截和 TXT 导入/导出。
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 12 个 Rust 单元测试全部通过。
+- `cargo check` 通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 通过。
+
+限制：
+
+- token 估算是启发式估算，不等同于供应商最终计费 token。
+- 每日费用上限使用本机当天已记录的成功请求估算；失败请求和供应商侧实际账单仍以模型服务商后台为准。
+- P6.4 仍未完整完成：模型 profile 管理和调用诊断仍待后续推进。
+
+### 2026-07-06：P6.4.6 模型 Profile 管理
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- 允许不同 AI 任务使用不同模型、temperature、输出上限和价格，避免所有任务被一个全局模型设置绑死。
+- Profile 只能保存非敏感配置，不保存 API Key；桌面版 Key 仍只走系统 Keychain。
+- Profile 生效后仍必须复用同一套预算、取消、截断识别、错误分类和 transport 路径。
+
+改动：
+
+- 新增 `src/lib/aiProfiles.js`：
+  - 定义整本书导读、章节导读、伴读问答、读后追问和正文整理五类任务。
+  - 维护默认 profile 设置和归一化逻辑。
+  - 解析任务级供应商、模型、Base URL、输入/输出价格、输出 token 上限和 temperature。
+  - 输出脱敏的 `settingsUsed`，供费用估算和结果展示使用。
+- `src/lib/ai.js` 在正式请求前先解析任务 profile，再执行预算保护和 transport 调用。
+- 浏览器 transport、Tauri transport、Anthropic/OpenAI-compatible 请求体和 Rust command 均支持传入 `temperature`。
+- Rust 后端按供应商范围 clamp temperature：Anthropic 最大 1，OpenAI-compatible 最大 2。
+- 设置页新增“任务模型 Profile”：
+  - 可全局启用/关闭。
+  - 可为每个任务单独启用 profile。
+  - 可配置供应商、模型、Base URL、价格、输出 token 上限和 temperature。
+  - 明确提示 profile 不保存 API Key。
+- AI 批量配置 TXT 新增 `[profiles]` 分组，支持导入/导出任务级非敏感 profile。
+- 自定义 OpenAI-compatible Base URL 二次确认会检查已启用的任务 profile 目标。
+- 费用展示和预算估算改用 profile 生效后的脱敏 settings。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md`、`AI_HANDOFF_PROMPTS.md`、`DESKTOP_STORAGE_SCHEMA.md`、`README.md`、`PUBLIC_READINESS_CHANGES.md` 和 `UI_CHANGELOG.md`。
+
+验证：
+
+- AI profile helper 断言通过，覆盖 profile 覆盖、继承全局供应商时不泄漏隐藏模型字段、TXT 导入/导出 roundtrip。
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 13 个 Rust 单元测试全部通过。
+- `cargo check` 通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 通过。
+
+限制：
+
+- Profile 管理是本地非敏感配置管理，不是多账号/多 API Key 管理。
+- 供应商留空表示继承全局供应商；任务级模型/Base URL 覆盖需要显式选择供应商，避免隐藏旧字段意外生效。
+- P6.4 仍未完整完成：调用诊断仍待后续推进。
+
+### 2026-07-06：P6.4 收尾 AI 调用诊断与敏感信息边界
+
+阶段：P6.4 AI transport 生产化
+
+目标：
+
+- 为正式 AI 请求保留可排查的最近调用摘要，帮助区分配置、网络、额度、模型、内容长度、预算拦截和取消。
+- 诊断记录必须脱敏，不保存 API Key、完整 prompt、章节正文、笔记正文或聊天全文。
+- 诊断失败不能影响已经成功的模型结果。
+
+改动：
+
+- 新增 `src/lib/aiDiagnostics.js`：
+  - 固定保留最近 20 条 AI 调用诊断。
+  - 记录任务、调用模式、供应商、模型、Base URL origin、Profile 是否生效、输出上限、temperature、耗时、状态、错误码、HTTP 状态、可重试标记、结束原因、截断标记、token 和费用估算。
+  - 对诊断文本做 API Key 样式脱敏和长度截断。
+- `src/lib/ai.js` 在正式 `callModelDetailed` / `streamModelDetailed` 成功、失败、取消和预算拦截时记录诊断。
+- Rust `AiResponse` 增加 `attempts`，桌面请求可在诊断中看到实际尝试次数；浏览器成功请求记为 1 次。
+- 设置页新增「诊断」侧栏：
+  - 显示最近 AI 调用脱敏摘要。
+  - 支持刷新和清空诊断。
+- 新增内部 key `__duban:ai-diagnostics`：
+  - 浏览器 JSON 备份会跳过该 key。
+  - 桌面目录式备份会跳过该 key。
+- 更新 `PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PROJECT_NOTES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md`、`AI_HANDOFF_PROMPTS.md`、`DESKTOP_STORAGE_SCHEMA.md`、`README.md` 和 `PUBLIC_READINESS_CHANGES.md`。
+
+验证：
+
+- AI diagnostics helper 断言通过，覆盖状态、attempts、Base URL origin 和 API Key 样式脱敏。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `cargo fmt --check` 通过。
+- `cargo test` 通过，当前 13 个 Rust 单元测试全部通过。
+- `cargo check` 通过。
+- `git diff --check` 通过。
+
+限制：
+
+- 这是本机最近调用摘要，不是完整日志系统；完整诊断包仍属于 P6.6。
+- 诊断只记录 Base URL origin，不记录完整请求路径。
+- 浏览器版没有后端重试层，成功请求 attempts 记为 1。
+
+### 2026-07-06：书架删除与导入可靠性回归修复
+
+阶段：阶段 5 / P6.3 回归修复
+
+目标：
+
+- 修复桌面版书架删除书籍无效的问题。
+- 修复结构化 `book_files` 外键约束下，新书上传时报“写入书籍文件索引失败”的问题。
+- 让大书导入进度展示符合用户直觉，避免“页码到 100 但进度条只走一点点”的误解。
+- 将本轮回归修复写入文档，避免后续继续依赖对话记忆。
+
+改动：
+
+- 书架交互：
+  - 书籍卡片支持右键打开与省略号一致的操作菜单。
+  - 删除书籍改为应用内确认弹窗，不再依赖 Tauri WebView 中不稳定的 `window.confirm`。
+  - 删除入口先关闭菜单，再打开确认弹窗；确认后才进入真实删除流程。
+- 桌面存储：
+  - 新增 Tauri command `duban_storage_delete_book(bookId)`。
+  - 桌面端 `storageAdapter.deleteBook(id)` 优先调用该 command。
+  - Rust 侧在删除前先收集原始文件和封面文件路径，再在事务内删除对应书籍和兼容 KV / file_store 记录，利用外键级联清理 pages、计划、进度、笔记、聊天、导读和缓存。
+  - 浏览器版仍保留 IndexedDB 的逐 key 清理路径；逐 key 清理改为 best-effort，避免单个缓存删除失败阻断书籍从书架移除。
+- 导入保存顺序：
+  - `createBookFromParsedFile` 改为先写入 `books` 元数据，再写入 `book:{id}:file` 和 `book:{id}:pages`。
+  - 这样满足桌面 SQLite 中 `book_files.book_id -> books.id` 的外键约束。
+  - 文件或分页写入失败时，会回滚刚插入的书籍记录。
+- 导入进度：
+  - 上传进度从“当前阶段 current / total”改为整次导入的加权进度。
+  - 读取/打开/目录占前段，文本提取占主要进度，保存到本地占最后阶段。
+  - 保存阶段不再提前显示 100%，避免大书写入本地时给出错误完成感。
+
+验证：
+
+- `cargo test --manifest-path src-tauri/Cargo.toml delete_book_records_removes_book_and_related_structured_data` 通过。
+- `cargo check --manifest-path src-tauri/Cargo.toml` 通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `git diff --check` 通过。
+- `npm run tauri:dev` 已重新启动测试环境，Tauri 后端和 Vite 前端均能启动。
+
+限制：
+
+- 删除书籍的本地文件清理目前是 best-effort：数据库记录删除成功后，文件删除失败不会阻断书籍从书架移除；孤儿文件后续可通过既有孤儿文件扫描/清理命令处理。
+- 当前仍由前端浏览器 File API 先解析文件，再通过 Tauri command 保存到 App 数据目录；更长期的原生文件选择器和直接文件路径导入仍未实现。
+- 导入进度是阶段加权估算，不等于真实 IO 字节进度；后续如果把文件写入和分页写入拆出更细 command，可进一步展示保存阶段细进度。
+
+### 2026-07-07：P6.5.1 依赖与权限安全基线
+
+阶段：P6.5 安全与隐私加固
+
+目标：
+
+- 建立正式分发前的依赖安全审计入口。
+- 记录前端依赖、Rust 依赖树、Tauri capabilities、asset protocol 和 command 暴露面基线。
+- 明确哪些安全项已经通过，哪些仍属于后续 P6.5 工作。
+
+改动：
+
+- 新增 `docs/SECURITY_PRIVACY_AUDIT.md`：
+  - 记录 `npm audit --json` 结果：0 个漏洞，high/critical 均为 0。
+  - 记录 `cargo tree -d` 作为 Rust 重复依赖树基线。
+  - 记录 `cargo audit` 当前未安装，RustSec 漏洞审计不能声明完成。
+  - 盘点 Tauri capabilities：当前只有 `core:default`、`core:event:allow-listen` 和 `core:event:allow-unlisten`。
+  - 盘点 asset protocol：已启用，scope 限制为 `$APPDATA/files/**`。
+  - 盘点当前 Tauri command 暴露面，并把逐项输入校验复查留给 P6.5.2。
+  - 记录当前 CSP 仍为 `null`，后续需要补正式 Web/Tauri 安全策略。
+- `package.json` 新增可复跑脚本：
+  - `npm run security:audit`
+  - `npm run security:rust-duplicates`
+- 更新 `README.md`、`PRODUCTION_UPGRADE_PLAN.md`、`ROADMAP.md`、`PUBLIC_READINESS_CHANGES.md`、`BACKEND_DEVELOPMENT_STANDARDS.md` 和 `AI_HANDOFF_PROMPTS.md`。
+
+验证：
+
+- `npm audit --json` 联网审计通过，0 个漏洞。
+- `cd src-tauri && cargo tree -d` 通过，已记录重复依赖树基线。
+- `cargo audit --version` 确认当前未安装，已记录为工具缺口。
+- `npm run security:audit` 在联网权限下通过。
+- `npm run build` 通过；仍只有既有 Vite chunk 体积提示。
+- `cargo check` 通过。
+- `git diff --check` 通过。
+
+限制：
+
+- P6.5.1 是安全基线，不是完整安全审计终点。
+- 同日后续 P6.5 收尾已补 command 输入校验、路径边界、CSP、安全头和敏感信息扫描；见本文档前面的「P6.5 安全与隐私加固完整收尾」记录。
+- Rust 漏洞审计仍需后续安装 `cargo audit` 或在 CI 中启用。
+- 当时 Tauri command 只完成暴露面盘点，输入校验、路径边界和敏感信息扫描仍属于 P6.5.2 及后续步骤。

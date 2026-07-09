@@ -68,6 +68,14 @@ export function estimateCustomCost(config, usage) {
   };
 }
 
+export function estimateSettingsCost(settings, usage) {
+  if (!settings || !usage) return null;
+  if (settings.provider === "openai-compatible") {
+    return estimateCustomCost(settings.openaiCompatible || {}, usage);
+  }
+  return estimateClaudeCost(settings.anthropic?.model, usage);
+}
+
 export function formatUsd(value) {
   if (typeof value !== "number") return "未知";
   if (value === 0) return "$0.0000";

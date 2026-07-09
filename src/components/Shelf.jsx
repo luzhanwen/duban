@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ChineseIcon from "./ChineseIcon.jsx";
 import { IS_TEST_CHANNEL } from "../lib/appChannel.js";
 import {
   BOOK_FILE_ACCEPT,
@@ -41,13 +42,15 @@ const TEST_BOOK = {
   url: "/test-books/wanli15.pdf",
 };
 
-export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
+export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook, onOpenSalon }) {
   const inputRef = useRef(null);
   const importAbortControllerRef = useRef(null);
   const [books, setBooks] = useState([]);
+  const [loadingBooks, setLoadingBooks] = useState(true);
   const [progressByBookId, setProgressByBookId] = useState({});
   const [directoryBookId, setDirectoryBookId] = useState(null);
   const [menuBookId, setMenuBookId] = useState(null);
+  const [pendingDeleteBook, setPendingDeleteBook] = useState(null);
   const [deletingBookId, setDeletingBookId] = useState(null);
   const [uploadState, setUploadState] = useState(null);
   const [lastImportFile, setLastImportFile] = useState(null);
@@ -81,12 +84,18 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   }, [menuBookId]);
 
   async function refreshBooks() {
-    const saved = await listBooks();
-    const progressEntries = await Promise.all(
-      saved.map(async (book) => [book.id, await getReadingProgress(book.id)])
-    );
-    setBooks(saved);
-    setProgressByBookId(Object.fromEntries(progressEntries));
+    try {
+      const saved = await listBooks();
+      const progressEntries = await Promise.all(
+        saved.map(async (book) => [book.id, await getReadingProgress(book.id)])
+      );
+      setBooks(saved);
+      setProgressByBookId(Object.fromEntries(progressEntries));
+    } catch (e) {
+      setError(e.message || "读取藏书失败，请稍后重试。");
+    } finally {
+      setLoadingBooks(false);
+    }
   }
 
   async function importBookFile(file) {
@@ -141,15 +150,16 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         },
       });
       assertImportNotCancelled(abortController.signal);
-      setUploadState({
-        fileName: file.name,
-        current: 1,
-        total: 1,
-        phase: "保存到本地",
-        detail: `保存 ${parsed.totalPages} 个${format === BOOK_FORMATS.mobi ? "文本页" : "页面"}`,
-        canCancel: false,
-        startedAt,
-      });
+      setUploadState(
+        buildImportUploadState(file, formatLabel, {
+          phase: "save-book",
+          detail: `保存 ${parsed.totalPages} 个${format === BOOK_FORMATS.mobi ? "文本页" : "页面"}`,
+          current: 0,
+          total: 1,
+          canCancel: false,
+          startedAt,
+        })
+      );
       const book = await createBookFromParsedFile(file, parsed);
       await refreshBooks();
       setUploadState(null);
@@ -202,7 +212,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         ? {
             ...current,
             phase: "正在取消",
-            detail: "会在当前步骤结束后停止，不会保存这本书。",
+            detail: "会在当前步骤结束后停止，并取消这本书的导入。",
             canCancel: false,
           }
         : current
@@ -214,20 +224,21 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
     await importBookFile(lastImportFile);
   }
 
-  async function handleDeleteBook(book) {
-    const title = toText(book.title) || "这本书";
+  function handleDeleteBook(book) {
     setMenuBookId(null);
+    setPendingDeleteBook(book);
+  }
 
-    const confirmed = window.confirm(
-      `确定从书架删除《${title}》吗？\n\n原始文件、阅读计划、进度、笔记和问答记录都会从本地移除。`
-    );
-    if (!confirmed) return;
+  async function confirmDeleteBook() {
+    const book = pendingDeleteBook;
+    if (!book || deletingBookId) return;
 
     setError("");
     setDeletingBookId(book.id);
     try {
       await deleteBook(book.id);
       if (directoryBookId === book.id) setDirectoryBookId(null);
+      setPendingDeleteBook(null);
       await refreshBooks();
     } catch (e) {
       setError(e.message || "删除失败，请稍后重试。");
@@ -262,6 +273,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
               disabled={Boolean(uploadState)}
               className="shelf-tool-button"
             >
+              <ChineseIcon name="sample" className="h-4 w-4" decorative />
               导入测试
             </button>
           )}
@@ -271,6 +283,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
             disabled={Boolean(uploadState)}
             className="shelf-tool-button"
           >
+            <ChineseIcon name="upload" className="h-4 w-4" decorative />
             上传
           </button>
         </div>
@@ -299,7 +312,9 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
         </div>
       )}
 
-      {books.length === 0 ? (
+      {loadingBooks ? (
+        <ShelfLoading />
+      ) : books.length === 0 ? (
         <EmptyShelf onUpload={() => inputRef.current?.click()} />
       ) : (
         <section className="bookshelf-section mt-9">
@@ -315,6 +330,8 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
                 onSetupBook={onSetupBook}
                 onPlanBook={onPlanBook}
                 onReadBook={onReadBook}
+                onChatBook={onChatBook}
+                onOpenSalon={onOpenSalon}
                 onOpenDirectory={setDirectoryBookId}
                 onDeleteBook={handleDeleteBook}
                 onToggleMenu={(nextBookId) =>
@@ -322,6 +339,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
                     currentBookId === nextBookId ? null : nextBookId
                   )
                 }
+                onOpenMenu={(nextBookId) => setMenuBookId(nextBookId)}
                 onCloseMenu={() => setMenuBookId(null)}
               />
             ))}
@@ -331,6 +349,15 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
             {latestReadText ? `，上次阅读 ${latestReadText}` : ""}
           </p>
         </section>
+      )}
+
+      {pendingDeleteBook && (
+        <DeleteBookConfirmDialog
+          book={pendingDeleteBook}
+          deleting={deletingBookId === pendingDeleteBook.id}
+          onCancel={() => setPendingDeleteBook(null)}
+          onConfirm={confirmDeleteBook}
+        />
       )}
 
       {directoryBook && (
@@ -348,11 +375,34 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook }) {
   );
 }
 
+function ShelfLoading() {
+  return (
+    <section className="mt-10 rounded-lg border border-line bg-paper-card px-6 py-14 text-center shadow-sm">
+      <div className="mx-auto h-1.5 max-w-56 overflow-hidden rounded-full bg-progress-track">
+        <span className="block h-full w-1/3 animate-pulse rounded-full bg-accent/70" />
+      </div>
+      <h3 className="mt-5 font-serif text-2xl text-ink">正在整理藏书</h3>
+      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink-soft">
+        读伴正在打开本地书架。
+      </p>
+    </section>
+  );
+}
+
 function buildImportUploadState(file, formatLabel, progress = {}) {
+  const current = Number.isFinite(progress.current) ? progress.current : 0;
+  const total = Number.isFinite(progress.total) ? progress.total : 0;
+
   return {
     fileName: file.name,
-    current: Number.isFinite(progress.current) ? progress.current : 0,
-    total: Number.isFinite(progress.total) ? progress.total : 0,
+    current,
+    total,
+    percent: getImportOverallPercent({
+      phase: progress.phase,
+      current,
+      total,
+      percent: progress.percent,
+    }),
     phase: getImportPhaseText(progress.phase, formatLabel),
     detail: progress.detail || "",
     canCancel: progress.canCancel !== false,
@@ -380,13 +430,9 @@ function getImportPhaseText(phase, formatLabel) {
 }
 
 function UploadProgress({ uploadState, onCancel }) {
-  const percent =
-    uploadState.total > 0
-      ? Math.max(
-          uploadState.current > 0 ? 1 : 8,
-          Math.round((uploadState.current / uploadState.total) * 100)
-        )
-      : 8;
+  const percent = Number.isFinite(uploadState.percent)
+    ? clampNumber(Math.round(uploadState.percent), 0, 100)
+    : getImportOverallPercent(uploadState);
 
   return (
     <section className="mt-6 rounded-lg border border-line bg-paper-card p-5 shadow-sm">
@@ -421,6 +467,32 @@ function UploadProgress({ uploadState, onCancel }) {
   );
 }
 
+function getImportOverallPercent({ phase, current = 0, total = 0, percent = null } = {}) {
+  if (Number.isFinite(percent)) return clampNumber(Math.round(percent), 0, 100);
+
+  const ratio = total > 0 ? clampNumber(current / total, 0, 1) : 0;
+  const value = (() => {
+    switch (phase) {
+      case "check-file":
+        return 3;
+      case "read-file":
+        return 6 + ratio * 4;
+      case "open-document":
+        return 10 + ratio * 6;
+      case "read-metadata":
+        return 16 + ratio * 8;
+      case "extract-text":
+        return 24 + ratio * 68;
+      case "save-book":
+        return 96 + ratio * 4;
+      default:
+        return total > 0 ? 8 + ratio * 84 : 8;
+    }
+  })();
+
+  return clampNumber(Math.round(value), 1, 100);
+}
+
 function EmptyShelf({ onUpload }) {
   return (
     <section className="mt-10 rounded-lg border border-dashed border-line bg-paper-card px-6 py-14 text-center shadow-sm">
@@ -432,16 +504,62 @@ function EmptyShelf({ onUpload }) {
       </div>
       <h3 className="font-serif text-2xl text-ink">从第一本书开始</h3>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink-soft">
-        导入 PDF 或 MOBI 后，可以确认目录、生成阅读计划，再按章节开始阅读。图片和复杂表格目前不会完整还原。
+        导入 PDF 或 MOBI 后，可以确认目录、生成阅读计划，再按章节开始阅读。图片和复杂表格目前只提供有限支持。
       </p>
       <button
         type="button"
         onClick={onUpload}
         className="shelf-tool-button mt-6"
       >
+        <ChineseIcon name="upload" className="h-4 w-4" decorative />
         选择书籍
       </button>
     </section>
+  );
+}
+
+function DeleteBookConfirmDialog({ book, deleting, onCancel, onConfirm }) {
+  const title = toText(book.title) || "这本书";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        aria-label="取消删除书籍"
+        disabled={deleting}
+        onClick={onCancel}
+        className="absolute inset-0 bg-ink/30 disabled:cursor-default"
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`删除《${title}》`}
+        className="relative w-full max-w-md rounded-xl border border-line bg-paper-card p-5 shadow-xl"
+      >
+        <h2 className="font-serif text-2xl text-ink">删除书籍</h2>
+        <p className="mt-3 text-sm leading-6 text-ink-soft">
+          确定从书架删除《{title}》吗？原始文件、阅读计划、进度、笔记和问答记录都会从本地移除。
+        </p>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onCancel}
+            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-paper hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onConfirm}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {deleting ? "删除中" : "确认删除"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -454,27 +572,40 @@ function BookCard({
   onSetupBook,
   onPlanBook,
   onReadBook,
+  onChatBook,
+  onOpenSalon,
   onOpenDirectory,
   onDeleteBook,
   onToggleMenu,
+  onOpenMenu,
   onCloseMenu,
 }) {
-  const status = getBookStatus(book.status);
   const canPlan = book.status === "confirmed" || book.status === "planned";
   const canRead = book.status === "planned" && book.readingPlan?.items?.length > 0;
   const readingStats = buildReadingStats(book, progress);
   const titleText = toText(book.title) || "未命名书籍";
   const authorText = toText(book.author);
   const accent = getBookAccent(book.id);
-  const pageUnitLabel = getBookPageUnitLabel(book);
-  const pageCountText = `${book.totalPages} ${pageUnitLabel}`;
+  const cardRef = useRef(null);
   const coverButtonRef = useRef(null);
+  const [contextMenuPosition, setContextMenuPosition] = useState(null);
   const primaryActionLabel = getBookPrimaryActionLabel({
     canPlan,
     canRead,
     readingStats,
   });
-  const metaText = getBookShelfMetaText({ canRead, status, readingStats });
+  const ticketStatusText = getBookTicketStatusText({
+    canPlan,
+    canRead,
+    readingStats,
+  });
+  const ticketStamp = getBookTicketStamp({
+    canPlan,
+    canRead,
+    progress,
+    readingStats,
+  });
+  const volumeText = `读伴藏书 · 第${String(coverIndex + 1).padStart(3, "0")}卷`;
 
   async function handleReadBook() {
     if (readingStats.shouldOpenNextItem) {
@@ -500,6 +631,40 @@ function BookCard({
     await handleReadBook();
   }
 
+  function handleOpenBookCompanion() {
+    onChatBook?.(book.id);
+  }
+
+  function handleOpenBookSalon() {
+    onOpenSalon?.(book.id);
+  }
+
+  function handleOpenButtonMenu() {
+    setContextMenuPosition(null);
+    onToggleMenu(book.id);
+  }
+
+  function handleBookContextMenu(event) {
+    if (deleting) return;
+    event.preventDefault();
+    resetCoverTilt();
+
+    const rect = cardRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setContextMenuPosition(null);
+      onOpenMenu(book.id);
+      return;
+    }
+
+    const menuWidth = 160;
+    const menuHeight = 264;
+    setContextMenuPosition({
+      left: clampNumber(event.clientX - rect.left, 8, Math.max(8, rect.width - menuWidth - 8)),
+      top: clampNumber(event.clientY - rect.top, 8, Math.max(8, rect.height - menuHeight - 8)),
+    });
+    onOpenMenu(book.id);
+  }
+
   function handleCoverPointerMove(event) {
     if (event.pointerType === "touch") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -515,8 +680,6 @@ function BookCard({
 
     target.style.setProperty("--tilt-x", `${rotateX.toFixed(2)}deg`);
     target.style.setProperty("--tilt-y", `${rotateY.toFixed(2)}deg`);
-    target.style.setProperty("--shine-x", `${(x * 100).toFixed(1)}%`);
-    target.style.setProperty("--shine-y", `${(y * 100).toFixed(1)}%`);
   }
 
   function resetCoverTilt() {
@@ -525,12 +688,12 @@ function BookCard({
 
     target.style.setProperty("--tilt-x", "0deg");
     target.style.setProperty("--tilt-y", "0deg");
-    target.style.setProperty("--shine-x", "50%");
-    target.style.setProperty("--shine-y", "50%");
   }
 
   return (
     <article
+      ref={cardRef}
+      onContextMenu={handleBookContextMenu}
       className={`book-card book-cover-card relative ${menuOpen ? "z-20" : "z-0"}`}
       style={{
         "--book-accent": accent.main,
@@ -538,86 +701,116 @@ function BookCard({
         "--book-cover-delay": `${Math.min(coverIndex, 16) * 42}ms`,
       }}
     >
-      <div className="book-cover-shell">
-        <button
-          ref={coverButtonRef}
-          type="button"
-          onClick={handlePrimaryAction}
-          onPointerMove={handleCoverPointerMove}
-          onPointerLeave={resetCoverTilt}
-          onPointerCancel={resetCoverTilt}
-          disabled={deleting}
-          aria-label={`${primaryActionLabel}《${titleText}》`}
-          className="book-cover-button"
-        >
-          <BookCoverImage
-            book={book}
-            titleText={titleText}
-            authorText={authorText}
-            accent={accent}
-          />
-          <div className="book-cover-overlay">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${status.className}`}>
-                  {status.label}
-                </span>
-                <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] font-medium text-ink-soft">
-                  {pageCountText}
+      <div className="book-ticket-paper">
+        <div className="book-cover-shell">
+          <button
+            ref={coverButtonRef}
+            type="button"
+            onClick={handlePrimaryAction}
+            onPointerMove={handleCoverPointerMove}
+            onPointerLeave={resetCoverTilt}
+            onPointerCancel={resetCoverTilt}
+            disabled={deleting}
+            aria-label={`${primaryActionLabel}《${titleText}》`}
+            className="book-cover-button"
+          >
+            <BookCoverImage
+              book={book}
+              titleText={titleText}
+              authorText={authorText}
+              accent={accent}
+            />
+            <div className="book-cover-overlay">
+              <div className="book-cover-overlay-action">
+                <span>
+                  {primaryActionLabel}
                 </span>
               </div>
-              {canRead && (
-                <div className="mt-3">
-                  <div className="h-1 overflow-hidden rounded-full bg-white/70">
-                    <div
-                      className="h-full rounded-full bg-[var(--app-primary)]"
-                      style={{ width: `${readingStats.percent}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 truncate text-xs font-medium text-white">
-                    {readingStats.positionText}
-                  </p>
-                </div>
+            </div>
+          </button>
+        </div>
+
+        <div className="book-ticket-info">
+          <div className="book-ticket-heading">
+            <div className="min-w-0">
+              <h3 className="book-ticket-title">{titleText}</h3>
+              <p className="book-ticket-author">{authorText || "佚名"}</p>
+            </div>
+            <div className="book-ticket-menu" data-book-menu>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={`打开《${titleText}》操作菜单`}
+                onClick={handleOpenButtonMenu}
+                disabled={deleting}
+                className="book-cover-more-button"
+              >
+                ⋯
+              </button>
+              {menuOpen && !contextMenuPosition && (
+                <BookActionMenu
+                  book={book}
+                  canPlan={canPlan}
+                  canRead={canRead}
+                  deleting={deleting}
+                  onOpenSalon={handleOpenBookSalon}
+                  onChatBook={handleOpenBookCompanion}
+                  onSetupBook={onSetupBook}
+                  onPlanBook={onPlanBook}
+                  onOpenDirectory={onOpenDirectory}
+                  onDeleteBook={onDeleteBook}
+                  onCloseMenu={onCloseMenu}
+                />
               )}
-              <span className="mt-3 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-medium text-[var(--app-primary)] shadow-sm">
-                {primaryActionLabel}
-              </span>
             </div>
           </div>
-        </button>
 
-      </div>
-
-      <div className="book-cover-meta-row" data-book-menu>
-        <span className="truncate">{metaText}</span>
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label={`打开《${titleText}》操作菜单`}
-            onClick={() => onToggleMenu(book.id)}
-            disabled={deleting}
-            className="book-cover-more-button"
-          >
-            ⋯
-          </button>
-          {menuOpen && (
-            <BookActionMenu
-              book={book}
-              canPlan={canPlan}
-              canRead={canRead}
-              deleting={deleting}
-              onSetupBook={onSetupBook}
-              onPlanBook={onPlanBook}
-              onOpenDirectory={onOpenDirectory}
-              onDeleteBook={onDeleteBook}
-              onCloseMenu={onCloseMenu}
+          <div className="book-ticket-rule" aria-hidden="true" />
+          <p className="book-ticket-register">
+            <ChineseIcon name="seal" className="h-4 w-4 text-accent" decorative />
+            <span>{volumeText}</span>
+          </p>
+          <p className="book-ticket-status">{ticketStatusText}</p>
+          <div className="book-ticket-progress" aria-label={`阅读进度 ${readingStats.percent}%`}>
+            <span
+              className={readingStats.percent > 0 ? "" : "is-empty"}
+              style={{ width: `${readingStats.percent}%` }}
             />
-          )}
+          </div>
+          <BookTicketStamp stamp={ticketStamp} />
         </div>
       </div>
+      {menuOpen && contextMenuPosition && (
+        <BookActionMenu
+          book={book}
+          canPlan={canPlan}
+          canRead={canRead}
+          deleting={deleting}
+          position={contextMenuPosition}
+          onOpenSalon={handleOpenBookSalon}
+          onChatBook={handleOpenBookCompanion}
+          onSetupBook={onSetupBook}
+          onPlanBook={onPlanBook}
+          onOpenDirectory={onOpenDirectory}
+          onDeleteBook={onDeleteBook}
+          onCloseMenu={onCloseMenu}
+        />
+      )}
     </article>
+  );
+}
+
+function BookTicketStamp({ stamp }) {
+  return (
+    <span
+      className={`book-ticket-stamp book-ticket-stamp--${stamp.tone}`}
+      aria-label={stamp.ariaLabel}
+      title={stamp.ariaLabel}
+    >
+      <span>{stamp.kicker}</span>
+      <strong>{stamp.label}</strong>
+    </span>
   );
 }
 
@@ -707,15 +900,72 @@ function BookCoverFallback({ titleText, authorText, accent, loading }) {
 }
 
 function getBookPrimaryActionLabel({ canPlan, canRead, readingStats }) {
-  if (!canPlan) return "完善信息";
-  if (!canRead) return "继续开书设置";
+  if (!canPlan) return "设定读伴";
+  if (!canRead) return "设定读伴";
   return readingStats.actionLabel;
 }
 
-function getBookShelfMetaText({ canRead, status, readingStats }) {
-  if (!canRead) return status.label;
-  if (readingStats.percent >= 100) return "已读完";
-  return `${readingStats.percent}%`;
+function getBookTicketStatusText({ canPlan, canRead, readingStats }) {
+  if (!canPlan || !canRead) return "未设置读伴";
+  if (readingStats.percent >= 100) return "全书 100% · 可回顾";
+  if (readingStats.percent <= 0) return "未启卷";
+
+  return `已读 ${readingStats.percent}%`;
+}
+
+function getBookTicketStamp({ canPlan, canRead, progress, readingStats }) {
+  if (!canPlan) {
+    return {
+      tone: "pending",
+      kicker: "读伴",
+      label: "未设",
+      ariaLabel: "未设置读伴",
+    };
+  }
+
+  if (!canRead) {
+    return {
+      tone: "pending",
+      kicker: "读伴",
+      label: "待定",
+      ariaLabel: "未设置读伴",
+    };
+  }
+
+  if (readingStats.percent >= 100) {
+    return {
+      tone: "finished",
+      kicker: "全书",
+      label: "读完",
+      ariaLabel: "已读完",
+    };
+  }
+
+  if (hasReadToday(progress)) {
+    return {
+      tone: "read-today",
+      kicker: "今日",
+      label: "已读",
+      ariaLabel: "今日已读",
+    };
+  }
+
+  return {
+    tone: "unread-today",
+    kicker: "今日",
+    label: "未读",
+    ariaLabel: "今日未读",
+  };
+}
+
+function hasReadToday(progress = {}) {
+  const today = formatLocalDate(new Date());
+  if ((progress.readingDays || []).includes(today)) return true;
+
+  if (!progress.lastReadAt) return false;
+  const lastReadDate = new Date(progress.lastReadAt);
+  if (Number.isNaN(lastReadDate.getTime())) return false;
+  return formatLocalDate(lastReadDate) === today;
 }
 
 function CompactReadingHint({ stats }) {
@@ -747,22 +997,35 @@ function BookActionMenu({
   canPlan,
   canRead,
   deleting,
+  onOpenSalon,
+  onChatBook,
   onSetupBook,
   onPlanBook,
   onOpenDirectory,
   onDeleteBook,
   onCloseMenu,
+  position = null,
 }) {
   function chooseAction(action) {
     onCloseMenu();
-    action();
+    action?.();
   }
 
   return (
     <div
+      data-book-menu
       role="menu"
-      className="absolute right-0 top-7 z-30 w-40 rounded-lg border border-line bg-paper-card p-1 text-sm shadow-lg"
+      style={position ? { left: `${position.left}px`, top: `${position.top}px` } : undefined}
+      className={`absolute z-30 w-40 rounded-lg border border-line bg-paper-card p-1 text-sm shadow-lg ${
+        position ? "" : "right-0 top-7"
+      }`}
     >
+      <MenuItem onClick={() => chooseAction(onOpenSalon)}>
+        整理这本书
+      </MenuItem>
+      <MenuItem onClick={() => chooseAction(onChatBook)}>
+        和读伴聊聊
+      </MenuItem>
       {canRead && (
         <MenuItem onClick={() => chooseAction(() => onOpenDirectory(book.id))}>
           阅读目录
@@ -773,7 +1036,7 @@ function BookActionMenu({
       </MenuItem>
       {canPlan && (
         <MenuItem onClick={() => chooseAction(() => onPlanBook(book.id))}>
-          开书设置
+          设定读伴
         </MenuItem>
       )}
       <div className="my-1 h-px bg-line" />
@@ -802,13 +1065,17 @@ function MenuItem({ children, danger = false, disabled = false, onClick }) {
   );
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 const BOOK_ACCENTS = [
-  { main: "#9c6b3f", soft: "#f4eadf" },
-  { main: "#8f7f4d", soft: "#f3efdf" },
-  { main: "#a66f52", soft: "#f5e7df" },
-  { main: "#7f8f68", soft: "#edf2e5" },
-  { main: "#a8875f", soft: "#f4ecdf" },
-  { main: "#8d735e", soft: "#f1e8df" },
+  { main: "#5f554a", soft: "#efe5d6" },
+  { main: "#7b5a49", soft: "#f0e4d7" },
+  { main: "#8b4a40", soft: "#f2ddd8" },
+  { main: "#5f6b58", soft: "#e7eadf" },
+  { main: "#75614d", soft: "#efe4d5" },
+  { main: "#6d6158", soft: "#e9dfd2" },
 ];
 
 function getBookAccent(id = "") {
@@ -836,27 +1103,6 @@ function formatBookPageRange(startPage, endPage, pageUnitLabel = "页") {
 function formatBookPageLabel(pageNumber, pageUnitLabel = "页") {
   if (pageUnitLabel === "文本页") return `文本页 ${pageNumber}`;
   return `第 ${pageNumber} 页`;
-}
-
-function getBookStatus(status) {
-  if (status === "planned") {
-    return {
-      label: "已规划",
-      className: "bg-[#f0eadc] text-[#7a5c33]",
-    };
-  }
-
-  if (status === "confirmed") {
-    return {
-      label: "已确认",
-      className: "bg-[#edf2e5] text-[#64724a]",
-    };
-  }
-
-  return {
-    label: "待确认",
-    className: "bg-amber-50 text-amber-700",
-  };
 }
 
 function ReadingDirectoryModal({ book, progress = {}, onClose, onOpenItem }) {

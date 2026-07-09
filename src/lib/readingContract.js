@@ -1,4 +1,5 @@
 import { cleanText, toText } from "./text.js";
+import { normalizeWholeBookGuide } from "./wholeBookGuide.js";
 
 const FOCUS_TYPES = new Set([
   "mainline",
@@ -106,14 +107,16 @@ function buildCompanionFocus(readingProfile = {}) {
     const type = normalizeFocusType(rawFocus.type) || purposeToFocus(readingProfile.purpose);
     const defaults = defaultFocus(type);
     const userText = clean(rawFocus.userText);
+    const aiSummary = cleanCompanionFocusText(rawFocus.aiSummary || rawFocus.description);
+    const promptInstruction = cleanCompanionFocusText(rawFocus.promptInstruction);
     return {
       available: true,
       value: {
         type: defaults.type,
         label: clean(rawFocus.label) || defaults.label,
         userText,
-        aiSummary: clean(rawFocus.aiSummary || rawFocus.description) || userText || defaults.aiSummary,
-        promptInstruction: clean(rawFocus.promptInstruction) || defaults.promptInstruction,
+        aiSummary: aiSummary || userText || defaults.aiSummary,
+        promptInstruction: promptInstruction || defaults.promptInstruction,
       },
     };
   }
@@ -134,28 +137,16 @@ function getUsableWholeBookGuide(value) {
   return guide;
 }
 
-function parseWholeBookGuideValue(value) {
-  if (!value) return null;
-  if (typeof value === "object") return value;
-  if (typeof value !== "string") return null;
-
-  try {
-    const parsed = JSON.parse(extractJson(value));
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+function cleanCompanionFocusText(value) {
+  return clean(value)
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/(本书读伴名叫|这本书的读伴名字是)/.test(line))
+    .join("\n");
 }
 
-function extractJson(value) {
-  const text = toText(value).trim();
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
-
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) return text.slice(start, end + 1);
-  return text;
+function parseWholeBookGuideValue(value) {
+  return normalizeWholeBookGuide(value);
 }
 
 function findChapterMatches(items, itemChapterIds) {

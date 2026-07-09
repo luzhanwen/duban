@@ -1,13 +1,14 @@
+use crate::diagnostics::DiagnosticLogState;
 use base64::{engine::general_purpose, Engine as _};
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -33,6 +34,10 @@ const BACKUP_FORMAT: &str = "duban.local-backup";
 const BACKUP_VERSION: u32 = 3;
 const BACKUP_MANIFEST_FILE: &str = "manifest.json";
 const BACKUP_FILES_DIR: &str = "files";
+
+pub(crate) fn current_schema_version() -> &'static str {
+    CURRENT_SCHEMA_VERSION
+}
 
 #[derive(Clone, Copy, Default)]
 struct SettingsKeyStatus {
@@ -253,6 +258,110 @@ pub struct OrphanFileCleanupResult {
     cleaned_at: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageHealthReport {
+    checked_at: String,
+    status: String,
+    issue_count: usize,
+    schema_version: String,
+    expected_schema_version: String,
+    sqlite_quick_check: String,
+    table_counts: Vec<TableCount>,
+    files: FileHealthReport,
+    backups: DirectoryAccessReport,
+    settings_key_status: DiagnosticSettingsKeyStatus,
+    issues: Vec<StorageHealthIssue>,
+}
+
+impl StorageHealthReport {
+    pub(crate) fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub(crate) fn issue_count(&self) -> usize {
+        self.issue_count
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TableCount {
+    table: String,
+    count: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileHealthReport {
+    referenced_file_count: usize,
+    missing_file_count: usize,
+    unsafe_path_count: usize,
+    orphan_count: usize,
+    orphan_byte_size: u64,
+    missing_files: Vec<MissingFile>,
+    orphan_files: Vec<OrphanFile>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingFile {
+    source: String,
+    key: Option<String>,
+    book_id: Option<String>,
+    relative_path: String,
+    reason: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryAccessReport {
+    name: String,
+    exists: bool,
+    readable: bool,
+    writable: bool,
+    issue: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticSettingsKeyStatus {
+    anthropic_has_api_key: bool,
+    openai_compatible_has_api_key: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageHealthIssue {
+    severity: String,
+    code: String,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticStorageSnapshot {
+    pub health: StorageHealthReport,
+    pub backups: Vec<DiagnosticBackupSummary>,
+    pub settings: Value,
+    pub ai_diagnostics: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticBackupSummary {
+    backup_id: String,
+    exported_at: String,
+    schema_version: String,
+    backup_version: u32,
+    item_count: usize,
+    file_count: usize,
+    byte_size: u64,
+    includes_api_keys: bool,
+    valid: bool,
+    issue_count: usize,
+}
+
 impl StorageState {
     pub fn initialize(app: &AppHandle) -> Result<Self, String> {
         let app_dir = app
@@ -287,6 +396,7 @@ pub fn duban_storage_get_item(
     if key.trim().is_empty() {
         return Ok(None);
     }
+    validate_key(&key)?;
 
     if key == BOOKS_KEY {
         let conn = lock_conn(&state)?;
@@ -607,6 +717,7 @@ pub fn duban_storage_remove_item(
     if key.trim().is_empty() {
         return Ok(());
     }
+    validate_key(&key)?;
 
     if key == BOOKS_KEY {
         let conn = lock_conn(&state)?;
@@ -757,6 +868,32 @@ pub fn duban_storage_remove_item(
 }
 
 #[tauri::command]
+pub fn duban_storage_delete_book(
+    book_id: String,
+    state: State<'_, StorageState>,
+) -> Result<bool, String> {
+    let book_id = book_id.trim().to_string();
+    if book_id.is_empty() {
+        return Ok(false);
+    }
+    validate_book_id(&book_id)?;
+
+    let file_paths = {
+        let mut conn = lock_conn(&state)?;
+        delete_book_records(&mut conn, &state.files_dir, &book_id)?
+    };
+
+    let mut seen_paths = BTreeSet::new();
+    for path in file_paths {
+        if seen_paths.insert(path.clone()) {
+            let _ = remove_file_if_exists(Some(path));
+        }
+    }
+
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn duban_storage_keys(state: State<'_, StorageState>) -> Result<Vec<String>, String> {
     let conn = lock_conn(&state)?;
     list_storage_keys(&conn)
@@ -825,7 +962,7 @@ pub fn duban_storage_delete_orphan_files(
     };
 
     for file in &report.files {
-        let path = state.files_dir.join(&file.relative_path);
+        let path = safe_file_path(&state.files_dir, &file.relative_path)?;
         if path.is_file() {
             fs::remove_file(path).map_err(|_| "删除孤儿文件失败。".to_string())?;
         }
@@ -903,42 +1040,64 @@ fn clear_storage_data(
 #[tauri::command]
 pub fn duban_storage_export_backup(
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupExportResult, String> {
-    let exported_at = current_timestamp();
-    let backup_id = format!("duban-backup-{exported_at}");
-    let backup_dir = unique_backup_dir(&state.backups_dir, &backup_id)?;
-    let backup_id = backup_dir
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(&backup_id)
-        .to_string();
-    let backup_files_dir = backup_dir.join(BACKUP_FILES_DIR);
-    fs::create_dir_all(&backup_files_dir).map_err(|_| "创建备份文件目录失败。".to_string())?;
-    let mut backup = {
-        let conn = lock_conn(&state)?;
-        build_storage_backup(
-            &conn,
-            &state.files_dir,
-            &exported_at,
-            Some(&backup_files_dir),
-        )?
-    };
-    let path = backup_dir.join(BACKUP_MANIFEST_FILE);
-    write_backup_manifest(&path, &mut backup)?;
-    let byte_size = directory_size(&backup_dir)?;
-    let manifest_sha256 = backup.manifest_sha256.clone();
+    let result: Result<BackupExportResult, String> = (|| {
+        let exported_at = current_timestamp();
+        let backup_id = format!("duban-backup-{exported_at}");
+        let backup_dir = unique_backup_dir(&state.backups_dir, &backup_id)?;
+        let backup_id = backup_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(&backup_id)
+            .to_string();
+        let backup_files_dir = backup_dir.join(BACKUP_FILES_DIR);
+        fs::create_dir_all(&backup_files_dir).map_err(|_| "创建备份文件目录失败。".to_string())?;
+        let mut backup = {
+            let conn = lock_conn(&state)?;
+            build_storage_backup(
+                &conn,
+                &state.files_dir,
+                &exported_at,
+                Some(&backup_files_dir),
+            )?
+        };
+        let path = backup_dir.join(BACKUP_MANIFEST_FILE);
+        write_backup_manifest(&path, &mut backup)?;
+        let byte_size = directory_size(&backup_dir)?;
+        let manifest_sha256 = backup.manifest_sha256.clone();
 
-    Ok(BackupExportResult {
-        backup_id,
-        path: backup_dir.to_string_lossy().to_string(),
-        file_name: BACKUP_MANIFEST_FILE.to_string(),
-        item_count: backup.items.len(),
-        file_count: backup.files.len(),
-        byte_size,
-        exported_at,
-        manifest_sha256,
-        includes_api_keys: backup.includes_api_keys,
-    })
+        Ok(BackupExportResult {
+            backup_id,
+            path: backup_dir.to_string_lossy().to_string(),
+            file_name: BACKUP_MANIFEST_FILE.to_string(),
+            item_count: backup.items.len(),
+            file_count: backup.files.len(),
+            byte_size,
+            exported_at,
+            manifest_sha256,
+            includes_api_keys: backup.includes_api_keys,
+        })
+    })();
+
+    match &result {
+        Ok(export) => record_backup_event(
+            diagnostic_log.inner(),
+            "export_succeeded",
+            json!({
+                "backupId": export.backup_id,
+                "itemCount": export.item_count,
+                "fileCount": export.file_count,
+                "byteSize": export.byte_size,
+                "includesApiKeys": export.includes_api_keys
+            }),
+        ),
+        Err(error) => {
+            record_backup_error(diagnostic_log.inner(), "export_failed", error, json!({}))
+        }
+    }
+
+    result
 }
 
 #[tauri::command]
@@ -946,8 +1105,44 @@ pub fn duban_storage_import_backup(
     backup: StorageBackup,
     mode: Option<String>,
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupImportResult, String> {
-    restore_storage_backup(backup, None, mode.as_deref().unwrap_or("replace"), &state)
+    let import_mode = mode.unwrap_or_else(|| "replace".to_string());
+    let item_count = backup.items.len();
+    let file_count = backup.files.len();
+    let schema_version = backup.schema_version.clone();
+    let backup_version = backup.backup_version;
+    let result: Result<BackupImportResult, String> =
+        restore_storage_backup(backup, None, &import_mode, &state);
+
+    match &result {
+        Ok(import) => record_backup_event(
+            diagnostic_log.inner(),
+            "import_succeeded",
+            json!({
+                "source": "inline_json",
+                "mode": import.mode,
+                "itemCount": import.item_count,
+                "fileCount": import.file_count,
+                "schemaVersion": import.schema_version
+            }),
+        ),
+        Err(error) => record_backup_error(
+            diagnostic_log.inner(),
+            "import_failed",
+            error,
+            json!({
+                "source": "inline_json",
+                "mode": import_mode,
+                "itemCount": item_count,
+                "fileCount": file_count,
+                "schemaVersion": schema_version,
+                "backupVersion": backup_version
+            }),
+        ),
+    }
+
+    result
 }
 
 #[tauri::command]
@@ -997,6 +1192,105 @@ pub fn duban_storage_list_backups(
     Ok(summaries)
 }
 
+pub(crate) fn build_storage_health_report(
+    state: &StorageState,
+) -> Result<StorageHealthReport, String> {
+    let conn = lock_conn(state)?;
+    let schema_version = read_schema_version(&conn)?;
+    let sqlite_quick_check = sqlite_quick_check(&conn)?;
+    let table_counts = diagnostic_table_counts(&conn)?;
+    let files = build_file_health_report(&conn, &state.files_dir)?;
+    let backups = check_directory_access("backups", &state.backups_dir);
+    let settings_key_status = diagnostic_settings_key_status(&conn)?;
+    let mut issues = Vec::new();
+
+    if schema_version != CURRENT_SCHEMA_VERSION {
+        issues.push(storage_health_issue(
+            "error",
+            "schema-version-mismatch",
+            "本地数据库 schema 版本与当前 App 期望版本不一致。",
+        ));
+    }
+    if sqlite_quick_check != "ok" {
+        issues.push(storage_health_issue(
+            "error",
+            "sqlite-quick-check-failed",
+            "SQLite quick_check 未通过。",
+        ));
+    }
+    if files.missing_file_count > 0 {
+        issues.push(storage_health_issue(
+            "error",
+            "missing-local-files",
+            "本地文件索引指向的文件缺失。",
+        ));
+    }
+    if files.unsafe_path_count > 0 {
+        issues.push(storage_health_issue(
+            "error",
+            "unsafe-local-file-paths",
+            "本地文件索引中存在不安全相对路径。",
+        ));
+    }
+    if files.orphan_count > 0 {
+        issues.push(storage_health_issue(
+            "warn",
+            "orphan-local-files",
+            "本地文件目录存在未被 SQLite 引用的文件。",
+        ));
+    }
+    if !backups.readable {
+        issues.push(storage_health_issue(
+            "error",
+            "backups-dir-unreadable",
+            "备份目录不可读。",
+        ));
+    }
+    if !backups.writable {
+        issues.push(storage_health_issue(
+            "error",
+            "backups-dir-unwritable",
+            "备份目录不可写。",
+        ));
+    }
+
+    let status = if issues.iter().any(|issue| issue.severity == "error") {
+        "error"
+    } else if issues.iter().any(|issue| issue.severity == "warn") {
+        "warn"
+    } else {
+        "ok"
+    }
+    .to_string();
+
+    Ok(StorageHealthReport {
+        checked_at: current_timestamp(),
+        status,
+        issue_count: issues.len(),
+        schema_version,
+        expected_schema_version: CURRENT_SCHEMA_VERSION.to_string(),
+        sqlite_quick_check,
+        table_counts,
+        files,
+        backups,
+        settings_key_status,
+        issues,
+    })
+}
+
+pub(crate) fn build_diagnostic_storage_snapshot(
+    state: &StorageState,
+) -> Result<DiagnosticStorageSnapshot, String> {
+    let health = build_storage_health_report(state)?;
+    let conn = lock_conn(state)?;
+    Ok(DiagnosticStorageSnapshot {
+        health,
+        backups: list_diagnostic_backup_summaries(state)?,
+        settings: diagnostic_settings_summary(&conn)?,
+        ai_diagnostics: diagnostic_ai_diagnostics(&conn)?,
+    })
+}
+
 #[tauri::command]
 pub fn duban_storage_preview_backup(
     backup_id: String,
@@ -1015,9 +1309,41 @@ pub fn duban_storage_preview_backup(
 pub fn duban_storage_import_backup_id(
     request: BackupImportRequest,
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupImportResult, String> {
-    let (backup, base_dir, _) = load_backup_by_id(&state.backups_dir, &request.backup_id)?;
-    restore_storage_backup(backup, base_dir.as_deref(), &request.mode, &state)
+    let backup_id = request.backup_id.clone();
+    let import_mode = request.mode.clone();
+    let result: Result<BackupImportResult, String> = (|| {
+        let (backup, base_dir, _) = load_backup_by_id(&state.backups_dir, &request.backup_id)?;
+        restore_storage_backup(backup, base_dir.as_deref(), &request.mode, &state)
+    })();
+
+    match &result {
+        Ok(import) => record_backup_event(
+            diagnostic_log.inner(),
+            "import_succeeded",
+            json!({
+                "source": "managed_backup",
+                "backupId": backup_id,
+                "mode": import.mode,
+                "itemCount": import.item_count,
+                "fileCount": import.file_count,
+                "schemaVersion": import.schema_version
+            }),
+        ),
+        Err(error) => record_backup_error(
+            diagnostic_log.inner(),
+            "import_failed",
+            error,
+            json!({
+                "source": "managed_backup",
+                "backupId": backup_id,
+                "mode": import_mode
+            }),
+        ),
+    }
+
+    result
 }
 
 #[tauri::command]
@@ -1038,48 +1364,143 @@ pub fn duban_storage_preview_backup_path(
 pub fn duban_storage_import_backup_path(
     request: BackupPathImportRequest,
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupImportResult, String> {
-    let (backup, base_dir, _, _) = load_backup_by_path(&request.path)?;
-    restore_storage_backup(backup, base_dir.as_deref(), &request.mode, &state)
+    let import_mode = request.mode.clone();
+    let mut loaded_backup_id = String::new();
+    let result: Result<BackupImportResult, String> = (|| {
+        let (backup, base_dir, _, backup_id) = load_backup_by_path(&request.path)?;
+        loaded_backup_id = backup_id;
+        restore_storage_backup(backup, base_dir.as_deref(), &request.mode, &state)
+    })();
+
+    match &result {
+        Ok(import) => record_backup_event(
+            diagnostic_log.inner(),
+            "import_succeeded",
+            json!({
+                "source": "external_path",
+                "backupId": loaded_backup_id,
+                "mode": import.mode,
+                "itemCount": import.item_count,
+                "fileCount": import.file_count,
+                "schemaVersion": import.schema_version
+            }),
+        ),
+        Err(error) => record_backup_error(
+            diagnostic_log.inner(),
+            "import_failed",
+            error,
+            json!({
+                "source": "external_path",
+                "backupId": loaded_backup_id,
+                "mode": import_mode
+            }),
+        ),
+    }
+
+    result
 }
 
 #[tauri::command]
 pub fn duban_storage_delete_backup(
     backup_id: String,
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupDeleteResult, String> {
-    validate_backup_id(&backup_id)?;
-    let path = state.backups_dir.join(&backup_id);
-    if path.is_dir() {
-        fs::remove_dir_all(&path).map_err(|_| "删除备份目录失败。".to_string())?;
-    } else if path.is_file() {
-        fs::remove_file(&path).map_err(|_| "删除备份文件失败。".to_string())?;
-    } else {
-        return Err("找不到这个备份。".to_string());
+    let requested_backup_id = backup_id.clone();
+    let result: Result<BackupDeleteResult, String> = (|| {
+        validate_backup_id(&backup_id)?;
+        let path = state.backups_dir.join(&backup_id);
+        if path.is_dir() {
+            fs::remove_dir_all(&path).map_err(|_| "删除备份目录失败。".to_string())?;
+        } else if path.is_file() {
+            fs::remove_file(&path).map_err(|_| "删除备份文件失败。".to_string())?;
+        } else {
+            return Err("找不到这个备份。".to_string());
+        }
+
+        Ok(BackupDeleteResult {
+            backup_id,
+            deleted_at: current_timestamp(),
+        })
+    })();
+
+    match &result {
+        Ok(delete) => record_backup_event(
+            diagnostic_log.inner(),
+            "delete_succeeded",
+            json!({
+                "backupId": delete.backup_id
+            }),
+        ),
+        Err(error) => record_backup_error(
+            diagnostic_log.inner(),
+            "delete_failed",
+            error,
+            json!({
+                "backupId": requested_backup_id
+            }),
+        ),
     }
 
-    Ok(BackupDeleteResult {
-        backup_id,
-        deleted_at: current_timestamp(),
-    })
+    result
 }
 
 #[tauri::command]
 pub fn duban_storage_update_backup_metadata(
     request: BackupMetadataUpdateRequest,
     state: State<'_, StorageState>,
+    diagnostic_log: State<'_, DiagnosticLogState>,
 ) -> Result<BackupPreview, String> {
-    let (mut backup, base_dir, display_path, manifest_path) =
-        load_backup_by_id_with_manifest(&state.backups_dir, &request.backup_id)?;
-    backup.label = clean_optional_text(request.label);
-    backup.notes = clean_optional_text(request.notes);
-    write_backup_manifest(&manifest_path, &mut backup)?;
-    Ok(build_backup_preview(
-        &request.backup_id,
-        &display_path,
-        &backup,
-        base_dir.as_deref(),
-    ))
+    let backup_id = request.backup_id.clone();
+    let label_present = request
+        .label
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let notes_present = request
+        .notes
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    let result: Result<BackupPreview, String> = (|| {
+        let (mut backup, base_dir, display_path, manifest_path) =
+            load_backup_by_id_with_manifest(&state.backups_dir, &request.backup_id)?;
+        backup.label = clean_optional_text(request.label);
+        backup.notes = clean_optional_text(request.notes);
+        write_backup_manifest(&manifest_path, &mut backup)?;
+        Ok(build_backup_preview(
+            &request.backup_id,
+            &display_path,
+            &backup,
+            base_dir.as_deref(),
+        ))
+    })();
+
+    match &result {
+        Ok(preview) => record_backup_event(
+            diagnostic_log.inner(),
+            "metadata_update_succeeded",
+            json!({
+                "backupId": preview.backup_id,
+                "labelPresent": label_present,
+                "notesPresent": notes_present
+            }),
+        ),
+        Err(error) => record_backup_error(
+            diagnostic_log.inner(),
+            "metadata_update_failed",
+            error,
+            json!({
+                "backupId": backup_id,
+                "labelPresent": label_present,
+                "notesPresent": notes_present
+            }),
+        ),
+    }
+
+    result
 }
 
 fn build_storage_backup(
@@ -1236,7 +1657,7 @@ fn load_backup_file(
         return Ok(None);
     };
 
-    let path = files_dir.join(&record.relative_path);
+    let path = safe_file_path(files_dir, &record.relative_path)?;
     let bytes = fs::read(&path).map_err(|_| "备份失败，本地书籍文件不存在。".to_string())?;
     let byte_size = bytes.len() as u64;
     let sha256 = sha256_hex(&bytes);
@@ -1471,11 +1892,10 @@ fn load_backup_by_path(
     path_text: &str,
 ) -> Result<(StorageBackup, Option<PathBuf>, PathBuf, String), String> {
     let trimmed = path_text.trim();
-    if trimmed.is_empty() {
-        return Err("外部备份路径不能为空。".to_string());
-    }
+    validate_external_backup_path_text(trimmed)?;
 
-    let path = PathBuf::from(expand_home_path(trimmed));
+    let raw_path = PathBuf::from(expand_home_path(trimmed));
+    let path = fs::canonicalize(&raw_path).map_err(|_| "找不到外部备份路径。".to_string())?;
     if path.is_dir() {
         let manifest_path = path.join(BACKUP_MANIFEST_FILE);
         let backup = read_backup_manifest(&manifest_path)?;
@@ -1508,6 +1928,340 @@ fn load_backup_by_path(
 fn read_backup_manifest(path: &Path) -> Result<StorageBackup, String> {
     let text = fs::read_to_string(path).map_err(|_| "读取备份 manifest 失败。".to_string())?;
     serde_json::from_str(&text).map_err(|_| "备份 manifest 格式损坏。".to_string())
+}
+
+fn read_schema_version(conn: &Connection) -> Result<String, String> {
+    conn.query_row(
+        "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|_| "读取 schema 版本失败。".to_string())
+    .map(|value| value.unwrap_or_else(|| "unknown".to_string()))
+}
+
+fn sqlite_quick_check(conn: &Connection) -> Result<String, String> {
+    conn.query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))
+        .map_err(|_| "执行 SQLite quick_check 失败。".to_string())
+}
+
+fn diagnostic_table_counts(conn: &Connection) -> Result<Vec<TableCount>, String> {
+    const TABLES: &[&str] = &[
+        "books",
+        "book_chapters",
+        "book_files",
+        "book_pages",
+        "reading_plans",
+        "reading_plan_items",
+        "reading_progress",
+        "reading_item_progress",
+        "notes",
+        "chat_messages",
+        "reflection_messages",
+        "reading_guides",
+        "app_settings",
+        "book_covers",
+        "formatted_texts",
+        "file_store",
+        "kv_store",
+        "schema_meta",
+    ];
+
+    TABLES
+        .iter()
+        .map(|table| {
+            let count = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(|_| "读取数据表数量失败。".to_string())?;
+            Ok(TableCount {
+                table: (*table).to_string(),
+                count: count.max(0) as u64,
+            })
+        })
+        .collect()
+}
+
+fn build_file_health_report(
+    conn: &Connection,
+    files_dir: &Path,
+) -> Result<FileHealthReport, String> {
+    let indexed_files = indexed_file_refs(conn)?;
+    let referenced_file_count = indexed_files.len();
+    let mut missing_files = Vec::new();
+    let mut missing_file_count = 0;
+    let mut unsafe_path_count = 0;
+
+    for file in indexed_files {
+        match safe_file_path(files_dir, &file.relative_path) {
+            Ok(path) if path.is_file() => {}
+            Ok(_) => {
+                missing_file_count += 1;
+                push_limited_missing_file(
+                    &mut missing_files,
+                    MissingFile {
+                        source: file.source,
+                        key: file.key,
+                        book_id: file.book_id,
+                        relative_path: file.relative_path,
+                        reason: "missing".to_string(),
+                    },
+                );
+            }
+            Err(_) => {
+                unsafe_path_count += 1;
+                push_limited_missing_file(
+                    &mut missing_files,
+                    MissingFile {
+                        source: file.source,
+                        key: file.key,
+                        book_id: file.book_id,
+                        relative_path: file.relative_path,
+                        reason: "unsafe-path".to_string(),
+                    },
+                );
+            }
+        }
+    }
+
+    let orphan_report = scan_orphan_files(conn, files_dir)?;
+    Ok(FileHealthReport {
+        referenced_file_count,
+        missing_file_count,
+        unsafe_path_count,
+        orphan_count: orphan_report.orphan_count,
+        orphan_byte_size: orphan_report.byte_size,
+        missing_files,
+        orphan_files: orphan_report.files.into_iter().take(50).collect(),
+    })
+}
+
+fn push_limited_missing_file(files: &mut Vec<MissingFile>, file: MissingFile) {
+    if files.len() < 50 {
+        files.push(file);
+    }
+}
+
+struct IndexedFileRef {
+    source: String,
+    key: Option<String>,
+    book_id: Option<String>,
+    relative_path: String,
+}
+
+fn indexed_file_refs(conn: &Connection) -> Result<Vec<IndexedFileRef>, String> {
+    let mut files = Vec::new();
+
+    {
+        let mut statement = conn
+            .prepare("SELECT key, relative_path FROM file_store")
+            .map_err(|_| "读取旧文件索引失败。".to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(IndexedFileRef {
+                    source: "file_store".to_string(),
+                    key: Some(row.get(0)?),
+                    book_id: None,
+                    relative_path: row.get(1)?,
+                })
+            })
+            .map_err(|_| "读取旧文件索引失败。".to_string())?;
+        for row in rows {
+            files.push(row.map_err(|_| "读取旧文件索引失败。".to_string())?);
+        }
+    }
+
+    {
+        let mut statement = conn
+            .prepare("SELECT book_id, relative_path FROM book_files")
+            .map_err(|_| "读取书籍文件索引失败。".to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                let book_id = row.get::<_, String>(0)?;
+                Ok(IndexedFileRef {
+                    source: "book_files".to_string(),
+                    key: Some(book_scoped_key(&book_id, FILE_SUFFIX)),
+                    book_id: Some(book_id),
+                    relative_path: row.get(1)?,
+                })
+            })
+            .map_err(|_| "读取书籍文件索引失败。".to_string())?;
+        for row in rows {
+            files.push(row.map_err(|_| "读取书籍文件索引失败。".to_string())?);
+        }
+    }
+
+    {
+        let mut statement = conn
+            .prepare("SELECT book_id, relative_path FROM book_covers")
+            .map_err(|_| "读取封面文件索引失败。".to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                let book_id = row.get::<_, String>(0)?;
+                Ok(IndexedFileRef {
+                    source: "book_covers".to_string(),
+                    key: Some(book_scoped_key(&book_id, COVER_SUFFIX)),
+                    book_id: Some(book_id),
+                    relative_path: row.get(1)?,
+                })
+            })
+            .map_err(|_| "读取封面文件索引失败。".to_string())?;
+        for row in rows {
+            files.push(row.map_err(|_| "读取封面文件索引失败。".to_string())?);
+        }
+    }
+
+    Ok(files)
+}
+
+fn check_directory_access(name: &str, path: &Path) -> DirectoryAccessReport {
+    let exists = path.exists();
+    let readable = fs::read_dir(path).is_ok();
+    let test_path = path.join(format!(
+        ".duban-diagnostics-write-test-{}",
+        current_timestamp()
+    ));
+    let writable = fs::write(&test_path, b"ok")
+        .and_then(|_| fs::remove_file(&test_path))
+        .is_ok();
+    let issue = if !exists {
+        Some("missing".to_string())
+    } else if !readable {
+        Some("unreadable".to_string())
+    } else if !writable {
+        Some("unwritable".to_string())
+    } else {
+        None
+    };
+
+    DirectoryAccessReport {
+        name: name.to_string(),
+        exists,
+        readable,
+        writable,
+        issue,
+    }
+}
+
+fn diagnostic_settings_key_status(
+    conn: &Connection,
+) -> Result<DiagnosticSettingsKeyStatus, String> {
+    conn.query_row(
+        "SELECT anthropic_has_api_key, openai_has_api_key FROM app_settings WHERE id = 'settings'",
+        [],
+        |row| {
+            Ok(DiagnosticSettingsKeyStatus {
+                anthropic_has_api_key: row.get::<_, i64>(0).unwrap_or_default() > 0,
+                openai_compatible_has_api_key: row.get::<_, i64>(1).unwrap_or_default() > 0,
+            })
+        },
+    )
+    .optional()
+    .map_err(|_| "读取设置密钥状态失败。".to_string())
+    .map(|value| value.unwrap_or_default())
+}
+
+fn diagnostic_settings_summary(conn: &Connection) -> Result<Value, String> {
+    let settings = conn
+        .query_row(
+            "SELECT provider, anthropic_model, anthropic_has_api_key,
+                    openai_base_url, openai_model, openai_has_api_key
+             FROM app_settings WHERE id = 'settings'",
+            [],
+            |row| {
+                Ok(json!({
+                    "provider": row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    "anthropic": {
+                        "model": row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        "hasApiKey": row.get::<_, i64>(2).unwrap_or_default() > 0
+                    },
+                    "openaiCompatible": {
+                        "baseUrl": row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        "model": row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                        "hasApiKey": row.get::<_, i64>(5).unwrap_or_default() > 0
+                    }
+                }))
+            },
+        )
+        .optional()
+        .map_err(|_| "读取诊断设置摘要失败。".to_string())?;
+
+    Ok(settings.unwrap_or_else(|| json!({ "exists": false })))
+}
+
+fn diagnostic_ai_diagnostics(conn: &Connection) -> Result<Option<Value>, String> {
+    conn.query_row(
+        "SELECT value FROM kv_store WHERE key = '__duban:ai-diagnostics'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|_| "读取 AI 调用诊断失败。".to_string())?
+    .map(|text| serde_json::from_str(&text).map_err(|_| "AI 调用诊断格式损坏。".to_string()))
+    .transpose()
+}
+
+fn list_diagnostic_backup_summaries(
+    state: &StorageState,
+) -> Result<Vec<DiagnosticBackupSummary>, String> {
+    let mut summaries = Vec::new();
+    if !state.backups_dir.exists() {
+        return Ok(summaries);
+    }
+
+    let entries = fs::read_dir(&state.backups_dir).map_err(|_| "读取备份目录失败。".to_string())?;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        let Some(backup_id) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if backup_id.starts_with('.') {
+            continue;
+        }
+        let Ok((backup, base_dir, display_path)) = load_backup_by_id(&state.backups_dir, backup_id)
+        else {
+            continue;
+        };
+        let preview = build_backup_preview(backup_id, &display_path, &backup, base_dir.as_deref());
+        summaries.push(DiagnosticBackupSummary {
+            backup_id: backup_id.to_string(),
+            exported_at: backup.exported_at,
+            schema_version: backup.schema_version,
+            backup_version: backup.backup_version,
+            item_count: preview.item_count,
+            file_count: preview.file_count,
+            byte_size: preview.byte_size,
+            includes_api_keys: preview.includes_api_keys,
+            valid: preview.issues.iter().all(|issue| issue.severity != "error"),
+            issue_count: preview.issues.len(),
+        });
+    }
+    summaries.sort_by(|left, right| right.exported_at.cmp(&left.exported_at));
+    Ok(summaries)
+}
+
+fn storage_health_issue(severity: &str, code: &str, message: &str) -> StorageHealthIssue {
+    StorageHealthIssue {
+        severity: severity.to_string(),
+        code: code.to_string(),
+        message: message.to_string(),
+    }
+}
+
+fn record_backup_event(log: &DiagnosticLogState, event: &str, fields: Value) {
+    let _ = log.record_info("backup", event, fields);
+}
+
+fn record_backup_error(log: &DiagnosticLogState, event: &str, error: &String, mut fields: Value) {
+    if let Some(object) = fields.as_object_mut() {
+        object.insert("error".to_string(), Value::String(error.to_string()));
+    }
+    let _ = log.record_error("backup", event, fields);
 }
 
 fn write_backup_manifest(path: &Path, backup: &mut StorageBackup) -> Result<(), String> {
@@ -1960,6 +2714,8 @@ fn clean_optional_text(value: Option<String>) -> Option<String> {
 
 fn should_skip_backup_key(key: &str) -> bool {
     key.starts_with("__duban:migration:")
+        || key.starts_with("__duban:ai-budget:")
+        || key == "__duban:ai-diagnostics"
 }
 
 fn backup_key_priority(key: &str) -> u8 {
@@ -2702,7 +3458,7 @@ fn load_book_cover(
         return Ok(None);
     };
 
-    let path = files_dir.join(&relative_path);
+    let path = safe_file_path(files_dir, &relative_path)?;
     let bytes = fs::read(path).map_err(|_| "读取封面缓存文件失败。".to_string())?;
     let base64 = general_purpose::STANDARD.encode(bytes);
     Ok(Some(Value::String(format!(
@@ -2771,7 +3527,9 @@ fn cover_file_path(
         .optional()
         .map_err(|_| "读取封面缓存索引失败。".to_string())?;
 
-    Ok(relative_path.map(|path| files_dir.join(path)))
+    relative_path
+        .map(|path| safe_file_path(files_dir, &path))
+        .transpose()
 }
 
 fn migrate_covers_from_kv(conn: &Connection, files_dir: &Path) -> Result<(), String> {
@@ -3118,7 +3876,9 @@ fn sync_keychain_secret(account: &str, value: &str) -> Result<(), String> {
 
     keychain_entry(account)?
         .set_password(trimmed)
-        .map_err(|_| "写入系统 Keychain 失败。".to_string())
+        .map_err(|_| "写入系统 Keychain 失败。".to_string())?;
+    crate::clear_ai_key_cache();
+    Ok(())
 }
 
 fn read_keychain_secret(account: &str) -> Result<Option<String>, String> {
@@ -3143,7 +3903,10 @@ fn delete_settings_secrets() -> Result<(), String> {
 
 fn delete_keychain_secret(account: &str) -> Result<(), String> {
     match keychain_entry(account)?.delete_credential() {
-        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Ok(()) | Err(KeyringError::NoEntry) => {
+            crate::clear_ai_key_cache();
+            Ok(())
+        }
         Err(_) => Err("删除系统 Keychain 凭据失败。".to_string()),
     }
 }
@@ -4042,6 +4805,70 @@ fn book_scoped_key(book_id: &str, suffix: &str) -> String {
     format!("{BOOK_PREFIX}{book_id}{suffix}")
 }
 
+fn collect_book_file_paths(
+    conn: &Connection,
+    files_dir: &Path,
+    book_id: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let mut paths = Vec::new();
+
+    if let Some(path) = file_path_for_key(conn, files_dir, &book_scoped_key(book_id, FILE_SUFFIX))?
+    {
+        paths.push(path);
+    }
+    if let Some(path) = cover_file_path(conn, files_dir, book_id)? {
+        paths.push(path);
+    }
+
+    let mut statement = conn
+        .prepare("SELECT relative_path FROM file_store WHERE key LIKE ?1")
+        .map_err(|_| "读取书籍文件索引失败。".to_string())?;
+    let rows = statement
+        .query_map(params![format!("{BOOK_PREFIX}{book_id}:%")], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|_| "读取书籍文件索引失败。".to_string())?;
+    for row in rows {
+        paths.push(safe_file_path(
+            files_dir,
+            &row.map_err(|_| "读取书籍文件索引失败。".to_string())?,
+        )?);
+    }
+
+    Ok(paths)
+}
+
+fn delete_book_records(
+    conn: &mut Connection,
+    files_dir: &Path,
+    book_id: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let file_paths = collect_book_file_paths(conn, files_dir, book_id)?;
+    let tx = conn
+        .transaction()
+        .map_err(|_| "开始删除书籍事务失败。".to_string())?;
+
+    tx.execute(
+        "DELETE FROM kv_store WHERE key = ?1 OR key LIKE ?2",
+        params![
+            format!("{PROGRESS_PREFIX}{book_id}"),
+            format!("{BOOK_PREFIX}{book_id}:%")
+        ],
+    )
+    .map_err(|_| "清理书籍缓存失败。".to_string())?;
+    tx.execute(
+        "DELETE FROM file_store WHERE key LIKE ?1",
+        params![format!("{BOOK_PREFIX}{book_id}:%")],
+    )
+    .map_err(|_| "清理书籍文件索引失败。".to_string())?;
+    tx.execute("DELETE FROM books WHERE id = ?1", params![book_id])
+        .map_err(|_| "删除书籍元数据失败。".to_string())?;
+    tx.commit()
+        .map_err(|_| "提交删除书籍事务失败。".to_string())?;
+
+    Ok(file_paths)
+}
+
 fn guide_key(book_id: &str, item_key: &str) -> String {
     format!("{BOOK_PREFIX}{book_id}{QUESTIONS_MARKER}{item_key}")
 }
@@ -4091,11 +4918,47 @@ fn lock_conn(state: &StorageState) -> Result<std::sync::MutexGuard<'_, Connectio
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
-    if key.trim().is_empty() {
-        Err("本地数据 key 不能为空。".to_string())
-    } else {
-        Ok(())
+    validate_safe_identifier(key, "本地数据 key", 512)
+}
+
+fn validate_book_id(book_id: &str) -> Result<(), String> {
+    validate_safe_identifier(book_id, "书籍 id", 256)
+}
+
+fn validate_safe_identifier(value: &str, label: &str, max_len: usize) -> Result<(), String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{label} 不能为空。"));
     }
+    if trimmed.len() > max_len {
+        return Err(format!("{label} 过长。"));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return Err(format!("{label} 不能包含路径片段。"));
+    }
+    if trimmed
+        .chars()
+        .any(|character| character == '\0' || character.is_control())
+    {
+        return Err(format!("{label} 不能包含控制字符。"));
+    }
+    Ok(())
+}
+
+fn validate_external_backup_path_text(path_text: &str) -> Result<(), String> {
+    if path_text.is_empty() {
+        return Err("外部备份路径不能为空。".to_string());
+    }
+    if path_text.len() > 4096 {
+        return Err("外部备份路径过长。".to_string());
+    }
+    if path_text
+        .chars()
+        .any(|character| character == '\0' || character.is_control())
+    {
+        return Err("外部备份路径不能包含控制字符。".to_string());
+    }
+    Ok(())
 }
 
 fn key_to_file_name(key: &str) -> String {
@@ -4211,9 +5074,22 @@ fn normalize_relative_path_text(value: &str) -> String {
 }
 
 fn clean_file_name(name: &str) -> String {
-    let cleaned = name.trim();
+    let cleaned = name
+        .trim()
+        .chars()
+        .map(|character| {
+            if character == '/' || character == '\\' || character.is_control() {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let cleaned = cleaned.trim_matches(|character| matches!(character, '.' | ' ' | '_'));
     if cleaned.is_empty() {
         "book.bin".to_string()
+    } else if cleaned.len() > 180 {
+        cleaned.chars().take(180).collect()
     } else {
         cleaned.to_string()
     }
@@ -4273,7 +5149,22 @@ fn stored_file_item(files_dir: &Path, record: FileRecord) -> Result<StoredItem, 
 }
 
 fn safe_file_path(files_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
-    if relative_path.contains('/') || relative_path.contains('\\') || relative_path.contains("..") {
+    let path = Path::new(relative_path);
+    let components = path.components().collect::<Vec<_>>();
+    let valid_shape = match components.as_slice() {
+        [Component::Normal(_)] => true,
+        [Component::Normal(dir), Component::Normal(_)] => dir.to_string_lossy() == "covers",
+        _ => false,
+    };
+    if !valid_shape {
+        return Err("本地文件路径不安全。".to_string());
+    }
+    if relative_path.contains('\\')
+        || relative_path.contains("..")
+        || relative_path
+            .chars()
+            .any(|character| character == '\0' || character.is_control())
+    {
         return Err("本地文件路径不安全。".to_string());
     }
     Ok(files_dir.join(relative_path))
@@ -4301,6 +5192,234 @@ struct FileRecord {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn row_count(conn: &Connection, table: &str, book_id: &str) -> i64 {
+        let id_column = if table == "books" { "id" } else { "book_id" };
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM {table} WHERE {id_column} = ?1"),
+            params![book_id],
+            |row| row.get(0),
+        )
+        .expect("count rows")
+    }
+
+    #[test]
+    fn command_identifiers_reject_path_like_input() {
+        assert!(validate_key("settings").is_ok());
+        assert!(validate_key("book:book-1:formatted-text:item-1").is_ok());
+        assert!(validate_key("book:../secret:file").is_err());
+        assert!(validate_key("book/book-1/file").is_err());
+        assert!(validate_key("book:\nbook-1:file").is_err());
+
+        assert!(validate_book_id("book-1").is_ok());
+        assert!(validate_book_id("../book-1").is_err());
+        assert!(validate_book_id("book/1").is_err());
+    }
+
+    #[test]
+    fn external_backup_paths_reject_control_characters() {
+        assert!(validate_external_backup_path_text("~/Desktop/backup").is_ok());
+        assert!(validate_external_backup_path_text("").is_err());
+        assert!(validate_external_backup_path_text("backup\0manifest.json").is_err());
+        assert!(validate_external_backup_path_text(&"a".repeat(4097)).is_err());
+    }
+
+    #[test]
+    fn local_file_paths_stay_inside_allowed_shapes() {
+        let files_dir = std::env::temp_dir().join("duban-safe-file-path-test");
+        assert_eq!(
+            safe_file_path(&files_dir, "abc.blob").expect("top-level blob"),
+            files_dir.join("abc.blob")
+        );
+        assert_eq!(
+            safe_file_path(&files_dir, "covers/abc.blob").expect("cover blob"),
+            files_dir.join("covers/abc.blob")
+        );
+        assert!(safe_file_path(&files_dir, "../abc.blob").is_err());
+        assert!(safe_file_path(&files_dir, "nested/abc.blob").is_err());
+        assert!(safe_file_path(&files_dir, "covers/nested/abc.blob").is_err());
+        assert!(safe_file_path(&files_dir, "abc\\blob").is_err());
+    }
+
+    #[test]
+    fn file_names_are_sanitized_before_storage_and_backup() {
+        assert_eq!(clean_file_name(" ../book\\draft.pdf "), "book_draft.pdf");
+        assert_eq!(clean_file_name("\n\t"), "book.bin");
+    }
+
+    #[test]
+    fn storage_health_report_passes_for_empty_initialized_store() {
+        let root = std::env::temp_dir().join(format!(
+            "duban-storage-health-ok-test-{}-{}",
+            std::process::id(),
+            current_timestamp()
+        ));
+        let files_dir = root.join("files");
+        let backups_dir = root.join("backups");
+        fs::create_dir_all(&files_dir).expect("create files dir");
+        fs::create_dir_all(&backups_dir).expect("create backups dir");
+
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        initialize_schema(&mut conn, &files_dir).expect("initialize schema");
+        let state = StorageState {
+            conn: Mutex::new(conn),
+            files_dir,
+            backups_dir,
+        };
+
+        let report = build_storage_health_report(&state).expect("health report");
+        assert_eq!(report.status(), "ok");
+        assert_eq!(report.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(report.sqlite_quick_check, "ok");
+        assert!(report
+            .table_counts
+            .iter()
+            .any(|table| table.table == "books"));
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn storage_health_report_flags_missing_indexed_files() {
+        let root = std::env::temp_dir().join(format!(
+            "duban-storage-health-missing-file-test-{}-{}",
+            std::process::id(),
+            current_timestamp()
+        ));
+        let files_dir = root.join("files");
+        let backups_dir = root.join("backups");
+        fs::create_dir_all(&files_dir).expect("create files dir");
+        fs::create_dir_all(&backups_dir).expect("create backups dir");
+
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        initialize_schema(&mut conn, &files_dir).expect("initialize schema");
+        sync_file_key(
+            &conn,
+            &files_dir,
+            "diagnostic-file",
+            StoredFileWrite {
+                name: "missing.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                base64: general_purpose::STANDARD.encode(b"missing soon"),
+            },
+        )
+        .expect("sync file");
+        fs::remove_file(files_dir.join(key_to_file_name("diagnostic-file")))
+            .expect("remove indexed file");
+        let state = StorageState {
+            conn: Mutex::new(conn),
+            files_dir,
+            backups_dir,
+        };
+
+        let report = build_storage_health_report(&state).expect("health report");
+        assert_eq!(report.status(), "error");
+        assert_eq!(report.files.missing_file_count, 1);
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "missing-local-files"));
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn delete_book_records_removes_book_and_related_structured_data() {
+        let root = std::env::temp_dir().join(format!(
+            "duban-storage-delete-book-test-{}-{}",
+            std::process::id(),
+            current_timestamp()
+        ));
+        let files_dir = root.join("files");
+        fs::create_dir_all(&files_dir).expect("create test files dir");
+
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        initialize_schema(&mut conn, &files_dir).expect("initialize schema");
+
+        let books = json!([
+            {
+                "id": "book-1",
+                "title": "Delete Me",
+                "format": "pdf",
+                "fileName": "delete-me.pdf",
+                "fileType": "application/pdf",
+                "fileSize": 4,
+                "totalPages": 1
+            },
+            {
+                "id": "book-2",
+                "title": "Keep Me",
+                "format": "pdf",
+                "fileName": "keep-me.pdf",
+                "fileType": "application/pdf",
+                "fileSize": 4,
+                "totalPages": 1
+            }
+        ]);
+        sync_json_key(&mut conn, &files_dir, BOOKS_KEY, &books).expect("sync books");
+        sync_json_key(
+            &mut conn,
+            &files_dir,
+            "book:book-1:pages",
+            &json!([{ "pageNumber": 1, "text": "delete page" }]),
+        )
+        .expect("sync pages for deleted book");
+        sync_json_key(
+            &mut conn,
+            &files_dir,
+            "book:book-2:pages",
+            &json!([{ "pageNumber": 1, "text": "keep page" }]),
+        )
+        .expect("sync pages for kept book");
+        sync_file_key(
+            &conn,
+            &files_dir,
+            "book:book-1:file",
+            StoredFileWrite {
+                name: "delete-me.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                base64: general_purpose::STANDARD.encode(b"test"),
+            },
+        )
+        .expect("sync deleted book file");
+        sync_file_key(
+            &conn,
+            &files_dir,
+            "book:book-2:file",
+            StoredFileWrite {
+                name: "keep-me.pdf".to_string(),
+                mime_type: "application/pdf".to_string(),
+                base64: general_purpose::STANDARD.encode(b"keep"),
+            },
+        )
+        .expect("sync kept book file");
+
+        let deleted_paths =
+            delete_book_records(&mut conn, &files_dir, "book-1").expect("delete book records");
+
+        assert_eq!(row_count(&conn, "books", "book-1"), 0);
+        assert_eq!(row_count(&conn, "book_pages", "book-1"), 0);
+        assert_eq!(row_count(&conn, "book_files", "book-1"), 0);
+        assert_eq!(row_count(&conn, "books", "book-2"), 1);
+        assert_eq!(row_count(&conn, "book_pages", "book-2"), 1);
+        assert_eq!(row_count(&conn, "book_files", "book-2"), 1);
+        assert_eq!(
+            load_books(&conn).expect("load books"),
+            json!([
+                {
+                    "id": "book-2",
+                    "title": "Keep Me",
+                    "format": "pdf",
+                    "fileName": "keep-me.pdf",
+                    "fileType": "application/pdf",
+                    "fileSize": 4,
+                    "totalPages": 1
+                }
+            ])
+        );
+        assert_eq!(deleted_paths.len(), 1);
+        assert!(deleted_paths[0].exists());
+    }
 
     #[test]
     fn backup_roundtrip_restores_structured_data_and_files() {

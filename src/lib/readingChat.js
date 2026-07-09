@@ -1,4 +1,5 @@
 import { streamModelDetailed } from "./ai.js";
+import { isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingChatPrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
 import { buildReadingContractContext } from "./readingContract.js";
@@ -36,6 +37,7 @@ export async function sendReadingChatMessage({
   content,
   quote,
   onDelta,
+  signal,
 }) {
   const text = toText(content).trim();
   if (!text) return { messages: normalizeMessages(messages), assistant: null };
@@ -71,16 +73,19 @@ export async function sendReadingChatMessage({
       },
     ],
     onText: onDelta,
+    signal,
+    taskType: "readingChat",
   });
 
   const assistantMessage = {
     id: makeId("chat-assistant"),
     role: "assistant",
-    content: toText(result.text).trim() || "我这次没有生成有效回答，可以换个问法再试一次。",
+    content: toText(result.text).trim() || "这次回答生成失败。可以换个问法再试一次。",
     model: result.model || getActiveModel(settings),
     usage: result.usage,
     cost: estimateChatCost(settings, result),
     finishReason: result.finishReason,
+    truncated: isAiOutputTruncated(result),
     maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
     createdAt: new Date().toISOString(),
   };
@@ -213,7 +218,7 @@ function formatContractAvailableSummary(available = {}) {
   if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
   return parts.length > 0
     ? parts.join("；")
-    : "没有可用的开书契约加成，按原有伴读问答逻辑回答，不要提及缺少上下文。";
+    : "开书契约上下文为空，按原有伴读问答逻辑回答，并省略上下文状态说明。";
 }
 
 function asArray(value) {
@@ -262,10 +267,11 @@ function clampRatio(value) {
 }
 
 function estimateChatCost(settings, result) {
-  if (settings.provider === PROVIDERS.openaiCompatible) {
-    return estimateCustomCost(settings.openaiCompatible || {}, result.usage);
+  const costSettings = result.settingsUsed || settings;
+  if (costSettings.provider === PROVIDERS.openaiCompatible) {
+    return estimateCustomCost(costSettings.openaiCompatible || {}, result.usage);
   }
-  return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
+  return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
 function getActiveModel(settings) {

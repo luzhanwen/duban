@@ -1,8 +1,8 @@
 # 后续 AI 接手提示词
 
-> 最后更新：2026-06-18
+> 最后更新：2026-07-07
 
-本文档保存后续让 AI 接手读伴项目时可直接复制的提示词模板。它不是产品 prompt；产品内导读、问答、读后交流 prompt 仍维护在 `src/prompts/` 和 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
+本文档保存后续让 AI 接手读伴项目时可直接复制的提示词模板。它不是产品 prompt；产品内导读、问答、读后交流 prompt 仍维护在 `src/prompts/`，写作标准见 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)，开书契约上下文见 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
 
 使用方式：
 
@@ -22,7 +22,10 @@
 5. docs/BACKEND_DEVELOPMENT_STANDARDS.md
 6. 如果涉及桌面存储：docs/DESKTOP_STORAGE_SCHEMA.md
 7. 如果涉及 UI：docs/UI_DESIGN_STANDARDS.md
-8. 如果涉及开书契约或产品 prompt：docs/READING_CONTRACT_CONTEXT.md
+8. 如果涉及产品 prompt 或模型输出文风：docs/PROMPT_WRITING_STANDARDS.md
+9. 如果涉及开书契约或读伴记忆：docs/READING_CONTRACT_CONTEXT.md
+10. 如果涉及安全、隐私、Tauri command、备份、Keychain 或发布前检查：docs/SECURITY_PRIVACY_AUDIT.md
+11. 如果涉及诊断日志、诊断包、健康检查或错误详情复制：docs/DIAGNOSTICS_PRIVACY_SPEC.md
 
 项目当前是浏览器 MVP + Tauri 桌面版：
 - 浏览器版使用 IndexedDB。
@@ -77,6 +80,7 @@
 验证至少包括：
 - cd src-tauri && cargo fmt && cargo test && cargo check
 - npm run build
+- 如涉及安全、隐私、路径、备份、Keychain 或 Tauri command，运行 npm run security:scan
 - 如涉及真实桌面启动，运行 npm run tauri:dev 并结束进程。
 ```
 
@@ -150,6 +154,7 @@
 - schema 初始化和旧数据迁移不得自动读写 Keychain；旧 settings 中残留的 apiKey 只允许脱敏落库。
 - 设置页测试连接只测试当前输入的 API Key，不得自动读取已保存 Keychain 密钥，也不得为了测试连接自动保存设置。
 - AI transport 在用户明确发起测试连接或模型请求时，如果请求体没有明文 API Key，才可以从 Keychain 解析已保存密钥。
+- AI transport 可以在当前 Tauri 进程内短期缓存已解析的 Keychain 密钥以减少重复系统弹窗；缓存不得落盘，保存或删除 Keychain 密钥后必须清空。Keychain 读取与缓存写入要在同一锁内完成，避免并发模型请求同时触发多次系统授权。
 - 设置页 API Key 输入框留空保存不得删除既有 Keychain 密钥；写入 SQLite 前必须脱敏。
 - 清空全部数据时要删除读伴在 Keychain 中写入的 API Key。
 - 导出 AI TXT 配置可以包含 API Key，但必须明确提示用户只保存在可信位置。
@@ -180,6 +185,13 @@
 - 自定义 Base URL 保留二次确认。
 - 不记录 API Key、完整章节文本、完整 prompt 或用户隐私数据。
 - 新供应商要说明 settings 字段、价格字段、连接测试策略和隐私边界。
+- Tauri AI 错误要返回脱敏结构：message、code、kind、retryable、status；不要只返回裸字符串。
+- 桌面请求要遵守统一超时和重试边界：连接 15 秒、总请求 180 秒、最多 3 次；只重试网络/超时/429/临时服务端错误，不重试鉴权、权限、模型不存在、Base URL 错误、上下文过长或响应格式错误。
+- AI 业务入口要支持 AbortSignal；Tauri transport 用 requestId 调用 duban_ai_cancel_request，Rust 后端用取消令牌中止发送、退避和流式读取。用户主动取消要返回 AI_REQUEST_CANCELLED，并按非失败处理。
+- AI response 要统一包含 finishReason/truncated；输出上限截断不能当作完整导读或正文整理保存，聊天类回答保存时要标记 truncated 并提示用户。
+- 正式 AI 请求必须经过 src/lib/ai.js 的预算保护；预算用量只记录日期、任务类型、token 和估算费用，不记录 prompt/正文/API Key。
+- 任务级模型 profile 必须经过 src/lib/ai.js 解析；profile 只能保存非敏感配置，不保存 API Key，effective settings 要继续用于预算和费用估算。
+- AI 调用诊断只能记录脱敏摘要：任务、供应商、模型、Base URL origin、耗时、状态、错误码、HTTP 状态、尝试次数、token 和费用估算；不得记录 prompt、正文、笔记、聊天全文或 API Key。
 
 验证：
 - npm run build。
@@ -257,16 +269,23 @@
 
 ## 接手前快速事实
 
-截至 2026-06-18：
+截至 2026-07-07：
 
 - Tauri 桌面版已可启动，已有本地测试版 `.app` / `.dmg`。
 - 桌面模型请求已迁到 Rust command。
 - 桌面存储 schema 当前为 `9`。
 - API Key 已迁入系统 Keychain。
+- AI transport 允许在当前 Tauri 进程内短期缓存已从 Keychain 解析出的密钥，以减少连续系统授权弹窗；缓存不得落盘，保存/删除 Key 后必须失效。
 - 原始 PDF/MOBI 文件在 App 数据目录 `files/`。
 - 封面缓存文件在 App 数据目录 `files/covers/`，索引在 `book_covers`。
 - 非敏感 settings 在 `app_settings`，AI 排版缓存 在 `formatted_texts`。
 - 目录式备份在 App 数据目录 `backups/`，结构为 `manifest.json + files/`，当前 backupVersion 为 `3`。
 - 备份支持预览、校验、合并导入和覆盖恢复。
 - 备份不包含 API Key。
-- 仍待推进：大文件解析韧性、AI transport 生产化、压缩归档、备份签名、迁移夹具、签名公证和自动更新。
+- P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件解析韧性主体已完成。
+- 产品内提示词规范维护在 `docs/PROMPT_WRITING_STANDARDS.md`；改 `src/prompts/` 前必须先读。
+- P6.4 已完成 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
+- P6.5 安全与隐私加固基础版已完成：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步都已落地。
+- P6.6 基础版已完成：诊断字段/隐私过滤规范已落文档，Rust 本地 JSONL 诊断日志会记录 App 启动、SQLite 初始化、AI 请求摘要和备份操作摘要；设置页可运行健康检查、导出诊断包，并复制最近 AI 错误详情。
+- `npm run security:scan` 会检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时跑 `npm audit`、Rust 重复依赖树和安全扫描。
+- 仍待推进：P6.7 正式 macOS 发布包、压缩归档、备份签名、迁移夹具、签名公证、自动更新和 CI 中的 `cargo audit`。

@@ -1,4 +1,5 @@
 import { callModelDetailed } from "./ai.js";
+import { createAiOutputTruncatedError, isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingGuidePrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
 import { buildReadingContractContext } from "./readingContract.js";
@@ -7,6 +8,7 @@ import { toText } from "./text.js";
 
 const MAX_CONTEXT_CHARS = 12000;
 const JUNK_FRAGMENTS = new Set(["与", "和", "及", "或", "留意", "注意", "思考", "理解"]);
+const READING_GUIDE_STYLE_VERSION = 2;
 
 export function getPlanItemKey(item, index = 0) {
   return item?.id || `${item?.type || "item"}:${index}`;
@@ -29,6 +31,7 @@ export async function generateReadingGuide({
   chapterSections,
   currentIndex = 0,
   planItems = [],
+  signal,
 }) {
   const settings = await getSettings();
   const chapterText = chapterSections
@@ -50,15 +53,27 @@ export async function generateReadingGuide({
         content: prompts.user,
       },
     ],
+    signal,
+    taskType: "readingGuide",
   });
+
+  if (isAiOutputTruncated(result)) {
+    throw createAiOutputTruncatedError(
+      "这次读前导读写得太长，被模型输出上限截断了。请重新生成，或减少当前阅读范围。",
+      result
+    );
+  }
 
   const parsed = parseGuide(result.text);
   const guide = {
     ...parsed,
     raw: result.text,
+    styleVersion: READING_GUIDE_STYLE_VERSION,
     itemKey,
     provider: settings.provider,
     model: result.model || getActiveModel(settings),
+    finishReason: result.finishReason || "",
+    truncated: false,
     usage: result.usage,
     cost: estimateGuideCost(settings, result),
     generatedAt: new Date().toISOString(),
@@ -76,10 +91,11 @@ function getActiveModel(settings) {
 }
 
 function estimateGuideCost(settings, result) {
-  if (settings.provider === "openai-compatible") {
-    return estimateCustomCost(settings.openaiCompatible || {}, result.usage);
+  const costSettings = result.settingsUsed || settings;
+  if (costSettings.provider === "openai-compatible") {
+    return estimateCustomCost(costSettings.openaiCompatible || {}, result.usage);
   }
-  return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
+  return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
 function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
@@ -168,7 +184,7 @@ function formatContractAvailableSummary(available = {}) {
   if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
   return parts.length > 0
     ? parts.join("；")
-    : "没有可用的开书契约加成，按原有章节导读逻辑自然生成，不要提及缺少上下文。";
+    : "开书契约上下文为空，按原有章节导读逻辑自然生成，并省略上下文状态说明。";
 }
 
 function asArray(value) {
@@ -205,7 +221,7 @@ function buildGuideContinuity({ item, currentIndex, planItems }) {
     nextTitle,
     strategy: firstItem
       ? "这是第一项导读：可以先建立整本书坐标，再进入当前阅读项。overview 建议使用“先看整本书”和“今天这章的位置”两个主体标题，中间用一行 --- 分隔。"
-      : `这是连续阅读中的后续导读：必须承上启下，先接住上一项「${previousTitle}」留下的问题、概念或叙事推进，再说明今天这一项如何继续推进。overview 不要再使用“先看整本书”这类像重新开书的标题，建议使用“接上一次阅读”和“今天往哪里推进”两个主体标题，中间用一行 --- 分隔。不要在 overview 里写“带着什么问题读”小节。`,
+      : `这是连续阅读中的后续导读：必须承上启下，先接住上一项「${previousTitle}」留下的问题、概念或叙事推进，再说明今天这一项如何继续推进。overview 建议使用“接上一次阅读”和“今天往哪里推进”两个主体标题，中间用一行 --- 分隔；读前问题只放在 questions 数组里。`,
   };
 }
 
@@ -213,19 +229,14 @@ function parseGuide(raw) {
   const jsonText = extractJson(raw);
   try {
     const parsed = JSON.parse(jsonText);
-    return normalizeGuide(parsed);
+    return normalizeGuide({ ...parsed, styleVersion: READING_GUIDE_STYLE_VERSION });
   } catch {
     const repaired = parseGuideFields(jsonText);
-    if (hasGuideContent(repaired)) return repaired;
+    if (hasGuideContent(repaired)) {
+      return normalizeGuide({ ...repaired, styleVersion: READING_GUIDE_STYLE_VERSION });
+    }
 
-    return {
-      overview: "",
-      goals: [],
-      concepts: [],
-      questions: [],
-      focus: [],
-      notes: raw,
-    };
+    return normalizeGuide(buildEmptyGuide(raw));
   }
 }
 
@@ -250,6 +261,18 @@ function normalizeGuide(value) {
     questions: chooseGuideList(value.questions, repaired?.questions),
     focus: chooseGuideList(value.focus, repaired?.focus),
     notes: hasGuideContent(repaired) ? "" : value.notes,
+  };
+}
+
+function buildEmptyGuide(raw) {
+  return {
+    overview: "",
+    goals: [],
+    concepts: [],
+    questions: [],
+    focus: [],
+    notes: raw,
+    styleVersion: READING_GUIDE_STYLE_VERSION,
   };
 }
 

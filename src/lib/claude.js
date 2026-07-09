@@ -7,6 +7,8 @@
 //   3. 把各种错误（Key 无效、限流、网络失败）翻译成清晰的中文提示。
 // ============================================================
 
+import { isAiOutputTruncated } from "./aiCompletion.js";
+
 const API_URL = "https://api.anthropic.com/v1/messages";
 
 // Anthropic 接口要求的固定请求头（不含 apiKey，调用时再拼上）
@@ -68,17 +70,21 @@ export async function callClaudeDetailed({
   system,
   messages,
   maxTokens = 1024,
+  signal,
+  temperature,
 }) {
-  if (!apiKey) throw new Error("尚未设置 API Key，请先到「设置」里填写。");
+  if (!apiKey) throw new Error("请先到「设置」里填写 API Key。");
 
   let res;
   try {
     res = await fetch(API_URL, {
       method: "POST",
       headers: buildHeaders(apiKey),
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
+      body: JSON.stringify(buildClaudeBody({ model, maxTokens, system, messages, temperature })),
+      signal,
     });
   } catch (e) {
+    if (isAbortError(e)) throw e;
     // fetch 抛异常通常是网络问题（断网、被拦截等）
     throw new Error("网络请求失败，请检查网络连接后重试。");
   }
@@ -96,6 +102,7 @@ export async function callClaudeDetailed({
     model: data.model || model,
     id: data.id,
     finishReason: data.stop_reason || "",
+    truncated: isAiOutputTruncated(data.stop_reason || ""),
   };
 }
 
@@ -118,25 +125,23 @@ export async function streamClaude(
 }
 
 export async function streamClaudeDetailed(
-  { apiKey, model, system, messages, maxTokens = 1024 },
+  { apiKey, model, system, messages, maxTokens = 1024, signal, temperature },
   onText
 ) {
-  if (!apiKey) throw new Error("尚未设置 API Key，请先到「设置」里填写。");
+  if (!apiKey) throw new Error("请先到「设置」里填写 API Key。");
 
   let res;
   try {
     res = await fetch(API_URL, {
       method: "POST",
       headers: buildHeaders(apiKey),
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        system,
-        messages,
-        stream: true, // 开启流式
-      }),
+      body: JSON.stringify(
+        buildClaudeBody({ model, maxTokens, system, messages, temperature, stream: true })
+      ),
+      signal,
     });
   } catch (e) {
+    if (isAbortError(e)) throw e;
     throw new Error("网络请求失败，请检查网络连接后重试。");
   }
 
@@ -210,7 +215,27 @@ export async function streamClaudeDetailed(
     model: responseModel,
     id,
     finishReason,
+    truncated: isAiOutputTruncated(finishReason),
   };
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
+}
+
+function buildClaudeBody({ model, maxTokens, system, messages, temperature, stream = false }) {
+  const body = { model, max_tokens: maxTokens, system, messages };
+  const normalizedTemperature = normalizeTemperature(temperature);
+  if (normalizedTemperature !== null) body.temperature = normalizedTemperature;
+  if (stream) body.stream = true;
+  return body;
+}
+
+function normalizeTemperature(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.min(1, Math.max(0, number));
 }
 
 // ------------------------------------------------------------

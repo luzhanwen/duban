@@ -1,3 +1,4 @@
+import { AI_PROFILE_TASKS } from "./aiProfiles.js";
 import { normalizeSettings, PROVIDERS } from "./storage.js";
 import { toText } from "./text.js";
 
@@ -14,6 +15,12 @@ const SECTION_ALIASES = new Map([
   ["settings", ""],
   ["general", ""],
   ["global", ""],
+  ["budget", "aiBudget"],
+  ["aibudget", "aiBudget"],
+  ["预算", "aiBudget"],
+  ["profiles", "aiProfiles"],
+  ["aiprofiles", "aiProfiles"],
+  ["profile", "aiProfiles"],
 ]);
 
 const OPENAI_VENDOR_ORDER = ["openai", "deepseek", "kimi"];
@@ -61,6 +68,14 @@ const GLOBAL_KEY_ALIASES = new Map([
   ["openaimodel", "openaiCompatible.model"],
   ["inputpricepermtok", "openaiCompatible.inputPricePerMTok"],
   ["outputpricepermtok", "openaiCompatible.outputPricePerMTok"],
+  ["aibudgetenabled", "aiBudget.enabled"],
+  ["budgetenabled", "aiBudget.enabled"],
+  ["maxinputtokensperrequest", "aiBudget.maxInputTokensPerRequest"],
+  ["maxoutputtokensperrequest", "aiBudget.maxOutputTokensPerRequest"],
+  ["maxestimatedcostperrequest", "aiBudget.maxEstimatedCostPerRequest"],
+  ["maxestimatedcostperday", "aiBudget.maxEstimatedCostPerDay"],
+  ["aiprofilesenabled", "aiProfiles.enabled"],
+  ["profilesenabled", "aiProfiles.enabled"],
 ]);
 
 const SECTION_KEY_ALIASES = {
@@ -80,7 +95,45 @@ const SECTION_KEY_ALIASES = {
     ["outputpricepermtok", "openaiCompatible.outputPricePerMTok"],
     ["outputprice", "openaiCompatible.outputPricePerMTok"],
   ]),
+  aiBudget: new Map([
+    ["enabled", "aiBudget.enabled"],
+    ["on", "aiBudget.enabled"],
+    ["maxinputtokensperrequest", "aiBudget.maxInputTokensPerRequest"],
+    ["inputtokens", "aiBudget.maxInputTokensPerRequest"],
+    ["maxinputtokens", "aiBudget.maxInputTokensPerRequest"],
+    ["maxoutputtokensperrequest", "aiBudget.maxOutputTokensPerRequest"],
+    ["outputtokens", "aiBudget.maxOutputTokensPerRequest"],
+    ["maxoutputtokens", "aiBudget.maxOutputTokensPerRequest"],
+    ["maxestimatedcostperrequest", "aiBudget.maxEstimatedCostPerRequest"],
+    ["requestcost", "aiBudget.maxEstimatedCostPerRequest"],
+    ["maxrequestcost", "aiBudget.maxEstimatedCostPerRequest"],
+    ["maxestimatedcostperday", "aiBudget.maxEstimatedCostPerDay"],
+    ["daycost", "aiBudget.maxEstimatedCostPerDay"],
+    ["dailycost", "aiBudget.maxEstimatedCostPerDay"],
+    ["maxdailycost", "aiBudget.maxEstimatedCostPerDay"],
+  ]),
 };
+
+const PROFILE_FIELD_ALIASES = new Map([
+  ["enabled", "enabled"],
+  ["on", "enabled"],
+  ["provider", "provider"],
+  ["anthropicmodel", "anthropicModel"],
+  ["claudemodel", "anthropicModel"],
+  ["openaibaseurl", "openaiBaseUrl"],
+  ["baseurl", "openaiBaseUrl"],
+  ["url", "openaiBaseUrl"],
+  ["openaimodel", "openaiModel"],
+  ["model", "openaiModel"],
+  ["inputpricepermtok", "inputPricePerMTok"],
+  ["inputprice", "inputPricePerMTok"],
+  ["outputpricepermtok", "outputPricePerMTok"],
+  ["outputprice", "outputPricePerMTok"],
+  ["maxtokens", "maxTokens"],
+  ["maxoutputtokens", "maxTokens"],
+  ["temperature", "temperature"],
+  ["temp", "temperature"],
+]);
 
 const OPENAI_VENDOR_KEY_ALIASES = new Map([
   ["apikey", "apiKey"],
@@ -101,6 +154,10 @@ export function parseAiConfigText(rawText) {
   const settings = {
     anthropic: {},
     openaiCompatible: {},
+    aiBudget: {},
+    aiProfiles: {
+      tasks: {},
+    },
   };
   const appliedKeys = [];
   const vendorKeys = [];
@@ -118,7 +175,7 @@ export function parseAiConfigText(rawText) {
     if (sectionMatch) {
       section = normalizeSection(sectionMatch[1]);
       if (section === null) {
-        warnings.push(`第 ${lineNumber} 行的分组无法识别，已跳过：${sectionMatch[1]}`);
+        warnings.push(`第 ${lineNumber} 行的分组暂未支持，已跳过：${sectionMatch[1]}`);
         section = "";
       }
       return;
@@ -126,13 +183,13 @@ export function parseAiConfigText(rawText) {
 
     const entry = parseEntry(line);
     if (!entry) {
-      warnings.push(`第 ${lineNumber} 行不是 key = value 格式，已跳过。`);
+      warnings.push(`第 ${lineNumber} 行请使用 key = value 格式，已跳过。`);
       return;
     }
 
     const canonicalKey = canonicalizeKey(entry.key, section);
     if (!canonicalKey) {
-      warnings.push(`第 ${lineNumber} 行的配置项无法识别，已跳过：${entry.key}`);
+      warnings.push(`第 ${lineNumber} 行的配置项暂未支持，已跳过：${entry.key}`);
       return;
     }
 
@@ -171,11 +228,11 @@ export function parseAiConfigText(rawText) {
   const finalAppliedKeys = [...appliedKeys, ...finalizedVendorKeys];
 
   if (finalAppliedKeys.length === 0 && vendorKeys.length === 0) {
-    throw new Error("没有读取到可用配置，请确认 TXT 中使用 key = value 格式。");
+    throw new Error("请确认 TXT 中使用 key = value 格式，并至少填写一项可用配置。");
   }
 
   if (finalAppliedKeys.length === 0) {
-    throw new Error("没有读取到可保存的配置，请至少填写一个供应商的 API Key。");
+    throw new Error("请至少填写一个供应商的 API Key，再导入配置。");
   }
 
   return {
@@ -191,7 +248,7 @@ export function buildAiConfigText(settings) {
 
   return [
     "# 读伴 AI 当前配置导出",
-    "# 注意：此文件包含 API Key，请妥善保管，不要提交到代码仓库或发给他人。",
+    "# 注意：此文件包含 API Key，请妥善保管，避免提交到代码仓库或发给他人。",
     "# 这个文件可以在「设置 -> AI 批量配置」里重新导入。",
     "",
     `provider = ${formatProvider(normalized.provider, openaiSection)}`,
@@ -206,6 +263,30 @@ export function buildAiConfigText(settings) {
     `model = ${normalized.openaiCompatible.model}`,
     `inputPricePerMTok = ${normalized.openaiCompatible.inputPricePerMTok}`,
     `outputPricePerMTok = ${normalized.openaiCompatible.outputPricePerMTok}`,
+    "",
+    "[budget]",
+    `enabled = ${normalized.aiBudget.enabled}`,
+    `maxInputTokensPerRequest = ${normalized.aiBudget.maxInputTokensPerRequest}`,
+    `maxOutputTokensPerRequest = ${normalized.aiBudget.maxOutputTokensPerRequest}`,
+    `maxEstimatedCostPerRequest = ${normalized.aiBudget.maxEstimatedCostPerRequest}`,
+    `maxEstimatedCostPerDay = ${normalized.aiBudget.maxEstimatedCostPerDay}`,
+    "",
+    "[profiles]",
+    `enabled = ${normalized.aiProfiles.enabled}`,
+    ...AI_PROFILE_TASKS.flatMap((task) => {
+      const profile = normalized.aiProfiles.tasks[task.id] || {};
+      return [
+        `${task.id}.enabled = ${profile.enabled}`,
+        `${task.id}.provider = ${profile.provider}`,
+        `${task.id}.anthropicModel = ${profile.anthropicModel}`,
+        `${task.id}.openaiBaseUrl = ${profile.openaiBaseUrl}`,
+        `${task.id}.openaiModel = ${profile.openaiModel}`,
+        `${task.id}.inputPricePerMTok = ${profile.inputPricePerMTok}`,
+        `${task.id}.outputPricePerMTok = ${profile.outputPricePerMTok}`,
+        `${task.id}.maxTokens = ${profile.maxTokens}`,
+        `${task.id}.temperature = ${profile.temperature}`,
+      ];
+    }),
     "",
   ].join("\n");
 }
@@ -229,6 +310,10 @@ function findSeparatorIndex(line) {
 }
 
 function canonicalizeKey(rawKey, section) {
+  if (section === "aiProfiles") {
+    return canonicalizeProfileKey(rawKey);
+  }
+
   const normalizedKey = normalizeToken(rawKey);
   if (OPENAI_VENDOR_PRESETS[section]) {
     const vendorKey = OPENAI_VENDOR_KEY_ALIASES.get(normalizedKey);
@@ -270,7 +355,40 @@ function applyConfigValue(settings, canonicalKey, value) {
 
   if (canonicalKey.startsWith("openaiCompatible.")) {
     settings.openaiCompatible[canonicalKey.slice("openaiCompatible.".length)] = value;
+    return;
   }
+
+  if (canonicalKey.startsWith("aiBudget.")) {
+    settings.aiBudget[canonicalKey.slice("aiBudget.".length)] = value;
+    return;
+  }
+
+  if (canonicalKey === "aiProfiles.enabled") {
+    settings.aiProfiles.enabled = value;
+    return;
+  }
+
+  if (canonicalKey.startsWith("aiProfiles.tasks.")) {
+    const [, , taskId, field] = canonicalKey.split(".");
+    settings.aiProfiles.tasks[taskId] = {
+      ...(settings.aiProfiles.tasks[taskId] || {}),
+      [field]: value,
+    };
+  }
+}
+
+function canonicalizeProfileKey(rawKey) {
+  const text = toText(rawKey).trim();
+  if (normalizeToken(text) === "enabled") return "aiProfiles.enabled";
+
+  const separatorIndex = text.indexOf(".");
+  if (separatorIndex < 0) return "";
+
+  const taskKey = normalizeToken(text.slice(0, separatorIndex));
+  const fieldKey = normalizeToken(text.slice(separatorIndex + 1));
+  const task = AI_PROFILE_TASKS.find((candidate) => normalizeToken(candidate.id) === taskKey);
+  const field = PROFILE_FIELD_ALIASES.get(fieldKey);
+  return task && field ? `aiProfiles.tasks.${task.id}.${field}` : "";
 }
 
 function applySelectedVendorConfig({ settings, vendorConfigs, providerChoice, warnings }) {

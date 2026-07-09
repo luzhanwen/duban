@@ -1,6 +1,6 @@
 # Public Readiness Changes
 
-> Last updated: 2026-06-18
+> Last updated: 2026-07-07
 
 这份文档记录读伴在准备 public alpha 前补上的信任、安全和公开仓库成熟度改动。它不是路线图，也不是完整开发日志；重点是说明最近补了什么、为什么补、这些改动解决了哪些公开前风险。
 
@@ -117,12 +117,30 @@ npm run build:formal
 - 设置页能进入应用内隐私说明。
 - 隐私说明页包含书籍、API Key、笔记与高亮、聊天记录四类说明。
 
+## P6.5 安全与隐私加固
+
+2026-07-07 新增并更新 [SECURITY_PRIVACY_AUDIT.md](./SECURITY_PRIVACY_AUDIT.md)，作为 P6.5 安全与隐私加固的专项记录。
+
+本轮已完成：
+
+- `npm audit --json`：0 个漏洞，high/critical 均为 0。
+- `cargo tree -d`：记录 Rust 重复依赖树，作为后续收敛和 CI 检查基线。
+- `src-tauri/capabilities/default.json`：当前只有 `core:default` 和 event listen/unlisten 权限。
+- `src-tauri/tauri.conf.json`：asset protocol scope 限制为 `$APPDATA/files/**`。
+- Tauri command 暴露面已盘点，存储 command 已补 key、book id、外部备份路径和本地文件相对路径校验。
+- Tauri 正式 CSP、dev CSP 和基础安全头已写入配置。
+- Web 静态部署新增 `public/_headers`。
+- 新增 `scripts/security_scan.mjs` 和 `npm run security:scan`，并并入 `npm run security:audit`。
+- `SECURITY.md` 与 `PRIVACY.md` 已同步浏览器版和桌面版边界。
+
+仍需继续：
+
+- 安装并启用 `cargo audit` 或在 CI 中运行 RustSec 漏洞审计。
+- 新增供应商、新增 Tauri command、新增日志/诊断字段时继续复查 CSP、输入校验和敏感信息边界。
+
 ## 尚未处理的公开前事项
 
 这些不属于本轮改动，但仍建议在正式 public 前继续处理：
 
-- 升级 Vite / React plugin 相关开发依赖，消除完整 `npm audit` 中的 high 报告。
-- 上传 PDF/MOBI 前增加文件大小、页数、解析时间和取消机制。
-- 部署时配置 CSP、Referrer-Policy、Permissions-Policy、X-Content-Type-Options 等响应头。
-- 继续按 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md) 补生产级数据可靠性；P6.1 已完成 manifest/file sha256、失败自动回滚、外部路径导入、备份名称/备注和删除入口，P6.2 已完成非敏感 settings、封面、AI 排版缓存结构化和孤儿文件扫描/清理后端命令，后续重点转向大文件解析韧性、迁移夹具、压缩归档和备份签名。
+- 继续按 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md) 补生产级能力；P6.1-P6.6 基础版已完成，后续重点转向 P6.7 正式 macOS 发布包、迁移夹具、压缩归档、备份签名、自动更新和 CI。
 - 为 public alpha 增加 issue 模板和基础 CI。

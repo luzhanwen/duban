@@ -1,4 +1,5 @@
 import { streamModelDetailed } from "./ai.js";
+import { isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingReflectionPrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
 import { buildReadingContractContext } from "./readingContract.js";
@@ -54,6 +55,7 @@ export async function sendReadingReflectionMessage({
   messages,
   content,
   onDelta,
+  signal,
 }) {
   const text = toText(content).trim();
   if (!text) return { messages: normalizeReflectionMessages(messages), assistant: null };
@@ -90,16 +92,19 @@ export async function sendReadingReflectionMessage({
       },
     ],
     onText: onDelta,
+    signal,
+    taskType: "readingReflection",
   });
 
   const assistantMessage = {
     id: makeId("reflection-assistant"),
     role: "assistant",
-    content: toText(result.text).trim() || "我这次没有追问出来。你可以再补一句你的理解，我们继续聊。",
+    content: toText(result.text).trim() || "这次追问生成失败。你可以再补一句理解，我们继续聊。",
     model: result.model || getActiveModel(settings),
     usage: result.usage,
     cost: estimateReflectionCost(settings, result),
     finishReason: result.finishReason,
+    truncated: isAiOutputTruncated(result),
     maxOutputTokens: REFLECTION_MAX_OUTPUT_TOKENS,
     createdAt: new Date().toISOString(),
   };
@@ -230,7 +235,7 @@ function formatContractAvailableSummary(available = {}) {
   if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
   return parts.length > 0
     ? parts.join("；")
-    : "没有可用的开书契约加成，按原有读后交流逻辑追问，不要提及缺少上下文。";
+    : "开书契约上下文为空，按原有读后交流逻辑追问，并省略上下文状态说明。";
 }
 
 function asArray(value) {
@@ -259,7 +264,7 @@ function buildReadingContextText({ chatMessages, notes }) {
     noteText.length ? `高亮和笔记：\n${noteText.join("\n")}` : "",
   ].filter(Boolean);
 
-  return sections.length ? sections.join("\n\n").slice(0, MAX_READING_CONTEXT_CHARS) : "用户没有选择带入伴读问答或笔记，或当前阅读项暂无这些上下文。";
+  return sections.length ? sections.join("\n\n").slice(0, MAX_READING_CONTEXT_CHARS) : "用户当前未选择带入伴读问答或笔记，当前阅读项暂无这些上下文。";
 }
 
 function normalizeReadingNotes(value) {
@@ -295,10 +300,11 @@ function getActiveModel(settings) {
 }
 
 function estimateReflectionCost(settings, result) {
-  if (settings.provider === "openai-compatible") {
-    return estimateCustomCost(settings.openaiCompatible || {}, result.usage);
+  const costSettings = result.settingsUsed || settings;
+  if (costSettings.provider === "openai-compatible") {
+    return estimateCustomCost(costSettings.openaiCompatible || {}, result.usage);
   }
-  return estimateClaudeCost(result.model || settings.anthropic?.model, result.usage);
+  return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
 function makeId(prefix) {
