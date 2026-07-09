@@ -226,25 +226,25 @@ export default function PdfReader({
   return (
     <div
       ref={containerRef}
-      className="mx-auto w-full max-w-5xl"
+      className="pdf-reader-surface"
       onMouseUp={updateSelectionToolbar}
       onKeyUp={updateSelectionToolbar}
     >
       {loading && (
-        <div className="rounded-xl border border-line bg-paper px-6 py-12 text-center">
+        <div className="pdf-reader-state rounded-xl border border-line bg-paper px-6 py-12 text-center">
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-line border-t-accent" />
           <p className="mt-4 text-sm text-ink-soft">正在打开 PDF 原版页面…</p>
         </div>
       )}
 
       {error && (
-        <div className="rounded-xl border border-line bg-paper px-6 py-10 text-center">
+        <div className="pdf-reader-state rounded-xl border border-line bg-paper px-6 py-10 text-center">
           <p className="text-sm text-ink-soft">{error}</p>
         </div>
       )}
 
       {!loading && !error && (
-        <div className="space-y-8 pb-8">
+        <div className="pdf-reader-pages">
           {pageNumbers.map((pageNumber) => (
             <PdfPage
               key={pageNumber}
@@ -259,7 +259,7 @@ export default function PdfReader({
 
       {selectionToolbar && (
         <div
-          className="pdf-selection-toolbar fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-paper-card p-1 text-xs shadow-lg"
+          className="pdf-selection-toolbar reader-selection-toolbar fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-paper-card p-1 text-xs shadow-lg"
           style={{ top: `${selectionToolbar.top}px`, left: `${selectionToolbar.left}px` }}
           onMouseDown={(event) => event.preventDefault()}
         >
@@ -446,10 +446,10 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
       id={`pdf-page-${pageNumber}`}
       data-page-number={pageNumber}
       aria-label={`第 ${pageNumber} 页`}
-      className="scroll-mt-6"
+      className="pdf-reader-page scroll-mt-6"
     >
-      <div className="mb-3 text-center text-xs text-ink-soft">第 {pageNumber} 页</div>
-      <div className="relative min-h-60 overflow-x-auto rounded-lg bg-white p-3 shadow-sm ring-1 ring-line">
+      <div className="pdf-reader-page-label">第 {pageNumber} 页</div>
+      <div className="pdf-reader-page-paper relative min-h-60 overflow-x-auto rounded-lg bg-white p-3 shadow-sm ring-1 ring-line">
         <div
           className="relative mx-auto"
           style={{
@@ -461,7 +461,7 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
           <div ref={textLayerRef} className="textLayer" />
         </div>
         {status === "loading" && (
-          <div className="absolute inset-3 flex min-h-40 items-center justify-center rounded bg-white/80">
+          <div className="pdf-reader-page-loading absolute inset-3 flex min-h-40 items-center justify-center rounded bg-white/80">
             <p className="text-sm text-ink-soft">正在渲染第 {pageNumber} 页…</p>
           </div>
         )}

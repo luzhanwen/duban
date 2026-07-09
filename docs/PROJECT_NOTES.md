@@ -1,6 +1,6 @@
 # 读伴项目记录
 
-> 最后更新：2026-07-08
+> 最后更新：2026-07-09
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
@@ -101,6 +101,7 @@
 - Vite + React
 - Tailwind CSS
 - PDF.js
+- 阅读器正文页已开始按「现代数字书斋」视觉标准收敛：顶栏、正文纸页、PDF 承托和右侧读伴栏统一使用米纸、淡墨、柔和纸边和少量朱砂强调。
 - 浏览器版使用 localforage + IndexedDB
 - Tauri 桌面版已接入 SQLite + App 数据目录文件存储，API Key 保存到系统 Keychain；真正 AI 使用路径允许在当前进程内短期缓存已解析密钥，减少连续系统授权弹窗
 - Claude / OpenAI-compatible BYOK，用户在设置页填自己的 API Key
@@ -887,13 +888,18 @@ readingProfile: {
 - 新增 AI 错误详情复制：可以复制最近异常调用，也可以复制单条异常摘要；复制内容不包含 API Key、prompt、正文、笔记或聊天全文。
 - 备份导出、导入、删除和元数据更新会写入脱敏本地诊断日志；不记录外部路径、备注正文或书籍内容。
 - P6.6 文档、路线图、后端标准和 AI 接手提示词已收口；下一步进入 P6.7 正式 macOS 发布包。
+- 2026-07-09：P6.7.1 发布配置收束已完成：固定 `0.1.0`、formal/test channel、正式/测试 bundle identifier、artifact 命名、release preflight、manifest/checksum 和 release notes 约定。下一步进入签名/公证前正式包验证。
+- 2026-07-09：P6.7.2 签名/公证前准备已完成：新增 Developer ID 签名环境预检、signed DMG 打包、公证/staple、Gatekeeper 验证脚本；formal macOS 构建启用 hardened runtime 和 entitlements；发布流程文档补充用户侧 Apple Developer 证书与 notarytool 凭据步骤。
+- 2026-07-09：P6.7 真实签名/公证暂时搁置：Apple Developer Program 注册申请仍在审核中，暂时无法创建 `Developer ID Application` 证书；下一步建议先推进不依赖 Apple 审核的 P6.9 CI 与发布流水线或 P6.10 QA 矩阵。
+- 2026-07-09：P6.9.1 基础 CI 和 P6.9.2 Release preflight CI 已完成：新增 GitHub Actions，在 macOS runner 上执行 `npm run build`、`npm run release:preflight`、Rust fmt/check/test 和 `npm run security:scan`。
+- 2026-07-09：P6.9.3 发布检查清单与协作模板已完成：新增 release checklist、PR checklist、bug report 和 feature request issue forms，明确验证命令、隐私边界、数据迁移、备份、Keychain、发布和文档同步检查。
 
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - P6.4 AI transport 生产化主体已完成：Keychain 连续弹窗、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断均已落地。
-- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成，下一步进入 P6.7 正式 macOS 发布包。
+- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1 发布配置收束和 P6.7.2 签名/公证前准备已完成；P6.9.1 基础 CI、P6.9.2 Release preflight CI 和 P6.9.3 发布/协作模板已完成；真实签名/公证等待 Apple Developer Program 审核通过。
 - 2026-07-08：桌面版主窗口点叉号改为隐藏到后台，不直接退出进程；macOS 点击 Dock 图标会重新显示并聚焦主窗口。
 - 2026-07-08：`tauri:dev` 下 Dock 右键退出可能短暂显示终端/调试进程图标；这是开发态未打包二进制的身份问题。Dock 图标一致性请用 `src-tauri/target/release/bundle/macos/读伴.app` 这类真实 bundle 测试包验证。
 - PDF 图片、表格、扫描件 OCR 暂未支持。

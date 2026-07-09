@@ -1,0 +1,79 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please do not include API keys, full book text, private notes, chat transcripts, or absolute local file paths.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: The app...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Open...
+        2. Click...
+        3. See...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Desktop app
+        - Browser app
+        - Backup/import/export
+        - AI/model request
+        - Reading/PDF/MOBI
+        - Settings/Keychain
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+      placeholder: 0.1.0 or commit SHA
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.x, macOS 14.x, etc.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste a sanitized diagnostic summary or error message. Do not paste API keys, prompts, book text, notes, or chat content.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed API keys, book text, private notes, chat transcripts, and absolute local file paths.
+          required: true

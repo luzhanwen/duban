@@ -1,6 +1,6 @@
 # 后续 AI 接手提示词
 
-> 最后更新：2026-07-07
+> 最后更新：2026-07-09
 
 本文档保存后续让 AI 接手读伴项目时可直接复制的提示词模板。它不是产品 prompt；产品内导读、问答、读后交流 prompt 仍维护在 `src/prompts/`，写作标准见 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)，开书契约上下文见 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
 
@@ -26,6 +26,7 @@
 9. 如果涉及开书契约或读伴记忆：docs/READING_CONTRACT_CONTEXT.md
 10. 如果涉及安全、隐私、Tauri command、备份、Keychain 或发布前检查：docs/SECURITY_PRIVACY_AUDIT.md
 11. 如果涉及诊断日志、诊断包、健康检查或错误详情复制：docs/DIAGNOSTICS_PRIVACY_SPEC.md
+12. 如果涉及正式发布包、构建通道、artifact、checksum 或 release notes：docs/RELEASE_PROCESS.md
 
 项目当前是浏览器 MVP + Tauri 桌面版：
 - 浏览器版使用 IndexedDB。
@@ -288,4 +289,8 @@
 - P6.5 安全与隐私加固基础版已完成：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步都已落地。
 - P6.6 基础版已完成：诊断字段/隐私过滤规范已落文档，Rust 本地 JSONL 诊断日志会记录 App 启动、SQLite 初始化、AI 请求摘要和备份操作摘要；设置页可运行健康检查、导出诊断包，并复制最近 AI 错误详情。
 - `npm run security:scan` 会检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时跑 `npm audit`、Rust 重复依赖树和安全扫描。
-- 仍待推进：P6.7 正式 macOS 发布包、压缩归档、备份签名、迁移夹具、签名公证、自动更新和 CI 中的 `cargo audit`。
+- P6.7.1 发布配置收束已完成：正式包使用 `formal` channel、`com.duban.reader`，测试包使用 `test` channel、`com.duban.reader.test`；发布流程见 `docs/RELEASE_PROCESS.md`。
+- P6.7.2 签名/公证前准备已完成：`release:signing-preflight`、`package:mac-signed`、`release:notarize`、`release:gatekeeper` 已落地；真实签名/公证等待 Apple Developer Program 审核通过后创建 `Developer ID Application` 证书和 notarytool 凭据。
+- P6.9.1 基础 CI 和 P6.9.2 Release preflight CI 已完成：`.github/workflows/ci.yml` 会执行 formal build、release preflight、Rust fmt/check/test 和安全扫描。
+- P6.9.3 发布检查清单与协作模板已完成：`docs/RELEASE_CHECKLIST.md`、`.github/PULL_REQUEST_TEMPLATE.md`、bug report 和 feature request issue forms 已落地。
+- 仍待推进：使用真实证书跑 signed + notarized DMG、干净 macOS 回归、Tauri build workflow、artifact 检查、压缩归档、备份签名、迁移夹具、自动更新和 CI 中的 `cargo audit`。

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandName, renderBrandNameText } from "./BrandLogo.jsx";
+import ChineseIcon from "./ChineseIcon.jsx";
 import PdfReader from "./PdfReader.jsx";
 import ReadingCompanionAvatar from "./ReadingCompanionAvatar.jsx";
 import TextBookReader from "./TextBookReader.jsx";
@@ -296,10 +297,7 @@ export default function Reader({
           返回书架
         </button>
         <section className="mt-8 rounded-xl border border-line bg-paper-card p-8 text-center shadow-sm">
-          <h2 className="font-serif text-2xl text-ink">还没有阅读计划</h2>
-          <p className="mt-3 text-sm text-ink-soft">
-            先设定读伴和阅读计划，再开始按章节阅读。
-          </p>
+          <h2 className="font-serif text-2xl text-ink">未设定读伴</h2>
           <button
             onClick={() => onPlan(book.id)}
             className="mt-6 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
@@ -1002,8 +1000,7 @@ function IntroStage({
         >
           <CompanionGuideHeader
             companion={companion}
-            title={<><BrandName />今天陪你读</>}
-            subtitle="读前先轻轻对齐一下方向"
+            title="导读"
             thinking={guideLoading}
           />
 
@@ -1216,22 +1213,23 @@ function ReadingStage({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-line bg-paper/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs text-ink-soft">
-              {toText(book.title)} · Day {item.day}
+    <div className="reader-reading-page">
+      <header className="reader-reading-header">
+        <div className="reader-reading-header-inner">
+          <div className="reader-reading-title-block">
+            <p className="reader-reading-kicker">
+              <ChineseIcon name="scroll" className="h-4 w-4" decorative />
+              <span>{toText(book.title)} · Day {item.day}</span>
             </p>
-            <h1 className="mt-1 font-serif text-2xl text-ink">{item.title}</h1>
+            <h1 className="reader-reading-title">{item.title}</h1>
             {continuing && savedLocation?.pageNumber && (
-              <p className="mt-1 text-xs text-ink-soft">
+              <p className="reader-reading-resume">
                 继续上次：{formatPageLabel(savedLocation.pageNumber, pageUnitLabel)}
                 {savedLocation.updatedAt ? ` · ${formatReadingTime(savedLocation.updatedAt)}` : ""}
               </p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="reader-reading-actions">
             <ReadingModeControl
               mode={readingMode}
               activePage={activeReaderPage}
@@ -1244,33 +1242,39 @@ function ReadingStage({
               onNext={() => handleReaderPageJump(activeReaderPage + 1)}
             />
             <button
+              type="button"
               onClick={onIntro}
-              className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card"
+              className="reader-reading-action-button"
             >
-              回到导读
+              <ChineseIcon name="plan" className="h-4 w-4" decorative />
+              <span>回到导读</span>
             </button>
             <button
+              type="button"
               onClick={onBack}
-              className="rounded-lg border border-line px-3 py-2 text-sm text-ink-soft hover:bg-paper-card"
+              className="reader-reading-action-button"
             >
-              {completed ? "回到书架" : "中途离开"}
+              <ChineseIcon name="books" className="h-4 w-4" decorative />
+              <span>{completed ? "回到书架" : "中途离开"}</span>
             </button>
             <button
+              type="button"
               onClick={onReflection}
-              className="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+              className="reader-reading-action-button reader-reading-action-primary"
             >
-              我读完了
+              <ChineseIcon name="seal" className="h-4 w-4" decorative />
+              <span>我读完了</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
+      <main className="reader-reading-layout">
         <article
           ref={readerPaneRef}
           className={`reader-reading-pane ${
             pageMode ? "reader-reading-pane-page" : "reader-reading-pane-scroll"
-          } min-h-[60vh] overflow-y-auto rounded-xl border border-line bg-paper-card px-4 py-5 shadow-sm sm:px-10 sm:py-7 lg:min-h-0`}
+          }`}
         >
           {pdfBook ? (
             <PdfReader
@@ -1371,50 +1375,46 @@ function ReadingModeControl({
   onNext,
 }) {
   const pagePosition = Math.max(1, activePage - pageRange.start + 1);
-  const modeButtonBase =
-    "rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-accent/25";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="grid grid-cols-2 rounded-lg bg-paper-card p-1" aria-label="阅读方式">
+    <div className="reader-mode-control">
+      <div className="reader-mode-tabs" aria-label="阅读方式">
         <button
           type="button"
           aria-pressed={mode === READER_VIEW_MODES.scroll}
           onClick={() => onModeChange(READER_VIEW_MODES.scroll)}
-          className={`${modeButtonBase} ${
-            mode === READER_VIEW_MODES.scroll
-              ? "bg-paper text-ink shadow-sm"
-              : "text-ink-soft hover:text-ink"
+          className={`reader-mode-button ${
+            mode === READER_VIEW_MODES.scroll ? "is-active" : ""
           }`}
         >
-          滚动
+          <ChineseIcon name="scroll" className="h-3.5 w-3.5" decorative />
+          <span>滚动</span>
         </button>
         <button
           type="button"
           aria-pressed={mode === READER_VIEW_MODES.page}
           onClick={() => onModeChange(READER_VIEW_MODES.page)}
-          className={`${modeButtonBase} ${
-            mode === READER_VIEW_MODES.page
-              ? "bg-paper text-ink shadow-sm"
-              : "text-ink-soft hover:text-ink"
+          className={`reader-mode-button ${
+            mode === READER_VIEW_MODES.page ? "is-active" : ""
           }`}
         >
-          翻页
+          <ChineseIcon name="sample" className="h-3.5 w-3.5" decorative />
+          <span>翻页</span>
         </button>
       </div>
 
       {mode === READER_VIEW_MODES.page && (
-        <div className="flex items-center gap-1 rounded-lg border border-line bg-paper/80 p-1 text-xs text-ink-soft">
+        <div className="reader-page-stepper">
           <button
             type="button"
             aria-label="上一页"
             disabled={!canGoPrevious}
             onClick={onPrevious}
-            className="h-7 w-7 rounded-md text-base leading-none text-ink-soft hover:bg-paper-card hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            className="reader-page-stepper-button"
           >
             ←
           </button>
-          <span className="min-w-20 px-2 text-center">
+          <span className="reader-page-stepper-label">
             {formatPageLabel(activePage, pageUnitLabel)} · {pagePosition}/{pageRange.total}
           </span>
           <button
@@ -1422,7 +1422,7 @@ function ReadingModeControl({
             aria-label="下一页"
             disabled={!canGoNext}
             onClick={onNext}
-            className="h-7 w-7 rounded-md text-base leading-none text-ink-soft hover:bg-paper-card hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            className="reader-page-stepper-button"
           >
             →
           </button>
@@ -1517,7 +1517,7 @@ function ReflectionStage({
           读完后，留一个判断
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          先不急着总结全章。把印象最深的一处、一个疑问或一个判断写下来，再顺着它往下看。
+          写下一个问题、判断或印象最深的一处。
         </p>
 
         <section
@@ -1532,7 +1532,7 @@ function ReflectionStage({
                   <BrandName />追问
                 </h2>
                 <p className="mt-1 text-sm text-ink-soft">
-                  {answered ? "沿着刚才的判断继续。" : "先回答下面这个问题。"}
+                  {answered ? "继续。" : "写下回答。"}
                 </p>
               </div>
             </div>
@@ -1700,12 +1700,6 @@ function DailyCompleteStage({
         <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
           今天这段读完了
         </h1>
-        <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          你已经读完「{item.title}」。可以到这里收住，留一点时间把问题放稳；
-          {hasNext && nextDue
-            ? "下一项已经到了计划日，也可以继续往前读。"
-            : "也可以提前进入下一章，系统会记录为提前阅读。"}
-        </p>
 
         <section className="mt-10 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -1739,9 +1733,8 @@ function DailyCompleteStage({
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs text-ink-soft">阅读目录</p>
-              <h2 className="mt-1 font-serif text-2xl text-ink">回顾今天或以前的内容</h2>
+              <h2 className="mt-1 font-serif text-2xl text-ink">阅读目录</h2>
             </div>
-            <p className="text-xs text-ink-soft">已读和未读会分开标记</p>
           </div>
           <ReadingDirectoryList
             currentIndex={currentIndex}
@@ -1797,7 +1790,7 @@ function CompanionGuideHeader({ companion, title, subtitle, thinking = false }) 
     <div className="reader-companion-guide-header">
       <CompanionAvatarBadge companion={companion} thinking={thinking} />
       <div className="reader-companion-guide-copy">
-        <p>{subtitle}</p>
+        {subtitle && <p>{subtitle}</p>}
         <h2>{title}</h2>
       </div>
     </div>
@@ -1824,7 +1817,7 @@ function GuideOverviewBubbles({ overview }) {
   return chunks.map((chunk, index) => (
     <GuideSpeechBubble
       key={`guide-overview-bubble-${index}`}
-      label={index === 0 ? "读伴给你的读前话" : "接着说"}
+      label=""
       tone={index === 0 ? "primary" : "default"}
     >
       <GuideMarkdownText value={chunk} />
@@ -1880,19 +1873,19 @@ function TutorBriefing({
   return (
     <div className="guide-briefing">
       {disabled && (
-        <GuideSpeechBubble label="读伴小声说" tone="muted">
-          <p>当前阅读项需要先有章节文本，才能生成导读。</p>
+        <GuideSpeechBubble label="缺少章节文本" tone="muted">
+          <p>无法生成导读。</p>
         </GuideSpeechBubble>
       )}
 
       {error && (
-        <GuideSpeechBubble label="读伴遇到了一点问题" tone="error">
+        <GuideSpeechBubble label="生成失败" tone="error">
           <p>{error}</p>
         </GuideSpeechBubble>
       )}
 
       {loading && (
-        <GuideSpeechBubble label="读伴正在整理" tone="soft">
+        <GuideSpeechBubble label="生成中" tone="soft">
           <GuideLoading startedAt={startedAt} compact />
           <button
             type="button"
@@ -1905,15 +1898,12 @@ function TutorBriefing({
       )}
 
       {!guide && !disabled && !error && !loading && (
-        <GuideSpeechBubble label="读伴还没准备读前话" tone="soft">
-          <p>
-            我可以先把今天这段整理成几句好入口的话，再给你留几条轻轻带着读的提醒。
-          </p>
+        <GuideSpeechBubble tone="soft">
           <button
             onClick={onGenerate}
-            className="guide-primary-button mt-4 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
+            className="guide-primary-button rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
-            让<BrandName />准备导读
+            生成导读
           </button>
         </GuideSpeechBubble>
       )}
@@ -1923,13 +1913,13 @@ function TutorBriefing({
           <GuideOverviewBubbles overview={guide.overview} />
           <div className="guide-bubble-columns">
             <GuideBubbleList
-              kicker="读伴会提醒你"
-              title="读完可以带走"
+              kicker="目标"
+              title="带走什么"
               items={guide.goals}
             />
             <GuideBubbleList
-              kicker="读伴想问你"
-              title="读的时候想一想"
+              kicker="问题"
+              title="留意什么"
               items={guide.questions}
             />
           </div>
@@ -1992,8 +1982,8 @@ function TutorSidebar({
   const companion = getReaderCompanion(book);
   const companionThinking = chatLoading || loading;
   const companionStatus = currentPage
-    ? `${formatPageLabel(currentPage, pageUnitLabel)}，随时问我`
-    : "我会陪你读这一段";
+    ? formatPageLabel(currentPage, pageUnitLabel)
+    : "读伴";
 
   useEffect(() => {
     if (selectedQuoteDraft?.text) {
@@ -2007,18 +1997,20 @@ function TutorSidebar({
   }, [selectedQuoteDraft, pendingNoteDraft]);
 
   return (
-    <aside className="overflow-visible lg:h-full lg:min-h-0 lg:overflow-hidden">
+    <aside className="reader-sidebar-shell">
       <section
-        className="flex flex-col gap-3 rounded-xl border border-line bg-paper-card p-3 shadow-sm lg:h-full lg:min-h-0"
+        className="reader-sidebar-panel"
         style={companion.style}
       >
         <div className="reader-companion-sidebar-card">
           <CompanionAvatarBadge companion={companion} size="tiny" thinking={companionThinking} />
           <div className="min-w-0">
-            <p><BrandName />正在旁边</p>
+            <p><BrandName /></p>
             <h2>{companionStatus}</h2>
             {currentPage && (
-              <span>{currentPageHasText ? "这页可以直接问" : "这页暂时没有可用文本"}</span>
+              <span className="reader-companion-context-status">
+                {currentPageHasText ? "参考本页内容与阅读进度中" : "参考阅读进度中"}
+              </span>
             )}
           </div>
         </div>
@@ -2093,17 +2085,13 @@ const SIDEBAR_PANEL_OPTIONS = [
 
 function SidebarPanelTabs({ activePanel, onChange }) {
   return (
-    <div className="grid grid-cols-4 rounded-lg bg-paper p-1">
+    <div className="reader-sidebar-tabs">
       {SIDEBAR_PANEL_OPTIONS.map((option) => (
         <button
           key={option.key}
           type="button"
           onClick={() => onChange(option.key)}
-          className={`rounded-md px-2 py-1.5 text-xs transition ${
-            activePanel === option.key
-              ? "bg-accent text-white"
-              : "text-ink-soft hover:bg-paper-card hover:text-ink"
-          }`}
+          className={`reader-sidebar-tab ${activePanel === option.key ? "is-active" : ""}`}
         >
           {renderBrandNameText(option.label, `sidebar-tab-${option.key}`)}
         </button>
@@ -2124,7 +2112,7 @@ const GUIDE_TAB_OPTIONS = [
     key: "questions",
     label: "问题",
     kicker: "读的时候留意",
-    title: "可以追的问题",
+    title: "问题",
     promptPrefix: "请带着这个问题陪我读：",
   },
 ];
@@ -2196,7 +2184,7 @@ function ChatPanel({
 
   return (
     <section
-      className="flex h-[440px] min-h-0 flex-col gap-2 overflow-hidden rounded-xl border border-line bg-paper p-2 sm:h-[520px] sm:p-3 lg:h-auto lg:flex-1 lg:basis-0"
+      className="reader-chat-panel"
       style={companion?.style}
     >
       {noteNotice && (
@@ -2224,7 +2212,7 @@ function ChatPanel({
 
       <div
         ref={messagesRef}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto rounded-lg bg-paper-card px-3 py-3"
+        className="reader-chat-messages"
       >
         {messages.length === 0 ? (
           <AssistantWelcome companion={companion} />
@@ -2249,7 +2237,7 @@ function ChatPanel({
       {error && <p className="mt-3 text-xs leading-5 text-red-600">{error}</p>}
 
       <form onSubmit={handleSubmit} className="mt-2 shrink-0">
-        <div className="rounded-xl border border-line bg-paper-card p-2 focus-within:border-accent">
+        <div className="reader-chat-composer">
           {activeQuote && (
             <div className="mb-2 flex items-start gap-2 rounded-lg bg-paper px-3 py-2 text-xs text-ink-soft">
               <span className="mt-0.5 text-ink-soft">↪</span>
@@ -2273,14 +2261,14 @@ function ChatPanel({
             onKeyDown={handleTextareaKeyDown}
             disabled={loading || disabled}
             rows={2}
-            placeholder={disabled ? "当前章节暂无可用文本" : "输入你的问题"}
+            placeholder={disabled ? "无可用文本" : "问读伴"}
             className="w-full resize-none border-0 bg-transparent px-1 py-1 text-sm leading-6 text-ink outline-none disabled:opacity-60"
           />
         </div>
         <button
           type="submit"
           disabled={(!draft.trim() && !activeQuote) || loading || disabled}
-          className="mt-2 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          className="reader-chat-submit"
         >
           {loading ? "等待回答…" : "发送"}
         </button>
@@ -2433,9 +2421,9 @@ function ReplaceSourceBanner({ note, onCancel }) {
   return (
     <div className="fixed inset-x-4 bottom-4 z-40 sm:inset-x-auto sm:left-1/2 sm:w-[520px] sm:-translate-x-1/2 lg:left-auto lg:right-[460px] lg:w-[520px] lg:translate-x-0">
       <div className="rounded-xl border border-line bg-paper-card p-3 text-sm leading-6 text-ink shadow-2xl ring-1 ring-line/70">
-        <p className="font-medium">正在重新选择原文</p>
+        <p className="font-medium">重新划原文</p>
         <p className="mt-1 line-clamp-2 text-xs text-ink-soft">
-          为「{note.text || note.note || "这条笔记"}」重新划一段文字，然后点浮层里的「添加笔记」。
+          「{note.text || note.note || "这条笔记"}」
         </p>
         <button
           type="button"
@@ -2493,7 +2481,6 @@ function NoteComposer({
       <div className="rounded-lg bg-paper px-3 py-2 text-xs leading-5 text-ink-soft">
         <div className="flex items-center justify-between gap-3">
           <p className="font-medium text-ink">{draft.title || "添加高亮笔记"}</p>
-          <p className="text-[11px] text-ink-soft">支持 Markdown</p>
         </div>
         <p className="mt-1 line-clamp-3">“{draft.text}”</p>
         {draft.pageNumber && (
@@ -2504,7 +2491,7 @@ function NoteComposer({
         value={noteText}
         onChange={(event) => setNoteText(event.target.value)}
         rows={floating ? 5 : 3}
-        placeholder={draft.placeholder || "写一点你的理解、疑问，或留空只保存高亮。"}
+        placeholder={draft.placeholder || "写下理解或疑问。"}
         className="mt-2 w-full resize-none rounded-lg border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
       />
       <div className="mt-2 grid grid-cols-2 gap-2">
@@ -2531,7 +2518,7 @@ function AssistantWelcome({ companion }) {
     <article className="flex items-start gap-2">
       <CompanionAvatarBadge companion={companion} size="mini" />
       <div className="max-w-[88%] rounded-2xl rounded-tl-sm bg-paper px-4 py-3 text-sm leading-6 text-ink shadow-sm">
-        我是<BrandName />。可以直接问某个概念、某段话的意思；如果选中原文再提问，我会更贴近那一句。
+        可以问当前页、章节或本书脉络。选中原文后，会带上那一段作为上下文。
       </div>
     </article>
   );
@@ -2862,9 +2849,7 @@ function SidebarPanel({
           <CompanionAvatarBadge companion={companion} size="tiny" thinking={loading} />
           <div>
             <p className="text-xs text-ink-soft">阅读提示</p>
-            <h3 className="mt-1 text-sm font-medium text-ink">
-              <BrandName />今天想提醒你
-            </h3>
+            <h3 className="mt-1 text-sm font-medium text-ink">导读</h3>
           </div>
         </div>
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
@@ -2881,10 +2866,7 @@ function SidebarPanel({
           {error && <p className="text-sm leading-6 text-red-600">{error}</p>}
           {!guide && !loading && (
             <div className="guide-empty-callout rounded-xl border border-line bg-paper-card px-4 py-4 shadow-sm">
-              <p className="text-sm font-medium text-ink">还没有阅读提示</p>
-              <p className="mt-2 text-xs leading-5 text-ink-soft">
-                生成后会变成几条轻量提示，读的时候随时可以回来看看。
-              </p>
+              <p className="text-sm font-medium text-ink">暂无导读</p>
               <div className="mt-4 space-y-2">
                 <span className="guide-skeleton-bar block h-2.5 w-24 rounded-full bg-line" />
                 <span className="guide-skeleton-bar block h-2.5 w-full rounded-full bg-paper" />
@@ -2895,7 +2877,7 @@ function SidebarPanel({
                 disabled={disabled}
                 className="guide-primary-button mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
-                让<BrandName />准备提示
+                生成导读
               </button>
             </div>
           )}
@@ -3181,7 +3163,7 @@ function NotesPanel({
       )}
       {notes.length === 0 ? (
         <p className="mt-2 rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
-          选中正文原文后可以添加高亮笔记；<BrandName />回答也可以一键记到这里。
+          暂无笔记。
         </p>
       ) : selectedNote ? (
         <NoteDetail
@@ -3312,7 +3294,6 @@ function NoteDetail({
         <section className="rounded-lg bg-paper-card px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] text-ink-soft">我的笔记</p>
-            <p className="text-[11px] text-ink-soft">支持 Markdown</p>
           </div>
           {editing ? (
             <form onSubmit={onSave} className="mt-2">
@@ -3320,7 +3301,7 @@ function NoteDetail({
                 value={draft}
                 onChange={(event) => onDraftChange(event.target.value)}
                 rows={8}
-                placeholder="用 Markdown 写下你的理解、疑问或延伸。"
+                placeholder="写下理解或疑问。"
                 className="w-full resize-none rounded-lg border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink outline-none focus:border-accent"
               />
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -3344,7 +3325,7 @@ function NoteDetail({
               <MarkdownText value={note.note} />
             </div>
           ) : (
-            <p className="mt-2 text-sm leading-6 text-ink-soft">还没有写自己的笔记。</p>
+            <p className="mt-2 text-sm leading-6 text-ink-soft">暂无。</p>
           )}
         </section>
 
@@ -3383,7 +3364,7 @@ function GuideInsightPanel({ guide, onAsk, onTakeNote, disabled, showTitle = tru
       <div className={`space-y-3 ${showTitle ? "mt-3" : ""}`}>
         {sections.length === 0 ? (
           <p className="guide-message rounded-lg bg-paper-card px-3 py-3 text-xs leading-5 text-ink-soft">
-            这一章还没有整理出提示。
+            暂无提示。
           </p>
         ) : (
           sections.map((section, index) => (
@@ -3503,7 +3484,7 @@ function buildPendingNoteFromGuideInsight(insight) {
     text,
     rects: [],
     title: insight.type === "questions" ? "记录这个问题" : "记录这个目标",
-    placeholder: "写下你的理解、疑问，或者准备读完后回来补充。",
+    placeholder: "写下理解或疑问。",
     source: "guide",
     insightType: insight.type || "",
     insightTitle: insight.title || "",
@@ -3652,7 +3633,7 @@ function GuideLoading({ startedAt, compact = false }) {
         className="guide-loading-compact mt-5 rounded-lg border border-line bg-paper-card px-3 py-3"
       >
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-ink">正在整理读前提示</p>
+          <p className="text-xs font-medium text-ink">导读生成中</p>
           <p className="shrink-0 text-[11px] text-ink-soft">{elapsed} 秒</p>
         </div>
         <div className="guide-progress-track mt-3 h-1.5 overflow-hidden rounded-full bg-line">
@@ -3675,12 +3656,7 @@ function GuideLoading({ startedAt, compact = false }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-medium text-ink-soft">导读生成中</p>
-          <h3 className="mt-1 font-serif text-xl text-ink">
-            正在整理今天的读前提示
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-ink-soft">
-            正在判断这一段在全书里的位置，并整理目标和问题。长章节可能需要稍等。
-          </p>
+          <h3 className="mt-1 font-serif text-xl text-ink">整理导读</h3>
         </div>
         <p className="inline-flex w-fit shrink-0 rounded-full border border-line bg-paper px-3 py-1 text-xs text-ink-soft">
           已等待 {elapsed} 秒
@@ -3761,19 +3737,19 @@ function GuideLoadingSkeletonSection({ headingWidth, lines }) {
 const GUIDE_LOADING_STEPS = [
   {
     title: "读取章节上下文",
-    description: "确认这一段在全书里的位置。",
+    description: "定位章节。",
   },
   {
-    title: "梳理读前提示",
-    description: "把必要背景和今天章节放到一起看。",
+    title: "梳理提示",
+    description: "提取背景。",
   },
   {
-    title: "整理目标和问题",
-    description: "留下读完后值得检验的目标和问题。",
+    title: "整理问题",
+    description: "生成目标。",
   },
   {
-    title: "整理展示内容",
-    description: "分成短标题、段落和提示点。",
+    title: "排版",
+    description: "生成卡片。",
   },
 ];
 

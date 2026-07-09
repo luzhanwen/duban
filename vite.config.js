@@ -47,10 +47,37 @@ function formalBuildGuard(channel) {
     async closeBundle() {
       if (channel === "test") return;
 
-      await fs.rm(path.join(rootDir, "dist", "test-books"), {
+      const distDir = path.join(rootDir, "dist");
+      await fs.rm(path.join(distDir, "test-books"), {
         recursive: true,
         force: true,
       });
+      await assertFormalDistHasNoTestEntrypoints(distDir);
     },
   };
+}
+
+async function assertFormalDistHasNoTestEntrypoints(distDir) {
+  const forbidden = ["/test-books/", "test-books/wanli15.pdf", "导入测试"];
+  for await (const filePath of walkFiles(distDir)) {
+    const stat = await fs.stat(filePath);
+    if (stat.size > 2_000_000) continue;
+    const content = await fs.readFile(filePath, "utf8");
+    const matched = forbidden.find((token) => content.includes(token));
+    if (matched) {
+      throw new Error(`Formal build leaked test-only token ${matched} in ${path.relative(rootDir, filePath)}`);
+    }
+  }
+}
+
+async function* walkFiles(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      yield* walkFiles(absolutePath);
+    } else if (entry.isFile()) {
+      yield absolutePath;
+    }
+  }
 }

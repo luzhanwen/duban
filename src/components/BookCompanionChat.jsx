@@ -449,10 +449,10 @@ function buildBookCompanionContext(book, progress = {}) {
       currentKey: "",
       percent: 0,
       positionTitle: "尚未选择书籍",
-      positionDetail: "读伴会在这里显示当前阅读位置。",
-      lastReadText: "暂无",
+      positionDetail: "",
+      lastReadText: "无",
       memoryHints: ["书籍信息", "读伴设定", "阅读位置"],
-      suggestions: ["这本书现在读到哪里了？"],
+      suggestions: ["读到哪里了？"],
     };
   }
 
@@ -468,7 +468,7 @@ function buildBookCompanionContext(book, progress = {}) {
   const pageUnitLabel = getBookPageUnitLabel(book);
   const pageNumber = savedLocation?.pageNumber || currentItem?.startPage || null;
   const pageText = pageNumber ? formatBookPageLabel(pageNumber, pageUnitLabel) : "还没开始";
-  const itemTitle = currentItem?.title || "还没有阅读计划";
+  const itemTitle = currentItem?.title || "未设定读伴";
   const canRead = book.status === "planned" && totalCount > 0;
 
   return {
@@ -478,25 +478,25 @@ function buildBookCompanionContext(book, progress = {}) {
     positionTitle: canRead ? itemTitle : "未设置读伴",
     positionDetail: canRead
       ? `${pageText} · 第 ${currentIndex + 1}/${totalCount} 个阅读日`
-      : "先设定读伴和阅读计划，这里会显示读到哪里。",
+      : "未设定",
     lastReadText: formatLastReadTime(progress?.lastReadAt),
     memoryHints: [
-      "这本书的读伴设定",
-      canRead ? `当前阅读项：${itemTitle}` : "尚未生成阅读计划",
-      canRead ? `当前位置：${pageText}` : "尚未开始阅读",
-      percent > 0 ? `已完成 ${percent}%` : "还没有完成的阅读日",
+      "读伴设定",
+      canRead ? `阅读项：${itemTitle}` : "未设定",
+      canRead ? `位置：${pageText}` : "未开始",
+      percent > 0 ? `已完成 ${percent}%` : "0%",
     ],
     suggestions: canRead
       ? [
-          "我现在读到哪里了？",
-          "帮我接上上次阅读的思路",
-          "接下来这一段应该留意什么？",
-          "把目前为止的主线整理一下",
+          "读到哪里？",
+          "接上次",
+          "下一段留意什么？",
+          "整理主线",
         ]
       : [
-          "这本书适合怎么开始？",
-          "设定读伴前我应该先想什么？",
-          "帮我准备一条阅读问题",
+          "怎么开始？",
+          "设定读伴",
+          "准备阅读问题",
         ],
   };
 }
@@ -520,10 +520,10 @@ function buildBookCompanionNoteTitle(previousMessage) {
 function buildWelcomeMessage(book, context) {
   if (!book) return "";
   if (!context.canRead) {
-    return "我还没有拿到这本书的读伴设定和阅读计划。你可以先告诉我为什么想读它，也可以先去设定读伴。";
+    return "未设定读伴。";
   }
 
-  return `我知道你现在在「${context.positionTitle}」，${context.positionDetail}。你可以从这里问我，也可以让我帮你接上前面的阅读线索。`;
+  return `「${context.positionTitle}」 · ${context.positionDetail}`;
 }
 
 function getBookCompanion(book) {
@@ -553,9 +553,9 @@ function formatBookPageLabel(pageNumber, pageUnitLabel = "页") {
 }
 
 function formatLastReadTime(value) {
-  if (!value) return "暂无";
+  if (!value) return "无";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "暂无";
+  if (Number.isNaN(date.getTime())) return "无";
   const today = formatLocalDate(new Date());
   const targetDay = formatLocalDate(date);
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;

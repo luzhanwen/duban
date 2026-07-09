@@ -1,0 +1,12 @@
+{
+  "productName": "读伴 Test",
+  "identifier": "com.duban.reader.test",
+  "build": {
+    "beforeBuildCommand": "npm run build:test"
+  },
+  "bundle": {
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

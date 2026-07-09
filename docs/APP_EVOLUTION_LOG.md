@@ -1,6 +1,6 @@
 # 读伴 App 化路线与实施日志
 
-> 最后更新：2026-07-07
+> 最后更新：2026-07-09
 
 这份文档专门记录「读伴」从纯前端 MVP 演进为本地优先 App 的路线、阶段边界和每次实际完成的工作。
 
@@ -101,7 +101,7 @@
 - 提供从旧 IndexedDB 数据迁移或导出的路径。
 - 存储 adapter 可以按运行环境分流。
 
-状态：进行中。第一版本地数据后端已完成；阶段 5.2 schema 文档已建立；阶段 5.3 已把 `books` 迁到结构化 `books` / `book_chapters` 表；阶段 5.4 已把阅读计划和阅读进度迁到结构化表；阶段 5.5 已把笔记、聊天、读后交流和章节导读缓存迁到结构化表；阶段 5.6 已把原始文件索引和分页文本迁到结构化表，并让桌面读取文件时使用本地文件引用；阶段 5.7 已把桌面 API Key 迁入系统 Keychain；阶段 5.8 已加入备份导出/导入和显式 schema 迁移器；阶段 5.9 已把桌面备份升级为目录式、可预览、可校验、可合并导入；P6.1 已补 manifest/file sha256、失败自动回滚、外部路径导入和备份操作入口；P6.2 已把非敏感 settings、封面缓存和 AI 排版缓存迁到结构化表；P6.3 已完成大文件导入限制、进度、取消、重试和友好错误主体；P6.4 AI transport 生产化主体已完成；P6.5 安全与隐私加固基础版已完成。备份压缩归档、备份签名和迁移夹具仍待继续推进。
+状态：进行中。第一版本地数据后端已完成；阶段 5.2 schema 文档已建立；阶段 5.3 已把 `books` 迁到结构化 `books` / `book_chapters` 表；阶段 5.4 已把阅读计划和阅读进度迁到结构化表；阶段 5.5 已把笔记、聊天、读后交流和章节导读缓存迁到结构化表；阶段 5.6 已把原始文件索引和分页文本迁到结构化表，并让桌面读取文件时使用本地文件引用；阶段 5.7 已把桌面 API Key 迁入系统 Keychain；阶段 5.8 已加入备份导出/导入和显式 schema 迁移器；阶段 5.9 已把桌面备份升级为目录式、可预览、可校验、可合并导入；P6.1 已补 manifest/file sha256、失败自动回滚、外部路径导入和备份操作入口；P6.2 已把非敏感 settings、封面缓存和 AI 排版缓存迁到结构化表；P6.3 已完成大文件导入限制、进度、取消、重试和友好错误主体；P6.4 AI transport 生产化主体已完成；P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1 发布配置收束已完成。备份压缩归档、备份签名和迁移夹具仍待继续推进。
 
 ### 阶段 6：打包、备份和发布准备
 
@@ -115,9 +115,254 @@
 - 有数据 schema 版本和迁移策略。
 - 后续再评估签名、公证、自动更新和崩溃日志。
 
-状态：部分完成。已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；阶段 5.9 已提供目录式备份、导入前预览、校验报告和合并导入；P6.1-P6.6 基础版已完成；桌面版关闭窗口进入后台的基础行为已完成；正式签名、公证、自动更新和崩溃日志仍未完成。
+状态：部分完成。已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；阶段 5.9 已提供目录式备份、导入前预览、校验报告和合并导入；P6.1-P6.6 基础版已完成；桌面版关闭窗口进入后台的基础行为已完成；P6.7.1 已收束正式/测试发布配置、artifact 命名、release preflight、manifest/checksum 和 release notes 约定；P6.7.2 已准备 Developer ID 签名、公证、staple 和 Gatekeeper 验证脚本。真实签名/公证、自动更新和崩溃日志仍未完成。
 
 ## 实施日志
+
+### 2026-07-09：P6.7/P6.9 发布与阅读器改动本地校验记录
+
+阶段：P6.7 正式 macOS 发布包、P6.9 CI 与发布流水线、阅读器体验收束
+
+目标：
+
+- 把发布通道、release preflight、manifest/checksum、签名/公证前准备、CI workflow、GitHub 协作模板和 release checklist 整理为一次可推送的工程提交。
+- 同步提交阅读器米纸视觉、文案减负、线条减负和读伴专属光标改动，因为用户确认本轮一起提交。
+- 在 push 前完成本地质量校验，并明确仍需人工核验的内容。
+
+提交范围：
+
+- 发布配置：`.env.example`、`.env.formal`、`.env.test`、`.gitignore`、`package.json`、`vite.config.js`、release/package/signing/notarization/gatekeeper 脚本、Tauri formal/test 配置和 macOS entitlements。
+- CI：`.github/workflows/ci.yml`。
+- GitHub 协作模板：PR template、bug report、feature request 和 issue template config。
+- 文档：文档索引、生产级路线、发布流程、发布检查清单、AI 接手提示词、项目记录、Roadmap 和 App 化日志。
+- UI/阅读器：阅读器布局、PDF/Text reader 外层视觉、读伴侧栏、聊天/笔记/导读文案、会客厅空状态、全局专属 cursor 和 UI changelog。
+
+本地校验结果：
+
+- `npm run build` 通过；仍有既有 Vite chunk 体积提示。
+- `npm run release:preflight` 通过。
+- `cd src-tauri && cargo fmt --check` 通过。
+- `cd src-tauri && cargo check` 通过。
+- `cd src-tauri && cargo test` 通过，25 个 Rust 测试全部通过。
+- `npm run security:scan` 通过。
+- `git diff --check` 通过。
+
+CI 状态：
+
+- 本地记录时尚未 push，GitHub Actions 尚未触发；push 后需要查看 `CI` workflow 结果。
+
+仍需人工核验：
+
+- GitHub Actions `CI` workflow 是否在远端通过。
+- GitHub PR template 和 issue forms 在 GitHub 网页端是否按预期显示。
+- 阅读器视觉与文案改动需要人工检查：桌面和窄屏下阅读页、PDF 原版页、文本页、右侧读伴栏、聊天输入、笔记浮层、导读生成和完成页是否无重叠、无溢出。
+- macOS signed/notarized DMG 仍等待 Apple Developer Program 审核通过、Developer ID Application 证书和 notarytool 凭据；本轮未执行真实签名、公证、staple 或 Gatekeeper 验证。
+- local DMG 打包和干净 macOS smoke test 本轮未执行，发布前仍需按 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) 手动完成。
+
+### 2026-07-09：P6.9.3 发布检查清单与协作模板
+
+阶段：P6.9 CI 与发布流水线
+
+目标：
+
+- 固化发布前人工 checklist，避免每次发布只凭记忆检查。
+- 给 PR 增加固定检查项，覆盖验证命令、隐私、数据迁移、备份、Keychain、发布和文档同步。
+- 给 bug 和 feature issue 增加结构化模板，减少问题描述缺关键信息或带入敏感内容的风险。
+
+改动：
+
+- 新增 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)：
+  - 发布边界。
+  - 合并前检查。
+  - 本地质量检查。
+  - CI 检查。
+  - local 内测包。
+  - signed 正式包。
+  - 手动 smoke test。
+  - release notes。
+  - 发布后确认。
+- 新增 `.github/PULL_REQUEST_TEMPLATE.md`：
+  - 要求填写变更范围。
+  - 固定列出 build、release preflight、Rust fmt/check/test、安全扫描和手动桌面 smoke test。
+  - 明确 API Key、prompt、书籍正文、笔记、聊天、绝对本地路径等不得进入日志、备份、错误或截图。
+  - 要求涉及 SQLite、Keychain、备份、AI transport、发布或 UI 时同步相关 docs。
+- 新增 `.github/ISSUE_TEMPLATE/bug_report.yml`：
+  - 要求描述复现步骤、期望行为、实际行为、影响面、版本和 macOS 信息。
+  - 明确不要提交 API Key、书籍正文、私密笔记、聊天记录或绝对本地路径。
+- 新增 `.github/ISSUE_TEMPLATE/feature_request.yml`：
+  - 要求先描述用户问题，再描述方案。
+  - 按阅读体验、AI 读伴、书库/存储、备份、桌面发布、安全隐私等区域分类。
+- 新增 `.github/ISSUE_TEMPLATE/config.yml`，关闭空白 issue，并把安全问题引导到私密 security advisory。
+- 更新文档索引、发布流程、生产级路线、Roadmap、项目记录和 AI 接手提示词。
+
+验证：
+
+- `ruby -e "require 'yaml'; ..."` 已通过，`.github/ISSUE_TEMPLATE/*.yml` 均可解析。
+- `npm run release:preflight` 已通过。
+- `git diff --check` 已通过。
+
+限制：
+
+- GitHub issue forms 和 PR template 需要推送到 GitHub 后才能在网页端实际验证。
+- 当前仍未增加 Tauri build workflow、artifact 上传或 signed release 自动化。
+
+### 2026-07-09：P6.9.1 + P6.9.2 基础 CI 与 Release Preflight CI
+
+阶段：P6.9 CI 与发布流水线
+
+目标：
+
+- 建立第一条 GitHub Actions 基础质量检查，减少本机可跑但远端失败的风险。
+- 在 CI 中固定执行 formal frontend build，并复用 release preflight 检查正式包不混入测试入口。
+
+改动：
+
+- 新增 `.github/workflows/ci.yml`。
+- CI 触发条件：
+  - push 到 `main` 或 `master`。
+  - pull request。
+  - 手动 `workflow_dispatch`。
+- CI 使用 `macos-14` runner，匹配当前 macOS/Tauri 发布目标，避免 Linux 缺少 Tauri 系统依赖造成噪音。
+- CI 步骤：
+  - `npm ci`
+  - `npm run build`
+  - `npm run release:preflight`
+  - `cd src-tauri && cargo fmt --check`
+  - `cd src-tauri && cargo check`
+  - `cd src-tauri && cargo test`
+  - `npm run security:scan`
+
+验证：
+
+- `npm run build` 已通过；仍只有既有 Vite chunk 体积提示。
+- `npm run release:preflight` 已通过。
+- `cd src-tauri && cargo fmt --check` 已通过。
+- `cd src-tauri && cargo check` 已通过。
+- `cd src-tauri && cargo test` 已通过，25 个 Rust 测试全部通过。
+- `npm run security:scan` 已通过。
+- `git diff --check` 已通过。
+
+限制：
+
+- 当前 CI 还没有真正构建 Tauri `.app/.dmg`。
+- 当前 CI 还没有 GitHub release artifact 上传、签名、公证或自动发布。
+- GitHub Actions 真正运行结果需要推送到 GitHub 后查看。
+
+### 2026-07-09：P6.7 真实签名/公证暂停等待 Apple 审核
+
+阶段：P6.7 正式 macOS 发布包
+
+状态：
+
+- 项目侧 Developer ID 签名、公证、staple 和 Gatekeeper 验证脚本已准备完成。
+- 用户已提交 Apple Developer Program 注册申请。
+- 当前 Apple Developer Program 仍处于审核中，暂时不能进入 Apple Developer 后台创建 `Developer ID Application` 证书。
+
+影响：
+
+- 暂时不能运行真实 `npm run package:mac-signed`。
+- 暂时不能运行真实 `npm run release:notarize`。
+- 暂时不能完成 signed + notarized DMG 的干净 macOS 环境回归。
+
+恢复条件：
+
+- Apple Developer Program 审核通过并完成激活。
+- 创建并导入 `Developer ID Application` 证书，终端能通过 `security find-identity -v -p codesigning | grep "Developer ID Application"` 查到身份。
+- 配置 notarytool 凭据，例如 `NOTARYTOOL_KEYCHAIN_PROFILE=duban-notarytool`。
+
+恢复后下一条命令：
+
+```bash
+npm run release:signing-preflight -- --strict
+```
+
+下一步建议：
+
+- P6.7 真实签名/公证暂时搁置。
+- 优先推进不依赖 Apple 审核的 P6.9 CI 与发布流水线，或 P6.10 QA 矩阵与回归样本。
+
+### 2026-07-09：P6.7.2 签名/公证前准备
+
+阶段：P6.7 正式 macOS 发布包
+
+目标：
+
+- 在没有 Apple Developer 证书的情况下，先把项目内可准备的签名、公证和 Gatekeeper 验证入口补齐。
+- 明确用户需要在 Apple Developer 侧完成哪些账号、证书和凭据步骤。
+- 让正式包构建具备 hardened runtime 和 entitlements 配置，为 Developer ID 公证做准备。
+
+改动：
+
+- 新增 `src-tauri/entitlements.plist`，作为 formal macOS 签名的 entitlements 文件。
+- formal Tauri 配置启用 `bundle.macOS.hardenedRuntime=true`，并绑定 `entitlements.plist`。
+- 新增 `npm run release:signing-preflight`：
+  - 检查 macOS 平台、codesign/security/spctl/hdiutil、notarytool、stapler。
+  - 检查 Developer ID Application 身份和 notarytool 凭据；默认 warning，`-- --strict` 下缺失即失败。
+- 新增 `npm run package:mac-signed`：
+  - 需要 `APPLE_SIGNING_IDENTITY` 或 CI 的 `APPLE_CERTIFICATE`。
+  - 生成 `读伴_0.1.0_formal_<arch>_signed.dmg`。
+- 新增 `npm run release:notarize`：
+  - 支持 `NOTARYTOOL_KEYCHAIN_PROFILE`、Apple ID + app-specific password、App Store Connect API key 三类凭据。
+  - 成功后执行 `xcrun stapler staple`、`xcrun stapler validate` 和 DMG Gatekeeper 验证。
+- 新增 `npm run release:gatekeeper`，对 `.app` 和 signed DMG 做 codesign、stapler 和 Gatekeeper 验证。
+- `release:manifest` 增加 `RELEASE_KIND` 过滤和输出命名，区分 `local` 与 `signed` artifact。
+- [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) 补充 Developer ID、notarization、staple、正式验证流程和干净 macOS 回归清单。
+
+验证：
+
+- `npm run release:signing-preflight` 已通过；当前机器缺少 Developer ID Application 证书和 notarytool 凭据，因此以 warning 形式提示。
+- `npm run release:preflight` 已通过。
+- `npm run tauri:build:formal` 已通过，formal `.app` 仍可生成。
+- `npm run release:manifest` 已通过，默认生成 `local` kind 的 manifest/checksum。
+- `bash -n scripts/package-mac-signed.sh scripts/notarize-mac-dmg.sh scripts/verify-mac-release.sh` 已通过。
+- `npm run security:scan` 已通过。
+- `cd src-tauri && cargo check` 已通过。
+- `git diff --check` 已通过。
+
+限制：
+
+- 当前机器如果没有 Developer ID Application 证书，不能真正运行 `package:mac-signed`。
+- 当前如果没有 notarytool 凭据，不能真正运行 `release:notarize`。
+- 干净 macOS 环境回归仍需要真实 signed + notarized DMG。
+
+### 2026-07-09：P6.7.1 发布配置收束
+
+阶段：P6.7 正式 macOS 发布包
+
+目标：
+
+- 固定正式包和测试包的版本、App 名称、bundle identifier 与前端 channel。
+- 明确正式构建不能带入测试书、测试入口或测试文案。
+- 建立本地发布前检查、artifact 命名、manifest、checksum 和 release notes 约定。
+
+改动：
+
+- 新增 `.env.formal` 和 `.env.test`，分别声明 `VITE_APP_CHANNEL=formal` 与 `VITE_APP_CHANNEL=test`。
+- 新增 Tauri formal/test 配置：
+  - 正式包：`读伴` / `com.duban.reader`。
+  - 测试包：`读伴 Test` / `com.duban.reader.test`。
+- 调整 npm scripts：
+  - 默认 `build`、`tauri:build` 指向 formal channel。
+  - 新增 `tauri:build:formal`、`tauri:build:test`、`release:preflight`、`release:manifest`。
+- 增强 formal build guard：正式构建会删除 `dist/test-books`，并扫描 `dist/` 中的测试入口 token。
+- 本地 DMG 命名改为 `读伴_0.1.0_formal_<arch>_local.dmg`。
+- 新增发布流程文档 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)，同步更新 Roadmap、生产级升级路线、项目记录、文档索引和 AI 接手提示词。
+
+验证：
+
+- `npm run build:formal` 已通过；正式 dist 未发现测试入口 token。
+- `npm run release:preflight` 已通过。
+- `npm run build:test` 已通过，测试 channel 构建仍可用。
+- `npm run tauri:build:formal` 已通过，生成 `src-tauri/target/release/bundle/macos/读伴.app`。
+- `npm run tauri:build:test` 已通过，生成 `src-tauri/target/release/bundle/macos/读伴 Test.app`。
+- `npm run package:mac-local` 在普通沙箱下因 `hdiutil create failed - 设备未配置` 失败；提升权限后已通过，生成 `src-tauri/target/release/bundle/dmg/读伴_0.1.0_formal_arm64_local.dmg`。
+- `npm run release:manifest` 已通过，生成本地 manifest 与 sha256 checksum。
+
+限制：
+
+- 当前 DMG 仍是本地 ad-hoc 签名、未公证产物，只能用于内部验证。
+- 正式发布仍需要 Apple Developer ID 签名、notarization、staple 和干净 macOS 用户环境回归。
+- `release-artifacts/` 是本地生成目录，已加入 git ignore；最终发布时应把 checksum 内容复制到 release notes。
 
 ### 2026-07-08：桌面版关闭窗口进入后台
 

@@ -1,12 +1,12 @@
 # 读伴生产级升级路线
 
-> 最后更新：2026-07-07
+> 最后更新：2026-07-09
 
 这份文档记录读伴从“本地可用的桌面 App”升级到“可长期使用、可分发、可维护的生产级 App”还需要完成什么。它不替代 [ROADMAP.md](./ROADMAP.md) 和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)：Roadmap 记录产品方向，App 化日志记录每次实施流水，这里专门维护剩余生产级升级步骤和完成标准。
 
 ## 当前基线
 
-截至 2026-07-06，读伴已经具备这些基础：
+截至 2026-07-09，读伴已经具备这些基础：
 
 - React/Vite 浏览器 MVP 仍可用于快速验证阅读体验。
 - Tauri v2 桌面壳已接入，macOS 本地可生成 `.app` 和测试版 `.dmg`。
@@ -18,6 +18,8 @@
 - 后端开发标准和后续 AI 接手提示词已经落在文档中。
 - P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体已完成；P6.4 AI transport 生产化已完成主体收尾，包括 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
 - P6.5 安全与隐私加固已完成基础版：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步均已落地。
+- P6.6 本地诊断与可支持性基础版已完成；P6.7.1 发布配置收束已完成；P6.7.2 签名/公证前准备已完成，Developer ID、notarization、staple、Gatekeeper 验证脚本和干净 macOS 回归清单均已落地。
+- P6.9.1 基础 CI、P6.9.2 Release preflight CI 和 P6.9.3 发布/协作模板已完成：GitHub Actions 会在 macOS runner 上执行正式前端构建、release preflight、Rust fmt/check/test 和安全扫描；仓库已提供 release checklist、PR checklist、bug report 和 feature request 模板。
 
 这意味着读伴已经不是纯前端原型，但还没有达到正式分发给其他用户长期使用的生产级状态。
 
@@ -238,11 +240,12 @@
 
 要做：
 
-- 固定 bundle identifier、App 名称、版本号、图标、版权信息和 build channel。
-- 固定桌面窗口生命周期：点主窗口叉号隐藏到后台，Dock 图标可以重新唤回，真正退出走系统退出。
-- 区分 test/formal channel 的构建配置，避免测试书或测试入口进入正式包。
-- 使用 Apple Developer ID 证书签名 `.app` 和 `.dmg`。
-- 对发布包执行 notarization，并验证 Gatekeeper 能正常打开。
+- 已完成 P6.7.1：固定版本号 `0.1.0`、正式/测试 bundle identifier、App 名称、test/formal channel、artifact 命名、release preflight、manifest/checksum 和 release notes 约定。
+- 已完成：固定桌面窗口生命周期，点主窗口叉号隐藏到后台，Dock 图标可以重新唤回，真正退出走系统退出。
+- 已完成 P6.7.2：准备 Developer ID 签名、公证、staple、Gatekeeper 验证脚本和干净 macOS 回归清单。
+- 当前暂停：Apple Developer Program 注册申请仍在审核中，无法创建 `Developer ID Application` 证书；P6.7 真实签名/公证等待外部审核完成。
+- 待用户准备 Apple Developer Program、Developer ID Application 证书和 notarytool 凭据后，使用真实证书签名 `.app` 和 `.dmg`。
+- 对真实 signed DMG 执行 notarization，并验证 Gatekeeper 能正常打开。
 - 在干净 macOS 用户环境中安装、首次启动、导入书籍、保存 API Key、生成导读、重启恢复。
 - 输出版本化 release artifacts：`.app`、`.dmg`、校验和、release notes。
 
@@ -288,12 +291,13 @@
 
 要做：
 
-- 增加基础 CI：`npm run build`、`cargo fmt --check`、`cargo test`、`cargo check`。
-- 增加 Tauri build workflow，至少覆盖 macOS。
-- 对正式构建产物检查：不包含测试书、不包含 `.env`、不包含 API Key、版本号正确。
-- 增加 release checklist 和 changelog/release notes 模板。
-- 增加 issue 模板、bug report 模板、feature request 模板。
-- 增加 PR 检查清单：隐私、数据迁移、备份、Keychain、文档同步。
+- 已完成 P6.9.1：新增基础 GitHub Actions CI，执行 `npm run build`、`cargo fmt --check`、`cargo check`、`cargo test` 和 `npm run security:scan`。
+- 已完成 P6.9.2：CI 在正式前端构建后执行 `npm run release:preflight`，检查 formal dist 不包含测试书、测试入口和测试文案。
+- 待完成：增加 Tauri build workflow，至少覆盖 macOS。
+- 待完成：对正式构建产物增加更多 artifact 检查，例如不包含 `.env`、不包含 API Key、版本号正确。
+- 已完成 P6.9.3：新增 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)，包含发布边界、本地质量检查、CI、local/signed 包、smoke test、release notes 和发布后确认。
+- 已完成 P6.9.3：新增 `.github/PULL_REQUEST_TEMPLATE.md`，覆盖验证命令、隐私、数据迁移、备份、Keychain、发布和文档同步检查。
+- 已完成 P6.9.3：新增 bug report 和 feature request issue forms，并默认关闭空白 issue。
 
 完成标准：
 

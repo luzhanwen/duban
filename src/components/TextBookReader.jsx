@@ -151,16 +151,16 @@ export default function TextBookReader({
   return (
     <div
       ref={containerRef}
-      className="mx-auto w-full max-w-3xl"
+      className="text-book-reader reader-prose"
       onMouseUp={updateSelectionToolbar}
       onKeyUp={updateSelectionToolbar}
     >
       {visiblePages.length === 0 ? (
-        <div className="rounded-xl border border-line bg-paper px-6 py-10 text-center">
+        <div className="text-book-empty rounded-xl border border-line bg-paper px-6 py-10 text-center">
           <p className="text-sm text-ink-soft">这一段暂时没有提取到可阅读文本。</p>
         </div>
       ) : (
-        <div className="pb-8">
+        <div className="text-book-pages">
           {visiblePages.map((page) => (
             <TextPage key={page.pageNumber} page={page} />
           ))}
@@ -169,7 +169,7 @@ export default function TextBookReader({
 
       {selectionToolbar && (
         <div
-          className="text-selection-toolbar fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-paper-card p-1 text-xs shadow-lg"
+          className="text-selection-toolbar reader-selection-toolbar fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-paper-card p-1 text-xs shadow-lg"
           style={{ top: `${selectionToolbar.top}px`, left: `${selectionToolbar.left}px` }}
           onMouseDown={(event) => event.preventDefault()}
         >
@@ -203,12 +203,12 @@ function TextPage({ page }) {
     <section
       id={`text-page-${page.pageNumber}`}
       data-page-number={page.pageNumber}
-      className="scroll-mt-6 border-b border-line/70 py-8 first:pt-0 last:border-b-0"
+      className="text-book-page scroll-mt-6"
     >
-      <p className="text-xs font-medium text-ink-soft">文本页 {page.pageNumber}</p>
-      <div className="mt-5 space-y-5">
+      <p className="text-book-page-label">文本页 {page.pageNumber}</p>
+      <div className="text-book-page-body">
         {paragraphs.map((paragraph, index) => (
-          <p key={`${page.pageNumber}-${index}`} className="text-[17px] leading-8 text-ink">
+          <p key={`${page.pageNumber}-${index}`} className="text-book-paragraph">
             {paragraph}
           </p>
         ))}

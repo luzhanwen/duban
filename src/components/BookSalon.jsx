@@ -394,7 +394,7 @@ export default function BookSalon({
                   <article key={`${card.kicker}-${card.title}`}>
                     <span>{card.kicker}</span>
                     <strong>{card.title}</strong>
-                    <p>{card.body}</p>
+                    {card.body && <p>{card.body}</p>}
                   </article>
                 ))}
               </div>
@@ -408,7 +408,7 @@ export default function BookSalon({
                   <article key={section.title}>
                     <span>复盘</span>
                     <strong>{section.title}</strong>
-                    <p>{section.body}</p>
+                    {section.body && <p>{section.body}</p>}
                   </article>
                 ))}
               </div>
@@ -469,7 +469,7 @@ function buildKnowledgeCards(book, notes) {
     cards.push({
       kicker: "带着读的问题",
       title: limitLine(guide.coreQuestion, 42),
-      body: "可以作为读这本书时一直带着的问题。",
+      body: "",
     });
   }
 
@@ -504,8 +504,8 @@ function buildKnowledgeCards(book, notes) {
     : [
         {
           kicker: "待整理",
-          title: "还没有重点",
-          body: "有了笔记、摘录或整本书导读后，这里会出现可整理的重点。",
+          title: "暂无重点",
+          body: "",
         },
       ];
 }
@@ -520,15 +520,15 @@ function buildReviewDraft({ book, notes, reflections, bookChat }) {
   return [
     {
       title: "问题",
-      body: limitLine(guide?.coreQuestion || guide?.bookProblem || lastQuestion?.content || "等你先留下一条问题。", 130),
+      body: limitLine(guide?.coreQuestion || guide?.bookProblem || lastQuestion?.content || "", 130),
     },
     {
       title: "判断",
-      body: limitLine(userNote?.note || firstUserReflection?.content || "还没有形成稳定判断，可以先从一条笔记开始。", 130),
+      body: limitLine(userNote?.note || firstUserReflection?.content || "", 130),
     },
     {
       title: "追问",
-      body: limitLine(savedCompanionNote?.assistantContent || lastQuestion?.content || "读伴聊天、读后交流和高亮笔记会在这里汇成下一轮追问。", 130),
+      body: limitLine(savedCompanionNote?.assistantContent || lastQuestion?.content || "", 130),
     },
   ];
 }

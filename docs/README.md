@@ -1,6 +1,6 @@
 # 读伴文档索引
 
-> 最后更新：2026-07-07
+> 最后更新：2026-07-09
 
 这个目录保存「读伴」的项目说明、路线图、UI 标准和开发日志。后续维护文档时，先看这份索引，再决定内容应该写到哪里。
 
@@ -20,6 +20,8 @@
 | [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md) | 公开前成熟度记录 | 隐私说明、BYOK 风险提示、Base URL 确认、公开仓库基础文件、安全边界 |
 | [SECURITY_PRIVACY_AUDIT.md](./SECURITY_PRIVACY_AUDIT.md) | 安全与隐私审计记录 | P6.5 依赖审计、Tauri 权限、command 暴露面、CSP 和敏感信息边界 |
 | [DIAGNOSTICS_PRIVACY_SPEC.md](./DIAGNOSTICS_PRIVACY_SPEC.md) | 诊断与隐私过滤规范 | P6.6 本地日志、诊断包、错误详情复制和健康检查的字段边界与脱敏规则 |
+| [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) | 发布流程 | P6.7 发布配置、构建通道、artifact 命名、校验和与 release notes 约定 |
+| [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) | 发布检查清单 | 每次发布前的本地检查、CI、local/signed 包、smoke test、release notes 和发布后确认 |
 | [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md) | UI 设计标准 | 视觉气质、色彩字体、布局比例、卡片边界、页面过渡、动效规范、验收清单 |
 | [UI_CHANGELOG.md](./UI_CHANGELOG.md) | UI/体验更新日志 | 书架、阅读器、笔记、品牌视觉、交互细节等前端体验改动 |
 | [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md) | 开书读伴设定流程 | 开书设置改为多轮设定读伴对话、开书记忆和开书地图降级的实现边界 |
@@ -38,9 +40,11 @@
 10. 要检查公开前信任、安全和项目成熟度补项：读 [PUBLIC_READINESS_CHANGES.md](./PUBLIC_READINESS_CHANGES.md)。
 11. 要推进 P6.5 安全与隐私加固：读 [SECURITY_PRIVACY_AUDIT.md](./SECURITY_PRIVACY_AUDIT.md)。
 12. 要推进 P6.6 本地诊断、日志、诊断包或错误详情复制：读 [DIAGNOSTICS_PRIVACY_SPEC.md](./DIAGNOSTICS_PRIVACY_SPEC.md)。
-13. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
-14. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
-15. 要继续打磨开书设置、捎话记忆或“设定读伴”体验：读 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
+13. 要推进 P6.7 正式发布包、artifact、校验和或 release notes：读 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
+14. 要发布前逐项确认：读 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
+15. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
+16. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+17. 要继续打磨开书设置、捎话记忆或“设定读伴”体验：读 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
 
 ## 维护规则
 
@@ -57,6 +61,8 @@
   - 改变公开前隐私、安全、BYOK 或仓库成熟度边界：更新 `PUBLIC_READINESS_CHANGES.md`。
   - 推进 P6.5 安全与隐私审计：更新 `SECURITY_PRIVACY_AUDIT.md`。
   - 推进 P6.6 本地诊断、日志、诊断包、健康检查或错误详情复制：更新 `DIAGNOSTICS_PRIVACY_SPEC.md`。
+  - 推进 P6.7 发布配置、artifact、校验和或 release notes：更新 `RELEASE_PROCESS.md`。
+  - 改变发布前检查步骤、PR/issue 模板、smoke test 或 release checklist：更新 `RELEASE_CHECKLIST.md`。
   - 改变视觉规范、布局标准、交互边界：更新 `UI_DESIGN_STANDARDS.md`。
   - 改变视觉、布局、交互、文案体验：更新 `UI_CHANGELOG.md`。
   - 改变开书读伴对话、捎话记忆或开书地图主次关系：更新 `OPENING_COMPANION_ONBOARDING.md`。
@@ -74,9 +80,11 @@
 - `PROJECT_NOTES.md` 是主上下文文档，但已经较长，后续新增日志应尽量按日期追加，避免在前半部分不断扩写细枝末节。
 - `ROADMAP.md` 的阶段路线已经能覆盖当前方向，后续应优先维护 P0/P1 的进展和优先事项；开书契约接入已经从待办转为验证和调优任务。
 - `APP_EVOLUTION_LOG.md` 已用于记录从纯前端 MVP 走向桌面 App 的专项阶段、实施记录和验证结果。
-- `PRODUCTION_UPGRADE_PLAN.md` 已拆出阶段 5 之后的生产级升级步骤；P6.1 数据安全收口、P6.2 存储结构收束、P6.3 大文件与解析韧性主体、P6.4 AI transport 生产化主体、P6.5 安全与隐私加固基础版和 P6.6 本地诊断与可支持性基础版已完成，下一步进入 P6.7 正式 macOS 发布包。
+- `PRODUCTION_UPGRADE_PLAN.md` 已拆出阶段 5 之后的生产级升级步骤；P6.1 数据安全收口、P6.2 存储结构收束、P6.3 大文件与解析韧性主体、P6.4 AI transport 生产化主体、P6.5 安全与隐私加固基础版和 P6.6 本地诊断与可支持性基础版已完成，P6.7.1 发布配置收束、P6.7.2 签名/公证前准备、P6.9.1 基础 CI、P6.9.2 Release preflight CI 和 P6.9.3 发布/协作模板已完成。
 - `SECURITY_PRIVACY_AUDIT.md` 已记录 P6.5 完整基础版：依赖审计、Rust 依赖树、Tauri capabilities、asset protocol、command 暴露面、CSP、安全头、输入校验和敏感信息扫描。
 - `DIAGNOSTICS_PRIVACY_SPEC.md` 已建立 P6.6 诊断隐私规范；P6.6 基础版已完成，包含设置页入口、错误详情复制、健康检查、诊断包导出和备份操作日志。
+- `RELEASE_PROCESS.md` 已建立 P6.7 发布流程，记录 test/formal channel、artifact 命名、release preflight、manifest、checksum 和 release notes 约定。
+- `RELEASE_CHECKLIST.md` 已建立 P6.9.3 发布检查清单，配合 GitHub PR/issue 模板使用。
 - `BACKEND_DEVELOPMENT_STANDARDS.md` 是后端和本地后端工程护栏，后续改 Tauri/Rust、SQLite、Keychain、备份或 AI transport 前应先读。
 - `AI_HANDOFF_PROMPTS.md` 是后续 AI 接手入口，包含通用接手、后端修改、迁移、备份、安全审查和最终汇报提示词。
 - `PROMPT_WRITING_STANDARDS.md` 已补充产品内提示词规范，用来约束读伴文风、模板句和“先否定再肯定”的高频输出习惯。
