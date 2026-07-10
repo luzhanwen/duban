@@ -1,0 +1,155 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    name: Validate Tagged Source
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Validate tag, version, changelog, and commit
+        run: npm run release:check -- tagged
+
+      - name: Test release state machine
+        run: npm run release:self-test
+
+      - name: Verify QA fixtures
+        run: npm run qa:fixtures:verify
+
+      - name: Build formal frontend
+        run: npm run build:formal
+
+      - name: Release preflight
+        run: npm run release:preflight
+
+      - name: Rust format check
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Rust check
+        working-directory: src-tauri
+        run: cargo check
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Security scan
+        run: npm run security:scan
+
+  publish-macos:
+    name: Sign, Notarize, and Publish macOS Release
+    needs: validate-tag
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: macos-release
+    permissions:
+      contents: write
+    env:
+      RELEASE_ARCH: arm64
+      RELEASE_CHANNEL: formal
+      RELEASE_KIND: signed
+      TAURI_BUILD_TARGET: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Revalidate tagged source
+        run: npm run release:check -- tagged
+
+      - name: Strict signing and notarization preflight
+        run: npm run release:signing-preflight -- --strict
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Build Developer ID signed DMG
+        run: npm run package:mac-signed
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      - name: Submit DMG for Apple notarization and staple ticket
+        run: npm run release:notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Gatekeeper verification
+        run: npm run release:gatekeeper
+
+      - name: Generate final release notes
+        run: npm run release:notes -- final
+
+      - name: Regenerate final manifest and checksums
+        run: npm run release:manifest
+
+      - name: Publish immutable GitHub Release assets
+        run: npm run release:publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release evidence to workflow run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duban-${{ github.ref_name }}-macos-release-evidence
+          if-no-files-found: warn
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            release-artifacts/**

@@ -2661,6 +2661,35 @@ label[for] {
     inset 0 1px 0 rgb(255 255 255 / 0.68);
 }
 
+.settings-version-summary {
+  min-width: 0;
+  margin: 0.35rem 0.45rem 0.2rem;
+  border-top: 1px solid rgb(230 221 207 / 0.74);
+  padding: 0.85rem 0.3rem 0.2rem;
+  color: theme("colors.ink-soft");
+}
+
+.settings-version-summary span,
+.settings-version-summary small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-version-summary span {
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.settings-version-summary small {
+  margin-top: 0.2rem;
+  color: rgb(107 98 88 / 0.66);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
 .settings-nav-button {
   display: flex;
   width: 100%;
@@ -2940,6 +2969,29 @@ label[for] {
   color: theme("colors.ink-soft");
   font-size: 0.78rem;
   line-height: 1.55;
+}
+
+.settings-metric-grid.settings-build-info-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid rgb(230 221 207 / 0.72);
+}
+
+.settings-build-info-grid .settings-metric {
+  border: 0;
+  border-right: 1px solid rgb(230 221 207 / 0.72);
+  border-bottom: 1px solid rgb(230 221 207 / 0.72);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.8rem 0.85rem;
+}
+
+.settings-build-info-grid .settings-metric:nth-child(3n) {
+  border-right: 0;
+}
+
+.settings-build-info-actions {
+  margin-top: 1rem;
 }
 
 .settings-diagnostic-item {
@@ -3312,6 +3364,15 @@ label[for] {
     scroll-padding: 0.45rem;
   }
 
+  .settings-version-summary {
+    min-width: 10.5rem;
+    flex: 0 0 auto;
+    margin: 0;
+    border-top: 0;
+    border-left: 1px solid rgb(230 221 207 / 0.74);
+    padding: 0.65rem 0.8rem;
+  }
+
   .settings-nav-button {
     min-width: 10.5rem;
   }
@@ -3328,6 +3389,14 @@ label[for] {
   .settings-metric-grid,
   .settings-metric-grid-compact {
     grid-template-columns: 1fr;
+  }
+
+  .settings-metric-grid.settings-build-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-build-info-grid .settings-metric {
+    border-right: 0;
   }
 
   .settings-section {

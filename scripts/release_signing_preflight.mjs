@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const strict = process.argv.includes("--strict");
+const signingOnly = process.argv.includes("--signing-only");
 const issues = [];
 const warnings = [];
 const ok = [];
@@ -14,7 +15,8 @@ const tauriConfig = readJson("src-tauri/tauri.conf.json");
 const formalConfig = readJson("src-tauri/tauri.formal.conf.json");
 
 check(os.platform() === "darwin", "release signing must run on macOS", "macOS platform detected");
-check(packageJson.version === tauriConfig.version, "package.json and tauri.conf.json versions must match", `version ${packageJson.version}`);
+check(tauriConfig.version === semverCore(packageJson.version), "tauri.conf.json version must match the numeric SemVer core", `version ${packageJson.version}`);
+check(Boolean(tauriConfig.bundle?.macOS?.bundleVersion), "tauri.conf.json must set a numeric macOS bundleVersion", `macOS bundle version ${tauriConfig.bundle?.macOS?.bundleVersion}`);
 check(formalConfig.productName === "读伴", "formal productName must be 读伴", "formal productName is 读伴");
 check(formalConfig.identifier === "com.duban.reader", "formal identifier must be com.duban.reader", "formal identifier is com.duban.reader");
 check(formalConfig.bundle?.macOS?.hardenedRuntime === true, "formal macOS hardenedRuntime must be true", "hardened runtime enabled");
@@ -44,8 +46,25 @@ checkXcrunTool("stapler");
 const identities = findDeveloperIdIdentities();
 if (identities.length) {
   ok.push(`Developer ID Application identities found: ${identities.length}`);
+} else if (process.env.APPLE_CERTIFICATE) {
+  ok.push("base64 signing certificate provided for CI import");
 } else {
   warnOrFail("No Developer ID Application signing identity found in the current keychain");
+}
+
+if (process.env.APPLE_CERTIFICATE) {
+  check(
+    Boolean(process.env.APPLE_CERTIFICATE_PASSWORD),
+    "APPLE_CERTIFICATE_PASSWORD is required with APPLE_CERTIFICATE",
+    "certificate password detected"
+  );
+  if (process.env.GITHUB_ACTIONS === "true") {
+    check(
+      Boolean(process.env.KEYCHAIN_PASSWORD),
+      "KEYCHAIN_PASSWORD is required for GitHub Actions certificate import",
+      "CI keychain password detected"
+    );
+  }
 }
 
 const signingIdentity = process.env.APPLE_SIGNING_IDENTITY || "";
@@ -62,7 +81,9 @@ if (signingIdentity) {
   warnOrFail("Set APPLE_SIGNING_IDENTITY, or provide APPLE_CERTIFICATE for CI-based signing");
 }
 
-if (hasNotaryCredentials()) {
+if (signingOnly) {
+  ok.push("notarization credential check skipped for signing-only phase");
+} else if (hasNotaryCredentials()) {
   ok.push("notarization credentials detected");
 } else {
   warnOrFail(
@@ -159,4 +180,8 @@ function hasNotaryCredentials() {
 
 function readJson(relativePath) {
   return JSON.parse(readFileSync(path.join(root, relativePath), "utf8"));
+}
+
+function semverCore(version) {
+  return String(version || "").split(/[+-]/, 1)[0];
 }

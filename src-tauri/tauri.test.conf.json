@@ -4,6 +4,19 @@
   "build": {
     "beforeBuildCommand": "npm run build:test"
   },
+  "app": {
+    "windows": [
+      {
+        "title": "读伴 Test",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
   "bundle": {
     "android": {
       "debugApplicationIdSuffix": ".debug"

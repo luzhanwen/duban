@@ -5,9 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${APP_NAME:-读伴}"
 VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
+ARCH="${RELEASE_ARCH:-$ARCH}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-formal}"
 RELEASE_KIND="${RELEASE_KIND:-signed}"
-DMG_DIR="$ROOT_DIR/src-tauri/target/release/bundle/dmg"
+TAURI_BUILD_TARGET="${TAURI_BUILD_TARGET:-}"
+if [[ -n "$TAURI_BUILD_TARGET" ]]; then
+  TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/$TAURI_BUILD_TARGET/release"
+else
+  TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/release"
+fi
+DMG_DIR="$TARGET_RELEASE_DIR/bundle/dmg"
+APP_PATH="$TARGET_RELEASE_DIR/bundle/macos/$APP_NAME.app"
 TARGET_DMG="$DMG_DIR/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -22,8 +30,13 @@ if [[ -z "${APPLE_SIGNING_IDENTITY:-}" && -z "${APPLE_CERTIFICATE:-}" ]]; then
 fi
 
 cd "$ROOT_DIR"
-npm run release:signing-preflight
-npm run tauri -- build --bundles dmg --config src-tauri/tauri.formal.conf.json
+npm run release:check
+npm run release:signing-preflight -- --strict --signing-only
+BUILD_ARGS=(build --bundles app,dmg --config src-tauri/tauri.formal.conf.json)
+if [[ -n "$TAURI_BUILD_TARGET" ]]; then
+  BUILD_ARGS+=(--target "$TAURI_BUILD_TARGET")
+fi
+npm run tauri -- "${BUILD_ARGS[@]}"
 
 mkdir -p "$DMG_DIR"
 shopt -s nullglob
@@ -38,7 +51,15 @@ if [[ "$LATEST_DMG" != "$TARGET_DMG" ]]; then
   cp "$LATEST_DMG" "$TARGET_DMG"
 fi
 
+if [[ ! -d "$APP_PATH" ]]; then
+  echo "No app bundle was preserved by Tauri: $APP_PATH"
+  exit 1
+fi
+
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+codesign --verify --strict --verbose=2 "$TARGET_DMG"
+
 echo "Created signed macOS DMG candidate:"
 echo "$TARGET_DMG"
 
-RELEASE_KIND="$RELEASE_KIND" npm run release:manifest
+RELEASE_ARCH="$ARCH" TAURI_BUILD_TARGET="$TAURI_BUILD_TARGET" RELEASE_KIND="$RELEASE_KIND" npm run release:manifest

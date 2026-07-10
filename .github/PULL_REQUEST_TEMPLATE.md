@@ -16,6 +16,7 @@
 
 - [ ] `npm run build`
 - [ ] `npm run release:preflight`
+- [ ] `npm run release:self-test`
 - [ ] `cd src-tauri && cargo fmt --check`
 - [ ] `cd src-tauri && cargo check`
 - [ ] `cd src-tauri && cargo test`

@@ -151,26 +151,35 @@ npm run build
 npm run build:formal
 npm run build:test
 npm run preview
+npm run version:check
+npm run release:self-test
 npm run security:scan
 npm run security:audit
 ```
 
+当前开发版本为 `0.2.0-alpha.1`。App 版本以 `package.json` 为唯一人工修改来源；升版、Git tag 和 Changelog 规则见 [docs/VERSIONING.md](docs/VERSIONING.md)。
+
+设置页会显示当前 App version 和发布通道；「诊断 -> 版本与构建」可查看并复制 commit/dirty、运行环境、SQLite schema 和备份格式。正式候选包不得显示 `dirty`。
+
 桌面开发需要先安装 Rust/Cargo。当前 Tauri 命令：
 
 ```bash
-npm run tauri:dev        # 开发模式，带 Vite 热更新
+npm run tauri:dev        # 测试桌面环境，固定使用 com.duban.reader.test
+npm run tauri:dev:test   # 与 tauri:dev 相同的显式测试入口
 npm run tauri:build      # 生成 macOS .app
 npm run package:mac-local # 生成本地测试版 .app + .dmg
 ```
+
+桌面环境严格隔离：测试数据位于 `~/Library/Application Support/com.duban.reader.test/`，正式数据位于 `~/Library/Application Support/com.duban.reader/`。开发命令不得使用正式 identifier。
 
 本地打包产物默认在：
 
 ```text
 src-tauri/target/release/bundle/macos/读伴.app
-src-tauri/target/release/bundle/dmg/读伴_0.1.0_arm64_local.dmg
+src-tauri/target/release/bundle/dmg/读伴_0.2.0-alpha.1_formal_arm64_local.dmg
 ```
 
-当前 `.dmg` 是本机测试包，使用 ad-hoc 签名，不等同于 Apple Developer ID 签名和 notarization。正式分发给别人前还需要补签名、公证和发布流程。
+本地 `package:mac-local` 产物仍是 ad-hoc 测试包。正式发布使用 Developer ID 签名和 Apple notarization；推送经过校验的 annotated `v<version>` tag 后，由 GitHub Actions 自动构建、公证并上传 GitHub Release。一次性配置和发版步骤见 [docs/GITHUB_RELEASE_AUTOMATION.md](docs/GITHUB_RELEASE_AUTOMATION.md)。
 
 网页版顶部会在浏览器运行时显示「下载桌面版」入口。默认指向 GitHub Releases 最新页；正式发布时可在环境变量中配置直链：
 
@@ -184,7 +193,7 @@ VITE_DESKTOP_DOWNLOAD_URL=https://example.com/path/to/duban.dmg
 
 | 通道 | 命令 | 说明 |
 | --- | --- | --- |
-| `test` | `npm run dev`, `npm run build:test` | 显示书架里的本地测试书入口 |
+| `test` | `npm run dev`, `npm run build:test`, `npm run tauri:dev` | 显示测试入口；桌面数据与 Keychain 和正式版隔离 |
 | `formal` | `npm run build`, `npm run build:formal` | 隐藏本地测试书入口，并从构建产物移除 `dist/test-books` |
 
 本地测试 PDF 放在 `public/test-books/` 下，但 `*.pdf` 已被 `.gitignore` 忽略，避免把版权书误提交到仓库。

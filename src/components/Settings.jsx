@@ -39,6 +39,13 @@ import {
   saveSettings,
 } from "../lib/storage.js";
 import { formatUsd } from "../lib/pricing.js";
+import {
+  APP_VERSION_INFO,
+  buildVersionSupportText,
+  formatAppChannel,
+  formatBuildCommit,
+  formatRuntimeTarget,
+} from "../lib/appVersion.js";
 
 const ANTHROPIC_MODEL_OPTIONS = [
   { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6（默认，均衡）" },
@@ -221,6 +228,7 @@ export default function Settings({ onOpenPrivacy }) {
   const [configMsg, setConfigMsg] = useState(null);
   const [backupMsg, setBackupMsg] = useState(null);
   const [diagnosticsMsg, setDiagnosticsMsg] = useState(null);
+  const [buildInfoMsg, setBuildInfoMsg] = useState(null);
   const [aiDiagnostics, setAiDiagnostics] = useState({ entries: [] });
   const [desktopHealthReport, setDesktopHealthReport] = useState(null);
   const [diagnosticPackageResult, setDiagnosticPackageResult] = useState(null);
@@ -928,6 +936,15 @@ export default function Settings({ onOpenPrivacy }) {
       : "暂无桌面备份"
     : "浏览器 JSON 备份";
 
+  async function handleCopyBuildInfo() {
+    try {
+      await copyDiagnosticText(buildVersionSupportText());
+      setBuildInfoMsg({ type: "success", text: "版本信息已复制。" });
+    } catch (error) {
+      setBuildInfoMsg({ type: "error", text: error?.message || "复制版本信息失败。" });
+    }
+  }
+
   return (
     <div className="settings-page">
       <div className="settings-shell">
@@ -961,6 +978,12 @@ export default function Settings({ onOpenPrivacy }) {
                 onClick={() => setActivePanel(panel.id)}
               />
             ))}
+            <div className="settings-version-summary" aria-label="当前应用版本">
+              <span>读伴 {APP_VERSION_INFO.appVersion}</span>
+              <small>
+                {formatAppChannel()} · {formatRuntimeTarget()}
+              </small>
+            </div>
           </aside>
 
           <div className="settings-content" key={activePanel}>
@@ -1367,6 +1390,22 @@ export default function Settings({ onOpenPrivacy }) {
                   title="诊断与支持"
                   desc="查看桌面健康状态、导出诊断包，并复制最近 AI 错误摘要。"
                 />
+                <SettingsSection
+                  title="版本与构建"
+                  desc="反馈问题时附上这些信息，可以准确对应到代码、数据结构和备份格式。"
+                >
+                  <BuildInfoView info={APP_VERSION_INFO} />
+                  <div className="settings-action-row settings-build-info-actions">
+                    <button
+                      type="button"
+                      onClick={handleCopyBuildInfo}
+                      className="settings-secondary-button"
+                    >
+                      复制版本信息
+                    </button>
+                  </div>
+                  {buildInfoMsg && <Hint msg={buildInfoMsg} />}
+                </SettingsSection>
                 <SettingsSection
                   title="桌面健康检查"
                   desc="诊断包只包含脱敏摘要，不包含 API Key、prompt、正文、笔记或聊天全文。"
@@ -2018,6 +2057,19 @@ function DesktopHealthReportView({ report }) {
   );
 }
 
+function BuildInfoView({ info }) {
+  return (
+    <div className="settings-metric-grid settings-build-info-grid">
+      <Metric label="App version" value={info.appVersion} />
+      <Metric label="发布通道" value={formatAppChannel(info.channel)} />
+      <Metric label="运行环境" value={formatRuntimeTarget(info.runtime)} />
+      <Metric label="Git commit" value={formatBuildCommit(info)} />
+      <Metric label="SQLite schema" value={info.schemaVersion} />
+      <Metric label="备份格式" value={info.backupVersion} />
+    </div>
+  );
+}
+
 function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
   const entries = diagnostics?.entries || [];
   if (!entries.length) {
@@ -2087,7 +2139,7 @@ function Metric({ label, value }) {
   return (
     <div className="settings-metric">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong title={String(value)}>{value}</strong>
     </div>
   );
 }

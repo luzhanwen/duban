@@ -35,6 +35,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Check version consistency
+        run: npm run version:check
+
+      - name: Test release state machine
+        run: npm run release:self-test
+
       - name: Build formal frontend
         run: npm run build
 

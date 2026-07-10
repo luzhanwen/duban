@@ -1,6 +1,6 @@
 # 读伴项目记录
 
-> 最后更新：2026-07-09
+> 最后更新：2026-07-10
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
@@ -893,13 +893,22 @@ readingProfile: {
 - 2026-07-09：P6.7 真实签名/公证暂时搁置：Apple Developer Program 注册申请仍在审核中，暂时无法创建 `Developer ID Application` 证书；下一步建议先推进不依赖 Apple 审核的 P6.9 CI 与发布流水线或 P6.10 QA 矩阵。
 - 2026-07-09：P6.9.1 基础 CI 和 P6.9.2 Release preflight CI 已完成：新增 GitHub Actions，在 macOS runner 上执行 `npm run build`、`npm run release:preflight`、Rust fmt/check/test 和 `npm run security:scan`。
 - 2026-07-09：P6.9.3 发布检查清单与协作模板已完成：新增 release checklist、PR checklist、bug report 和 feature request issue forms，明确验证命令、隐私边界、数据迁移、备份、Keychain、发布和文档同步检查。
+- 2026-07-09：P6.10.1 QA 矩阵基础版已完成：新增 QA matrix，覆盖 P0 smoke、P1 核心回归、升级恢复、跨环境维度、样本策略和发布测试记录模板。
+- 2026-07-09：P6.10.2 fixtures/样本说明基础版已完成：新增 `qa-fixtures/`、合成 PDF、坏 PDF、HTML 源文本、空备份 manifest、篡改备份 manifest、fixtures manifest，以及 `qa:fixtures`/`qa:fixtures:verify` 脚本。
+- 2026-07-10：Apple Developer Program 审核已通过，P6.7 外部阻塞解除；`Developer ID Application: Zhanwen Lu (FBMN9293RM)` 已安装在登录钥匙串并与私钥正确配对，`duban-notarytool` Keychain profile 已通过 Apple 验证并保存，严格发布预检已通过；下一步运行 signed + notarized DMG 全流程。
+- 2026-07-10：首个真实 `arm64` 正式 DMG 已完成 Developer ID 签名并获 Apple notarization `Accepted`（Submission ID `024075bb-11c2-4f70-b7f8-d1d0da68f0a6`）；staple、App/DMG Gatekeeper 和 checksum 验证均通过。正式打包脚本改为保留 `app,dmg` 并在产出后立即验证两者签名；P6.7 仅剩干净 macOS 人工回归。
+- 2026-07-10：正式包人工回归发现旧 PDF 在 macOS `asset://` 自定义协议下被 PDF.js 以状态 `0` 拒绝，原始文件、SQLite 索引和 scope 均正常。首个公证候选包已作废；`fileAdapter` 新增自定义协议 XHR 二进制读取，`PdfReader` 在 `asset:` 下改以 `data` 加载，formal build 和安全扫描通过，等待桌面人工确认后重新公证。
+- 2026-07-10：发现历史 `tauri:dev` 没有加载 `tauri.test.conf.json`，导致开发数据写入 `com.duban.reader`。现已将 `tauri:dev` 固定到 test 配置、基础 Tauri identifier 改为 test-safe、窗口标题改为 `读伴 Test`，Keychain service 改为按 identifier 隔离；历史 310 MB 开发书库已完整迁入 `com.duban.reader.test`，并保留 `com.duban.reader.pre-isolation-20260710` 回滚快照。本地 formal/test 双进程验证为正式库 0 本、测试库 2 本。
+- 2026-07-10：版本管理第一步完成：由于历史 `v0.1.0` 已指向旧提交且不可复用，当前开发线升为 `0.2.0-alpha.1`。新增 `scripts/version.mjs`、`version:check/set/bump`、`docs/VERSIONING.md` 和根目录 `CHANGELOG.md`；`package.json` 为单一人工版本源，脚本同步 Cargo/npm lock，并为 macOS 派生数字版本 `0.2.0` / build `0.2.101`；CI、release preflight 和 signing preflight 接入一致性检查。
+- 2026-07-10：P6.7.5 版本可见性完成：Vite 从 `package.json`、Git/CI 和 Rust 存储常量注入 App version、channel、commit/dirty、schema、backup version；设置导航显示简版身份，诊断页显示并可复制完整构建身份。正式候选包要求 `formal`、目标 commit 且不带 `dirty`。
+- 2026-07-10：P6.7.6 tag 驱动发布链路完成：新增 release candidate/tag-ready/tagged 状态校验、Changelog 冻结、release notes、发布 manifest/checksum/notary evidence 和离线状态机自测。推送位于 `origin/main` 的 clean annotated `v<version>` tag 后，GitHub Actions 会在 `macos-release` Environment 中完成 arm64 Developer ID 签名、Apple 公证/staple、Gatekeeper 验证，并以 draft-first 方式上传和发布 GitHub Release；P6.8 后续直接消费同一套 tag/source metadata 与 Release assets。本轮未创建或推送 tag，也未实际发布 Release。
 
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - P6.4 AI transport 生产化主体已完成：Keychain 连续弹窗、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断均已落地。
-- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1 发布配置收束和 P6.7.2 签名/公证前准备已完成；P6.9.1 基础 CI、P6.9.2 Release preflight CI 和 P6.9.3 发布/协作模板已完成；真实签名/公证等待 Apple Developer Program 审核通过。
+- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1-P6.7.6 已完成发布基础，首个公证候选包因旧 PDF 回归问题作废，自动发布链路等待 GitHub Secrets 配置和首个新 tag 实跑；P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成。
 - 2026-07-08：桌面版主窗口点叉号改为隐藏到后台，不直接退出进程；macOS 点击 Dock 图标会重新显示并聚焦主窗口。
 - 2026-07-08：`tauri:dev` 下 Dock 右键退出可能短暂显示终端/调试进程图标；这是开发态未打包二进制的身份问题。Dock 图标一致性请用 `src-tauri/target/release/bundle/macos/读伴.app` 这类真实 bundle 测试包验证。
 - PDF 图片、表格、扫描件 OCR 暂未支持。

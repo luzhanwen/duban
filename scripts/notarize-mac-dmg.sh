@@ -5,9 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${APP_NAME:-读伴}"
 VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
+ARCH="${RELEASE_ARCH:-$ARCH}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-formal}"
 RELEASE_KIND="${RELEASE_KIND:-signed}"
-DMG_PATH="${1:-$ROOT_DIR/src-tauri/target/release/bundle/dmg/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
+TAURI_BUILD_TARGET="${TAURI_BUILD_TARGET:-}"
+if [[ -n "$TAURI_BUILD_TARGET" ]]; then
+  TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/$TAURI_BUILD_TARGET/release"
+else
+  TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/release"
+fi
+DMG_PATH="${1:-$TARGET_RELEASE_DIR/bundle/dmg/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
+NOTARY_LOG_PATH="${NOTARY_LOG_PATH:-$ROOT_DIR/release-artifacts/duban-v${VERSION}-${RELEASE_CHANNEL}-${ARCH}-${RELEASE_KIND}-notary-log.json}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Notarization must run on macOS."
@@ -33,13 +41,22 @@ else
   exit 1
 fi
 
-xcrun notarytool submit "$DMG_PATH" --wait "${AUTH_ARGS[@]}"
+mkdir -p "$(dirname "$NOTARY_LOG_PATH")"
+xcrun notarytool submit "$DMG_PATH" --wait --output-format json "${AUTH_ARGS[@]}" > "$NOTARY_LOG_PATH"
+cat "$NOTARY_LOG_PATH"
+NOTARY_STATUS="$(node -e 'const fs=require("fs");const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(value.status||""));' "$NOTARY_LOG_PATH")"
+if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
+  echo "Apple notarization did not return Accepted: ${NOTARY_STATUS:-unknown}"
+  exit 1
+fi
 xcrun stapler staple "$DMG_PATH"
 xcrun stapler validate "$DMG_PATH"
 spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
 
 cd "$ROOT_DIR"
-RELEASE_KIND="$RELEASE_KIND" npm run release:manifest
+RELEASE_ARCH="$ARCH" TAURI_BUILD_TARGET="$TAURI_BUILD_TARGET" RELEASE_KIND="$RELEASE_KIND" npm run release:manifest
 
 echo "Notarized and stapled DMG:"
 echo "$DMG_PATH"
+echo "Notarization log:"
+echo "$NOTARY_LOG_PATH"

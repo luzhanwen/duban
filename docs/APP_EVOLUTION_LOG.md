@@ -1,6 +1,6 @@
 # 读伴 App 化路线与实施日志
 
-> 最后更新：2026-07-09
+> 最后更新：2026-07-10
 
 这份文档专门记录「读伴」从纯前端 MVP 演进为本地优先 App 的路线、阶段边界和每次实际完成的工作。
 
@@ -115,9 +115,281 @@
 - 有数据 schema 版本和迁移策略。
 - 后续再评估签名、公证、自动更新和崩溃日志。
 
-状态：部分完成。已能生成本地测试版 macOS `.app` 和 `.dmg` 入口；阶段 5.9 已提供目录式备份、导入前预览、校验报告和合并导入；P6.1-P6.6 基础版已完成；桌面版关闭窗口进入后台的基础行为已完成；P6.7.1 已收束正式/测试发布配置、artifact 命名、release preflight、manifest/checksum 和 release notes 约定；P6.7.2 已准备 Developer ID 签名、公证、staple 和 Gatekeeper 验证脚本。真实签名/公证、自动更新和崩溃日志仍未完成。
+状态：部分完成。已跑通 Developer ID 签名和 Apple 公证链路；首个 `arm64` 候选包因人工回归发现旧 PDF `asset://` 状态 `0` 和历史 test/formal 数据未隔离问题而作废。PDF 兼容修复已进入桌面回归；基础 Tauri 配置、开发脚本、App 数据目录和 Keychain service 已完成 test/formal 隔离，历史开发书库已迁回 test 并保留快照，正式目录当前为空。P6.7.6 已把 annotated Git tag、GitHub Actions 签名/公证和 GitHub Release artifact 发布串成自动流水线；确认回归后需从干净主线提交创建首个新版本 tag。
 
 ## 实施日志
+
+### 2026-07-10：P6.7.6 Tag 驱动的签名、公证与 GitHub Release 自动发布
+
+阶段：P6.7 正式 macOS 发布包 / P6.9 CI 与发布流水线
+
+目标：
+
+- 让 `v<SemVer>` annotated tag 成为一次正式发布的不可变入口，把源码版本、签名包、公证证据和 GitHub Release 绑定到同一 commit。
+- 自动完成发布校验、Developer ID 签名、Apple notarization/staple、Gatekeeper 验证和 artifact 上传，并为 P6.8 自动更新提供稳定的版本与产物来源。
+
+改动：
+
+- 新增 `.github/workflows/release-macos.yml`：只在推送 `v*` tag 后运行，先验证 tagged source，再在 `macos-release` Environment 中构建 `arm64` 正式包、签名、公证、staple、验证并发布 GitHub Release。
+- 新增发布状态机脚本：`release:check` 区分 candidate/tag-ready/tagged，要求版本、Changelog、clean HEAD、`origin/main` 和 annotated tag 一致；`release:prepare` 将 Unreleased 内容冻结到带日期版本段，但不创建 tag。
+- 新增 `release:notes`、`release:publish` 和 `release:self-test`：release notes、manifest、checksums 和 notary log 都绑定 tag/commit；GitHub Release 先建 draft，所有资产上传完成后才公开，已公开 Release 不允许脚本覆盖。
+- manifest 新增 source commit/tag/dirty、SQLite schema 和 backup version；signed manifest 拒绝 dirty source。签名、公证和验证脚本支持显式 `arm64` target 路径，公证 JSON 日志作为发布证据保存。
+- 新增 [GITHUB_RELEASE_AUTOMATION.md](./GITHUB_RELEASE_AUTOMATION.md)，记录 GitHub Environment、Secrets、证书导出、每次发版命令、失败恢复和 P6.8 边界。
+- 基础 CI 和 release preflight 接入离线发布状态机自测；PR checklist、VERSIONING、RELEASE_PROCESS、RELEASE_CHECKLIST、README 和 AI 接手规范同步更新。
+
+验证：
+
+- `npm run release:self-test` 通过：临时 Git 仓库中的 finalized Changelog、annotated tag、manifest、Accepted notary log 和 publish dry-run 全链路通过，dirty source 负向用例被拒绝。
+- `npm run release:check -- candidate --allow-dirty` 和 `npm run release:prepare -- --dry-run --allow-dirty` 通过；默认 candidate 与 tagged 检查会按预期拒绝当前 dirty、未 finalize、未打 tag 的工作区。
+- CI secrets 模拟下 `npm run release:signing-preflight -- --strict` 通过；未进行真实证书导入、签名、公证或 GitHub 发布。
+- GitHub CLI 的 draft/publish/verify-tag 参数、`notarytool --output-format json --wait` 参数、workflow YAML 和 shell/Node 语法均完成本地验证。
+
+限制与下一步：
+
+- 本轮没有创建、移动或推送任何 Git tag，也没有创建 GitHub Release；历史 `v0.1.0` 继续保持不变。
+- 仓库维护者仍需按自动发布文档创建 `macos-release` Environment、配置 Apple Secrets，并建议启用 required reviewer。
+- P6.8 尚未实现 updater 签名和 `latest.json`；后续直接消费这套 tag、release notes、manifest/checksum 和 GitHub Release 资产，不另建第二套版本源。
+
+### 2026-07-10：P6.7.5 版本可见性
+
+阶段：P6.7 正式 macOS 发布包 / P6.6 本地诊断与可支持性
+
+目标：
+
+- 让用户和支持人员能在 App 内确认当前版本、发布通道、源码提交、SQLite schema 和备份格式，不再依赖包名或口头描述判断版本。
+- 让未提交代码构建的包明确显示 `dirty`，避免把同一个 commit 误认为唯一构建来源。
+
+改动：
+
+- Vite 在构建时注入统一构建身份：App version 读取 `package.json`，channel 读取当前 formal/test mode，commit 优先读取 `DUBAN_BUILD_COMMIT` / `GITHUB_SHA` 并回退到本地 Git，schema/backup version 直接读取 Rust 存储常量。
+- 新增 `src/lib/appVersion.js`，统一提供版本信息、中文通道/运行环境标签和可复制的支持摘要；业务组件不手写版本号。
+- 设置页分类导航底部显示 `读伴 <version>`、发布通道和运行环境。
+- 设置页「诊断」新增「版本与构建」，展示 App version、channel、runtime、Git commit、dirty 状态、SQLite schema 和备份格式，并可一键复制脱敏版本信息。
+- release preflight 新增版本可见性源码护栏；发布流程和检查清单要求正式候选包显示 `formal`、目标 commit 且不带 `dirty`。
+
+验证：
+
+- `npm run build:test` 通过，产物注入 `0.2.0-alpha.1 / test / c8107b2e9591 / dirty / schema 9 / backup 3`。
+- `npm run build:formal` 和 `npm run release:preflight` 通过，formal 产物通道切换为 `formal`，其他构建身份保持一致。
+- 本地浏览器实测设置导航版本摘要、诊断六项构建信息和复制成功反馈；1280px 下为三列两行，390px 下为单列，无页面横向溢出。
+- `cargo fmt --check`、`cargo test` 通过，26 个 Rust 测试全部通过；`npm run tauri:build:formal` 成功生成正式 `读伴.app`。
+- `npm run version:check`、`npm run security:scan` 和 `git diff --check` 通过；前端仍只有既有 Vite chunk 体积提示。
+
+后续：
+
+- 当前显示 `dirty` 是因为本轮改动尚未提交；正式候选包必须从干净 commit 重新构建，并人工确认诊断页不显示 `dirty`。
+- 旧 PDF 修复完成桌面人工回归后，按 `0.2.0-alpha.1` 重新签名、公证并执行完整 release checklist。
+
+### 2026-07-10：P6.7.4 版本管理基础
+
+阶段：P6.7 正式 macOS 发布包 / P6.9 CI 与发布流水线
+
+问题：
+
+- npm、Tauri 和 Cargo 虽然都写着 `0.1.0`，但版本散落且 App 不可见；Git 的 `v0.1.0` 已指向 2026-06-18 的旧提交，当前代码继续沿用该数字会导致 tag、源码和正式包无法对应。
+- 发布流程没有统一升版命令，CI 只检查 package/Tauri 的一部分一致性，Cargo 与 lockfile 可能漂移。
+- 没有正式 VERSIONING 规范和用户级 CHANGELOG。
+
+改动：
+
+- 当前开发版本升为 `0.2.0-alpha.1`；旧 `v0.1.0` tag 保持不可变，未创建新 tag。
+- `package.json` 成为唯一人工版本源；脚本为 Tauri 派生纯数字 `0.2.0` 和 macOS `CFBundleVersion=0.2.101`，避免把 Apple 不接受的 `-alpha.1` 写入 bundle 字段。
+- 新增 `scripts/version.mjs` 和 `npm run version:check`、`version:set`、`version:bump`，同步 npm lock、Cargo manifest/lock，并验证严格 SemVer。
+- release preflight、signing preflight 和 GitHub Actions CI 接入版本一致性检查。
+- 新增 `docs/VERSIONING.md`，定义 SemVer、Alpha/Beta/RC、App/schema/backup 版本边界、分支/tag、artifact 和发布顺序。
+- 新增根目录 `CHANGELOG.md`，用 `[Unreleased]` 维护目标 `0.2.0-alpha.1` 的用户可见变化。
+- README、发布流程、发布检查清单、后端标准、Roadmap、生产升级计划、项目记录和 AI 接手提示词同步更新。
+
+验证：
+
+- `npm run version:check` 在 `0.1.0` 旧状态和 `0.2.0-alpha.1` 新状态均通过。
+- `npm run version:set -- 0.2.0-alpha.1` 成功同步所有版本文件，且明确未创建 Git tag。
+- 非法版本 `01.2.3` 被脚本拒绝且没有写入文件；`npm run version:bump -- prerelease` 已演练 `alpha.1 -> alpha.2`，Tauri/macOS 构建号同步变为 `0.2.102`，随后成功恢复到 `0.2.0-alpha.1` / `0.2.101`。
+- `npm run build`、`npm run release:preflight`、`npm run security:scan`、`npm run qa:fixtures:verify` 和 `git diff --check` 通过；前端仍只有既有 Vite chunk 体积提示。
+- `cargo fmt --check`、`cargo check`、`cargo test` 通过；Rust 构建识别为 `duban v0.2.0-alpha.1`，26 个测试全部通过。
+- `npm run tauri:build:formal` 通过并生成正式 `读伴.app`；包内 `CFBundleIdentifier=com.duban.reader`、`CFBundleShortVersionString=0.2.0`、`CFBundleVersion=0.2.101`。
+- `npm run release:signing-preflight` 非严格模式通过；当前受限命令环境未读取到登录钥匙串中的 Developer ID 和公证凭据，因此保留警告，正式签名时仍须在可访问钥匙串的终端执行严格预检。
+
+后续：
+
+- 设置页/诊断版本展示已由 P6.7.5 完成。
+- 当前 Alpha 完成人工回归和新公证包前不得创建 `v0.2.0-alpha.1` release tag。
+
+### 2026-07-10：test/formal 本地数据与 Keychain 隔离修复
+
+阶段：P6.7 正式 macOS 发布包
+
+问题：
+
+- `tauri.test.conf.json` 已定义 `com.duban.reader.test`，但历史 `npm run tauri:dev` 没有加载该配置，直接使用基础配置中的 `com.duban.reader`。
+- 因此开发期两本书、进度、笔记、文件和日志均进入正式 App 数据目录，正式包首次启动时错误显示测试书库。
+- Keychain service 也曾固定为 `com.duban.reader.ai`，测试/正式没有隔离。
+
+改动：
+
+- `npm run tauri:dev` 固定转发到 `tauri:dev:test`，显式加载 `src-tauri/tauri.test.conf.json`。
+- 基础 Tauri `productName/identifier` 改为 `读伴 Test` / `com.duban.reader.test`；正式构建必须由 formal config 显式覆盖。
+- 测试窗口标题固定为 `读伴 Test`。
+- release preflight 新增基础配置 test-safe、开发脚本 test config 和测试窗口标题检查。
+- Rust Keychain service 改为按 Tauri identifier 初始化：正式 `com.duban.reader.keychain.ai`，测试 `com.duban.reader.test.keychain.ai`；旧共用 service 不再读取。
+- 历史开发数据从 `com.duban.reader` 完整迁到 `com.duban.reader.test`，迁移前复制到 `com.duban.reader.pre-isolation-20260710` 作为回滚快照。
+
+验证：
+
+- 测试目录和快照均约 310 MB、13 个文件；测试库有 2 本书、2 个原文件索引、1643 页文本和 1 条笔记。
+- 仅运行测试版时 `~/Library/Application Support/com.duban.reader/` 保持不存在；随后同时启动本地 formal `.app`，正式库全新初始化为 0 本书、目录约 472 KB，测试库仍为 2 本书、约 310 MB。
+- test/formal 两个进程可同时运行，分别使用 `target/debug/duban` 和 formal `.app`，SQLite 数据没有交叉。
+- `npm run build`、`npm run release:preflight`、`npm run security:scan`、`cargo fmt --check`、`cargo check`、`cargo test` 和 `git diff --check` 通过；Rust 共 26 个测试通过。
+
+后续：
+
+- 测试/正式使用新的独立 Keychain service，需要分别在各自设置页保存一次 API Key。
+- 用户确认测试版旧 PDF 可读后，重新构建、公证正式候选包，并验证 formal 首次启动为空书架。
+
+### 2026-07-10：正式包旧 PDF asset protocol 回归修复
+
+阶段：P6.7 正式 macOS 发布包
+
+问题：
+
+- 首个公证包打开迁移前已保存的 PDF 时，PDF.js 显示 `Unexpected server response (0)`。
+- SQLite 中书籍和 `book_files` 记录正常，原始 PDF 文件存在且格式有效，路径位于 `$APPDATA/files/**` scope 内，数据没有丢失。
+- macOS `asset://` 是自定义协议，WebKit XHR 返回状态 `0`；PDF.js 只接受 `file://` 的状态 `0`，因此在读取有效响应前主动报错。
+
+改动：
+
+- `src/lib/fileAdapter.js` 对 `asset:` URL 使用可取消的 XHR 读取，接受自定义协议的状态 `0` 并返回 ArrayBuffer/text。
+- `src/components/PdfReader.jsx` 在 macOS `asset:` 下不再把 URL 直接交给 PDF.js，而是先读取二进制再通过 `data` 打开。
+- 其他平台返回正常 HTTP asset URL 时仍保留 PDF.js URL 加载路径。
+
+验证：
+
+- `npm run build` 通过；仍只有既有 chunk 体积提示。
+- `npm run security:scan` 通过。
+- `git diff --check` 通过。
+- 修复版 `npm run tauri:dev` 已启动，等待用户打开旧 PDF 完成人工确认。
+
+发布影响：
+
+- Submission ID `024075bb-11c2-4f70-b7f8-d1d0da68f0a6` 对应候选包不得分发。
+- 人工确认修复后，必须重新生成 signed DMG、重新公证并更新 SHA-256 和发布证据。
+
+### 2026-07-10：P6.7.3 首个真实签名与公证 DMG
+
+阶段：P6.7 正式 macOS 发布包
+
+目标：
+
+- 使用真实 Developer ID Application 和 notarytool Keychain profile 构建第一个可分发候选包。
+- 在送 Apple 前验证 App/DMG 签名，公证后验证 staple、Gatekeeper 和 checksum。
+
+改动：
+
+- `scripts/package-mac-signed.sh` 从只构建 `dmg` 改为同时构建 `app,dmg`，确保 Tauri 不会在 DMG 完成后清理 `.app`。
+- 正式命名 DMG 生成后立即对 `.app` 执行 deep/strict codesign 验证，并对 DMG 执行 strict codesign 验证。
+- 公证日志保存为本机 `release-artifacts/duban-v0.1.0-formal-arm64-signed-notary-log.json`。
+
+结果：
+
+- Artifact：`读伴_0.1.0_formal_arm64_signed.dmg`，大小 `17,989,912` bytes。
+- SHA-256：`4d1327d0d1ca2be6de7e6f5cf9d08a3ab9734e71a2f088a32dbdc6cbf09dad86`。
+- Apple notarization Submission ID：`024075bb-11c2-4f70-b7f8-d1d0da68f0a6`。
+- Apple 结果：`Accepted` / `Ready for distribution` / status code `0`。
+- `xcrun stapler validate` 通过；App 和 DMG 的 `spctl` 结果均为 `accepted`，source 为 `Notarized Developer ID`。
+- 最终 signed manifest/checksum 已在 staple 后重新生成，`shasum -a 256 -c` 通过。
+
+待人工验证：
+
+- 人工回归已发现旧 PDF `asset://` 状态 `0` 问题；该候选包已作废，修复记录见上方。
+
+### 2026-07-10：Apple Developer Program 审核通过
+
+阶段：P6.7 正式 macOS 发布包
+
+状态变化：
+
+- Apple Developer Program 审核已通过，创建 Developer ID 证书的外部阻塞解除。
+- `Developer ID Application: Zhanwen Lu (FBMN9293RM)` 已导入登录钥匙串，证书下可展开看到 `Duban Developer ID` 私钥。
+- 沙箱外执行 `security find-identity -v -p codesigning` 显示 `1 valid identities found`；项目发布预检也已识别并匹配该身份。沙箱内读取登录钥匙串可能错误显示为 `0`，不能据此判断证书无效。
+- `duban-notarytool` Keychain profile 已通过 Apple 验证并保存到钥匙串。
+- 使用真实签名身份和公证 profile 运行 `npm run release:signing-preflight -- --strict` 已通过，签名/公证前置条件全部就绪。
+- 后续真实 signed DMG 构建、公证与验证结果见上方 P6.7.3 记录。
+
+安全边界：
+
+- Apple Account 密码、App 专用密码、证书私钥和 `.p12` 文件不得写入仓库、开发日志或对话截图。
+- 公证凭据优先通过 `notarytool store-credentials` 保存到本机 Keychain。
+
+### 2026-07-09：P6.10.2 固定 Fixtures 与样本说明
+
+阶段：P6.10 QA 矩阵与回归样本
+
+目标：
+
+- 建立可以安全提交到仓库的最小 QA fixtures。
+- 明确 MOBI 和含书备份样本的版权与隐私边界。
+- 提供可重复生成和验证 fixtures 的脚本，避免样本 hash、大小和说明靠手填。
+
+改动：
+
+- 新增 `npm run qa:fixtures`，由 `scripts/generate_qa_fixtures.mjs` 生成确定性样本。
+- 新增 `npm run qa:fixtures:verify`，由 `scripts/verify_qa_fixtures.mjs` 校验样本 hash、大小、PDF 页数、坏 PDF 负向解析和备份 manifest hash。
+- 新增 `qa-fixtures/README.md`，说明样本用途、MOBI 样本策略和重新生成命令。
+- 新增 `qa-fixtures/fixtures.json`，记录每个 fixture 的路径、大小、sha256、用途和预期。
+- 新增书籍样本：
+  - `qa-fixtures/books/duban-qa-two-page.pdf`：合成两页 PDF，用于导入、阅读器打开和翻页 smoke test。
+  - `qa-fixtures/books/duban-qa-corrupt.pdf`：故意损坏的 PDF，用于导入失败负向测试。
+  - `qa-fixtures/books/duban-qa-mini-book.html`：自写 HTML 源文本，供后续生成合法 MOBI fixture。
+- 新增备份样本：
+  - `qa-fixtures/backups/duban-backup-empty-v3/manifest.json`：空目录式备份 manifest，用于预览和校验 smoke test。
+  - `qa-fixtures/backups/duban-backup-tampered-v3/manifest.json`：manifest hash 故意错误，用于校验报告负向测试。
+- 更新 [QA_MATRIX.md](./QA_MATRIX.md)、生产级路线、发布清单、Roadmap、项目记录和 AI 接手提示词。
+
+验证：
+
+- `npm run qa:fixtures` 已通过。
+- `npm run qa:fixtures:verify` 已通过。
+- `git diff --check` 已通过。
+- `npm run release:preflight` 已通过。
+
+限制：
+
+- 当前不提交二进制 MOBI fixture；MOBI 仍用本地授权样本人工验证，并在 QA Run 中记录来源授权摘要。
+- 当前备份样本为空备份和篡改备份；含真实书籍数据的备份 roundtrip、旧 schema 数据库和旧备份样本进入 P6.10.3。
+
+### 2026-07-09：P6.10.1 QA 矩阵基础版
+
+阶段：P6.10 QA 矩阵与回归样本
+
+目标：
+
+- 建立发布前固定 QA 表，让关键路径不再靠临时记忆测试。
+- 把 smoke test、核心回归、升级恢复、跨环境测试和样本策略统一到一个文档。
+- 明确测试证据的隐私边界，避免 API Key、书籍正文、笔记、聊天或绝对路径进入测试记录。
+
+改动：
+
+- 新增 [QA_MATRIX.md](./QA_MATRIX.md)：
+  - 使用规则和结果标记：`Pass`、`Fail`、`Blocked`、`Skipped`。
+  - 测试环境维度：App 形态、包类型、用户状态、网络状态、API Key、文件类型、数据规模和备份来源。
+  - P0 Smoke Test：首次启动、书架显示、PDF/MOBI 导入、阅读器打开、进度恢复、Key 状态、AI 请求、备份导出和重启恢复。
+  - P1 核心回归：书库导入、阅读器/笔记、AI/设置、备份/诊断、发布包/桌面行为。
+  - 升级与数据恢复：新 schema 空库启动、旧 schema 升级、旧备份导入、新备份 roundtrip 和损坏备份。
+  - 回归样本策略：不提交版权受限原文，可提交公版/开源/自写/合成样本。
+  - 发布测试记录模板。
+- [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) 的 smoke test 部分改为引用 QA 矩阵。
+- 更新文档索引、生产级路线、Roadmap、项目记录和 AI 接手提示词。
+
+验证：
+
+- `git diff --check` 已通过。
+- `npm run release:preflight` 已通过。
+
+限制：
+
+- 当前只建立 QA 矩阵和样本策略，还没有提交固定 fixtures。
+- 真实 signed DMG 的干净 macOS 回归仍等待 Apple Developer Program 审核通过。
+- 部分场景仍需人工真实 API Key 和本地授权书籍样本验证。
 
 ### 2026-07-09：P6.7/P6.9 发布与阅读器改动本地校验记录
 

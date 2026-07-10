@@ -98,6 +98,10 @@ function getLocalFilePath(file) {
 
 async function readLocalFileAsArrayBuffer(file, options = {}) {
   const url = await resolveLocalFileAssetUrl(file);
+  if (isCustomAssetProtocolUrl(url)) {
+    return readCustomAssetUrl(url, "arraybuffer", options.signal);
+  }
+
   const response = await fetch(url, { signal: options.signal });
   if (!response.ok) throw new Error("读取本地书籍文件失败。");
   return response.arrayBuffer();
@@ -105,9 +109,67 @@ async function readLocalFileAsArrayBuffer(file, options = {}) {
 
 async function readLocalFileAsText(file) {
   const url = await resolveLocalFileAssetUrl(file);
+  if (isCustomAssetProtocolUrl(url)) {
+    return readCustomAssetUrl(url, "text");
+  }
+
   const response = await fetch(url);
   if (!response.ok) throw new Error("读取本地文本文件失败。");
   return response.text();
+}
+
+function isCustomAssetProtocolUrl(url) {
+  return typeof url === "string" && url.startsWith("asset:");
+}
+
+function readCustomAssetUrl(url, responseType, signal) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    let settled = false;
+
+    const cleanup = () => signal?.removeEventListener("abort", handleAbort);
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const handleAbort = () => {
+      if (settled) return;
+      request.onabort = null;
+      request.abort();
+      finish(() => {
+        const error = new Error("读取本地书籍文件已取消。");
+        error.name = "AbortError";
+        reject(error);
+      });
+    };
+
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    request.open("GET", url, true);
+    request.responseType = responseType;
+    request.onload = () => {
+      const acceptedStatus = request.status === 0 || (request.status >= 200 && request.status < 300);
+      const value = responseType === "arraybuffer" ? request.response : request.responseText;
+      if (!acceptedStatus || value === null || value === undefined) {
+        finish(() => reject(new Error("读取本地书籍文件失败。")));
+        return;
+      }
+      finish(() => resolve(value));
+    };
+    request.onerror = () => finish(() => reject(new Error("读取本地书籍文件失败。")));
+    request.onabort = () => finish(() => {
+      const error = new Error("读取本地书籍文件已取消。");
+      error.name = "AbortError";
+      reject(error);
+    });
+    signal?.addEventListener("abort", handleAbort, { once: true });
+    request.send();
+  });
 }
 
 async function resolveLocalFileAssetUrl(file) {

@@ -1,12 +1,12 @@
 # 读伴生产级升级路线
 
-> 最后更新：2026-07-09
+> 最后更新：2026-07-10
 
 这份文档记录读伴从“本地可用的桌面 App”升级到“可长期使用、可分发、可维护的生产级 App”还需要完成什么。它不替代 [ROADMAP.md](./ROADMAP.md) 和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)：Roadmap 记录产品方向，App 化日志记录每次实施流水，这里专门维护剩余生产级升级步骤和完成标准。
 
 ## 当前基线
 
-截至 2026-07-09，读伴已经具备这些基础：
+截至 2026-07-10，读伴已经具备这些基础：
 
 - React/Vite 浏览器 MVP 仍可用于快速验证阅读体验。
 - Tauri v2 桌面壳已接入，macOS 本地可生成 `.app` 和测试版 `.dmg`。
@@ -19,7 +19,9 @@
 - P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体已完成；P6.4 AI transport 生产化已完成主体收尾，包括 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
 - P6.5 安全与隐私加固已完成基础版：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步均已落地。
 - P6.6 本地诊断与可支持性基础版已完成；P6.7.1 发布配置收束已完成；P6.7.2 签名/公证前准备已完成，Developer ID、notarization、staple、Gatekeeper 验证脚本和干净 macOS 回归清单均已落地。
+- P6.7.4-P6.7.6 已完成版本管理、App 内版本可见性和 tag 驱动的 macOS 自动发布：annotated tag 会触发 CI 校验、Developer ID 签名、Apple 公证/staple、Gatekeeper 验证和 GitHub Release artifact 发布。
 - P6.9.1 基础 CI、P6.9.2 Release preflight CI 和 P6.9.3 发布/协作模板已完成：GitHub Actions 会在 macOS runner 上执行正式前端构建、release preflight、Rust fmt/check/test 和安全扫描；仓库已提供 release checklist、PR checklist、bug report 和 feature request 模板。
+- P6.10.1 QA 矩阵基础版已完成；P6.10.2 固定 fixtures/样本说明基础版已完成：已提供合成 PDF、坏 PDF、HTML 源文本、空备份 manifest、篡改备份 manifest、fixture manifest 和生成/验证脚本。
 
 这意味着读伴已经不是纯前端原型，但还没有达到正式分发给其他用户长期使用的生产级状态。
 
@@ -243,11 +245,17 @@
 - 已完成 P6.7.1：固定版本号 `0.1.0`、正式/测试 bundle identifier、App 名称、test/formal channel、artifact 命名、release preflight、manifest/checksum 和 release notes 约定。
 - 已完成：固定桌面窗口生命周期，点主窗口叉号隐藏到后台，Dock 图标可以重新唤回，真正退出走系统退出。
 - 已完成 P6.7.2：准备 Developer ID 签名、公证、staple、Gatekeeper 验证脚本和干净 macOS 回归清单。
-- 当前暂停：Apple Developer Program 注册申请仍在审核中，无法创建 `Developer ID Application` 证书；P6.7 真实签名/公证等待外部审核完成。
-- 待用户准备 Apple Developer Program、Developer ID Application 证书和 notarytool 凭据后，使用真实证书签名 `.app` 和 `.dmg`。
-- 对真实 signed DMG 执行 notarization，并验证 Gatekeeper 能正常打开。
+- 已完成 P6.7.4 版本管理基础：当前开发线升为 `0.2.0-alpha.1`，`package.json` 成为单一版本源，npm/Tauri/Cargo/lockfile 可统一校验和升版，CI/release preflight 已接入版本检查，并建立 VERSIONING/CHANGELOG。
+- 已完成 P6.7.5 版本可见性：设置页/诊断展示 App version、formal/test channel、runtime、Git commit/dirty、SQLite schema 和 backup version；正式候选包必须来自干净 commit。
+- 已完成 P6.7.6：新增 tag 驱动的 macOS release workflow；只接受位于 `origin/main` 的 clean annotated `v<version>` tag，自动完成构建、签名、公证、staple、Gatekeeper、manifest/checksum/notary log 和 GitHub Release 发布。配置与操作见 [GITHUB_RELEASE_AUTOMATION.md](./GITHUB_RELEASE_AUTOMATION.md)。
+- Apple Developer Program 审核已通过；外部审核阻塞已解除。
+- `Developer ID Application: Zhanwen Lu (FBMN9293RM)` 已安装并与私钥正确配对；`duban-notarytool` Keychain profile 已验证并保存；严格发布预检已通过。
+- 首个 `arm64` signed DMG 的 Apple notarization、staple、App/DMG Gatekeeper 和 checksum 验证均通过，但人工回归发现旧 PDF 的 macOS `asset://` 状态 `0` 兼容问题，该候选包已作废。
+- 兼容修复已完成代码、formal build 和安全扫描验证，当前在 Tauri 桌面环境回归；通过后重新签名、公证并替换候选包。
+- 人工回归同时发现历史 `tauri:dev` 未加载 test 配置，开发数据曾写入正式 identifier。已将基础配置和开发脚本改为 test-safe，数据目录与 Keychain service 均按 identifier 隔离；历史开发书库已迁回 test 目录并保留回滚快照。本地 formal 与 test 双进程验证结果为正式库 0 本、测试库 2 本。
 - 在干净 macOS 用户环境中安装、首次启动、导入书籍、保存 API Key、生成导读、重启恢复。
 - 输出版本化 release artifacts：`.app`、`.dmg`、校验和、release notes。
+- 首次运行自动流水线前，在 GitHub 配置 `macos-release` Environment、Apple 签名/公证 Secrets 和可选 required reviewer。
 
 完成标准：
 
@@ -271,6 +279,7 @@
 - 生成并保管 updater 签名私钥，公开公钥进入 App 配置。
 - 设计更新通道：test、alpha、stable。
 - 发布 signed update manifest，并选择发布托管位置。
+- 复用 P6.7.6 的 SemVer/tag/source metadata、GitHub Release 和 release notes；updater 只追加签名更新包与 `latest.json`，不得再维护第二套版本号。
 - 设计更新失败回滚和手动下载 fallback。
 - 更新前提示用户备份，重大 schema 升级前强制做恢复点或提示导出备份。
 
@@ -293,8 +302,8 @@
 
 - 已完成 P6.9.1：新增基础 GitHub Actions CI，执行 `npm run build`、`cargo fmt --check`、`cargo check`、`cargo test` 和 `npm run security:scan`。
 - 已完成 P6.9.2：CI 在正式前端构建后执行 `npm run release:preflight`，检查 formal dist 不包含测试书、测试入口和测试文案。
-- 待完成：增加 Tauri build workflow，至少覆盖 macOS。
-- 待完成：对正式构建产物增加更多 artifact 检查，例如不包含 `.env`、不包含 API Key、版本号正确。
+- 已完成 P6.7.6/P6.9 发布 workflow：tag 推送后在 macOS runner 构建、签名、公证、验证并发布正式 DMG，artifact 的版本、commit、tag、checksum 和公证状态会在发布前复核。
+- 待增强：继续扩展正式构建 artifact 内容扫描，例如显式检查 `.env` 和更多敏感文件形态。
 - 已完成 P6.9.3：新增 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)，包含发布边界、本地质量检查、CI、local/signed 包、smoke test、release notes 和发布后确认。
 - 已完成 P6.9.3：新增 `.github/PULL_REQUEST_TEMPLATE.md`，覆盖验证命令、隐私、数据迁移、备份、Keychain、发布和文档同步检查。
 - 已完成 P6.9.3：新增 bug report 和 feature request issue forms，并默认关闭空白 issue。
@@ -310,24 +319,10 @@
 
 要做：
 
-- 建立手动 smoke test 清单：
-  - 首次启动
-  - 导入 PDF
-  - 导入 MOBI
-  - 编辑章节
-  - 生成开书导读
-  - 生成章节导读
-  - 阅读中问答
-  - 高亮与笔记
-  - 读后交流
-  - 备份导出
-  - 备份预览
-  - 合并导入
-  - 覆盖恢复
-  - 重启恢复进度
-- 建立升级测试清单：旧 schema 数据库升级、新 schema 空库启动、旧备份导入、新备份导入。
-- 建立跨环境测试：新用户、已有用户、无网络、有网络、无 API Key、错误 API Key、自定义 Base URL。
-- 能自动化的路径逐步用 Playwright 或 Rust 单元测试覆盖。
+- 已完成 P6.10.1：新增 [QA_MATRIX.md](./QA_MATRIX.md)，建立手动 smoke test、核心回归、升级数据恢复、跨环境维度和样本策略。
+- 已完成 P6.10.2：建立 `qa-fixtures/`、`npm run qa:fixtures` 和 `npm run qa:fixtures:verify`，提供合成 PDF、坏 PDF、HTML 源文本、空备份 manifest 和篡改备份 manifest；MOBI 二进制样本暂用本地授权样本说明，不提交仓库。
+- 待完成 P6.10.3：建立升级样本：旧 schema 数据库、含书旧备份、含书新备份、损坏备份。
+- 待完成 P6.10.4：能自动化的路径逐步用 Playwright 或 Rust 单元测试覆盖。
 
 完成标准：
 
@@ -371,13 +366,13 @@
 
 ## 推荐执行顺序
 
-P6.1 数据安全收口、P6.2 存储结构收束、P6.3 大文件与解析韧性主体、P6.4 AI transport 生产化主体、P6.5 安全与隐私加固基础版和 P6.6 本地诊断与可支持性基础版均已完成；建议下一步进入 P6.7 正式 macOS 发布包。
+P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。P6.7 首个公证包已因旧 PDF 回归问题作废；新的 tag 自动发布链路已就绪，仍需完成修复版人工回归、GitHub Environment/Secrets 配置并实际跑通首个 tag release。
 
 推荐顺序：
 
-1. P6.7 正式 macOS 发布包。
-2. P6.9 CI 与发布流水线。
-3. P6.10 QA 矩阵与回归样本。
+1. 完成旧 PDF `asset://` 修复桌面回归，配置 GitHub `macos-release` Environment/Secrets，用首个新版本 annotated tag 跑通自动签名、公证和 Release，再继续 P6.7 干净 macOS 全量回归。
+2. P6.10.3 升级样本：旧 schema 数据库、含书旧备份、含书新备份、损坏备份。
+3. P6.9 剩余增强：扩展正式构建 artifact 内容扫描和发布后检查。
 4. P6.8 自动更新。
 5. P6.11 Public alpha 准备。
 7. P6.12 可选云同步/后端决策。

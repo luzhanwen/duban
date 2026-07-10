@@ -71,7 +71,8 @@ export default function PdfReader({
         if (!file) throw new Error("没有找到原始 PDF 文件。");
 
         const url = getLocalFileAssetUrl(file);
-        loadingTask = url
+        // PDF.js rejects status 0 from macOS custom protocols, even when the response has valid data.
+        loadingTask = url && !url.startsWith("asset:")
           ? pdfjsLib.getDocument({ url })
           : pdfjsLib.getDocument({ data: await readFileAsArrayBuffer(file) });
         const loadedPdf = await loadingTask.promise;
