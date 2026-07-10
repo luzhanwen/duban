@@ -1,6 +1,6 @@
 # 读伴桌面存储 Schema
 
-> 最后更新：2026-07-08
+> 最后更新：2026-07-10
 
 本文档记录 Tauri 桌面版从 IndexedDB 迁移到 SQLite + App 数据目录后的目标 schema。它服务于 App 化阶段 5，和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md) 的分工是：
 
@@ -9,10 +9,13 @@
 
 ## 存储边界
 
-桌面版本地数据目录：
+桌面版本地数据目录按通道隔离：
 
 ```text
-~/Library/Application Support/com.duban.reader/
+正式：~/Library/Application Support/com.duban.reader/
+测试：~/Library/Application Support/com.duban.reader.test/
+
+目录内部：
   duban.sqlite3
   files/
   backups/
@@ -25,6 +28,8 @@
 - 桌面备份文件保存在 `backups/` 目录，当前为 `manifest.json + files/` 目录式备份。
 - 浏览器版继续使用 IndexedDB，桌面版通过 `storageAdapter` 分流到 Tauri command。
 - 前端业务层先继续使用 `storage.js` / `books.js` 门面，逐步替换底层实现。
+- `npm run tauri:dev` 固定使用 `com.duban.reader.test`；正式目录只允许 formal 构建访问。
+- API Key 的 Keychain service 同样按 identifier 隔离，测试/正式不得共用。
 
 ## Schema 版本
 
@@ -32,7 +37,7 @@
 
 | key | value |
 | --- | --- |
-| `schema_version` | 当前为 `8` |
+| `schema_version` | 当前为 `9` |
 
 版本含义：
 

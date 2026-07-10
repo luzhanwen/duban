@@ -87,6 +87,8 @@ SQLite 是桌面版结构化数据来源：
 
 `kv_store` 只保留兼容旧 key 或临时低风险 JSON。新增长期数据必须优先进入结构化表或明确的文件目录，不能默认塞回 `kv_store`。
 
+App 版本以 `package.json` 为唯一人工修改来源。涉及 Cargo/Tauri 版本时必须使用 `npm run version:set` / `version:bump`，并通过 `npm run version:check`；SQLite schema 与 backup format 继续独立升版，不能跟随 App version 机械变化。
+
 当前允许的临时低风险内部 key：
 
 - `__duban:ai-budget:{YYYY-MM-DD}`：AI 预算日用量，只保存日期、任务类型、token 和估算费用；不得进入备份。
@@ -94,10 +96,13 @@ SQLite 是桌面版结构化数据来源：
 
 ### 文件系统
 
-桌面 App 数据目录：
+桌面 App 数据目录必须按发布通道隔离：
 
 ```text
-~/Library/Application Support/com.duban.reader/
+正式：~/Library/Application Support/com.duban.reader/
+测试：~/Library/Application Support/com.duban.reader.test/
+
+每个目录内部：
   duban.sqlite3
   files/
   backups/
@@ -113,12 +118,15 @@ SQLite 是桌面版结构化数据来源：
 - 本地 `files/` 下的长期文件路径必须保持白名单形态：顶层 blob 文件或 `covers/` 下封面文件；新增子目录前必须更新路径校验、孤儿文件扫描、备份恢复和本文档。
 - 外部备份路径只允许用户明确提供的已存在目录或 `manifest.json` 文件；读取前要做路径文本校验和 canonicalize。
 - 孤儿文件扫描必须只删除 SQLite 没有引用的 `files/` 文件；引用来源至少包括 `file_store`、`book_files` 和 `book_covers`。
+- `npm run tauri:dev` 和任何 debug/test 构建不得使用 `com.duban.reader`；基础 Tauri 配置必须保持 test-safe，正式 identifier 只能由显式 formal 配置覆盖。
+- 不允许测试版自动读取、迁移或清空正式目录；跨通道迁移只能由用户确认的显式维护操作完成，并保留回滚副本。
 
 ### Keychain
 
 API Key 存储规则：
 
 - 桌面版 API Key 只能存系统 Keychain。
+- Keychain service 必须按 Tauri identifier 隔离：正式版为 `com.duban.reader.keychain.ai`，测试版为 `com.duban.reader.test.keychain.ai`；禁止恢复为测试/正式共用 service。
 - SQLite、备份、日志、错误字符串中不得写入 API Key。
 - `settings` 写入路径必须剥离 `anthropic.apiKey`、`openaiCompatible.apiKey` 和旧 `apiKey`。
 - `duban_storage_get_item("settings")` 只能返回非敏感设置，不得为了兼容前端自动读取或注入 Keychain 密钥。
@@ -261,6 +269,9 @@ npm run tauri:dev
 
 并验证：
 
+- 启动链明确包含 `tauri:dev:test` 和 `tauri.test.conf.json`。
+- 窗口标题显示 `读伴 Test`。
+- 测试进程运行期间不会创建或修改 `~/Library/Application Support/com.duban.reader/`。
 - `http://localhost:5173/` 返回 HTTP 200。
 - `schema_meta.schema_version` 符合预期。
 - 关键结构化表数据没有被误删。

@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest an improvement or new capability.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Please describe the user problem first; implementation suggestions are welcome after that.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need or pain point should this solve?
+      placeholder: When reading..., I want...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the app do?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Reading experience
+        - AI companion
+        - Library/storage
+        - Backup/import/export
+        - Desktop app/release
+        - Security/privacy
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Are there simpler or smaller versions of this?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or examples. Do not include private book text or API keys.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This request does not include API keys, private notes, chat transcripts, or copyrighted book text.
+          required: true

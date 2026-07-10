@@ -1,6 +1,6 @@
 # 安全与隐私审计记录
 
-> 最后更新：2026-07-07
+> 最后更新：2026-07-10
 
 这份文档承接 P6.5「安全与隐私加固」。它记录依赖审计、Tauri 权限面、敏感信息边界和后续安全清单；不替代 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，也不替代完整隐私说明。
 
@@ -122,9 +122,13 @@ AI command：
 ### 已确认安全边界
 
 - 桌面 API Key 只进入系统 Keychain。
+- 测试/正式 Keychain service 按 app identifier 隔离：`com.duban.reader.test.keychain.ai` 与 `com.duban.reader.keychain.ai`。
+- 测试/正式 App 数据目录分别为 `com.duban.reader.test` 与 `com.duban.reader`；开发入口不得访问正式目录。
 - SQLite `app_settings.raw_json` 不保存 API Key。
 - 浏览器/桌面备份默认不包含 API Key。
 - AI 预算日用量 `__duban:ai-budget:{YYYY-MM-DD}` 不进入备份。
+- GitHub Actions 的 Developer ID `.p12`、证书密码、临时 Keychain 密码和 Apple App 专用密码只能放在受保护的 `macos-release` Environment Secrets；不得提交仓库、写入 release notes/manifest 或上传为 artifact。
+- 正式发布 workflow 只在 tag 校验通过后把 Secrets 暴露给引用 `macos-release` Environment 的发布 job；校验 job 不接触签名或公证凭据。
 - AI 调用诊断 `__duban:ai-diagnostics` 不进入备份。
 - AI 调用诊断不保存 prompt、章节正文、笔记正文、聊天全文或 API Key。
 - 设置页复制错误详情只复制 AI 调用诊断的脱敏摘要。

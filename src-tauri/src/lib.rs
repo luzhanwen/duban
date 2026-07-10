@@ -275,6 +275,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             set_macos_dock_icon();
 
+            storage::configure_keychain_service(&app.config().identifier)
+                .map_err(std::io::Error::other)?;
+
             let diagnostic_log =
                 DiagnosticLogState::initialize(app.handle()).map_err(std::io::Error::other)?;
             let _ = diagnostic_log.record_info(

@@ -1,11 +1,14 @@
 node_modules/
 dist/
+release-artifacts/
 .DS_Store
 .claude/
 
 .env
 .env.*
 !.env.example
+!.env.test
+!.env.formal
 
 npm-debug.log*
 yarn-debug.log*

@@ -1,0 +1,13 @@
+{
+  "productName": "读伴",
+  "identifier": "com.duban.reader",
+  "build": {
+    "beforeBuildCommand": "npm run build:formal"
+  },
+  "bundle": {
+    "macOS": {
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist"
+    }
+  }
+}

@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager, State};
@@ -26,7 +26,7 @@ const REFLECTION_SUFFIX: &str = ":reflection";
 const COVER_SUFFIX: &str = ":cover";
 const FORMATTED_TEXT_MARKER: &str = ":formatted-text:";
 const QUESTIONS_MARKER: &str = ":questions:";
-const KEYCHAIN_SERVICE: &str = "com.duban.reader.ai";
+const DEFAULT_KEYCHAIN_SERVICE: &str = "com.duban.reader.test.keychain.ai";
 const KEYCHAIN_ANTHROPIC_ACCOUNT: &str = "anthropic.apiKey";
 const KEYCHAIN_OPENAI_COMPATIBLE_ACCOUNT: &str = "openaiCompatible.apiKey";
 const CURRENT_SCHEMA_VERSION: &str = "9";
@@ -34,9 +34,43 @@ const BACKUP_FORMAT: &str = "duban.local-backup";
 const BACKUP_VERSION: u32 = 3;
 const BACKUP_MANIFEST_FILE: &str = "manifest.json";
 const BACKUP_FILES_DIR: &str = "files";
+static KEYCHAIN_SERVICE: OnceLock<String> = OnceLock::new();
 
 pub(crate) fn current_schema_version() -> &'static str {
     CURRENT_SCHEMA_VERSION
+}
+
+pub(crate) fn configure_keychain_service(identifier: &str) -> Result<(), String> {
+    let service = keychain_service_name(identifier)?;
+    if let Some(configured) = KEYCHAIN_SERVICE.get() {
+        if configured == &service {
+            return Ok(());
+        }
+        return Err("系统 Keychain service 已被其他运行环境初始化。".to_string());
+    }
+    KEYCHAIN_SERVICE
+        .set(service)
+        .map_err(|_| "初始化系统 Keychain service 失败。".to_string())
+}
+
+fn keychain_service_name(identifier: &str) -> Result<String, String> {
+    let normalized = identifier.trim();
+    if normalized.is_empty()
+        || normalized.len() > 160
+        || normalized
+            .chars()
+            .any(|character| !(character.is_ascii_alphanumeric() || matches!(character, '.' | '-')))
+    {
+        return Err("App identifier 无效，无法初始化系统 Keychain。".to_string());
+    }
+    Ok(format!("{normalized}.keychain.ai"))
+}
+
+fn keychain_service() -> &'static str {
+    KEYCHAIN_SERVICE
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_KEYCHAIN_SERVICE)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -3912,7 +3946,8 @@ fn delete_keychain_secret(account: &str) -> Result<(), String> {
 }
 
 fn keychain_entry(account: &str) -> Result<Entry, String> {
-    Entry::new(KEYCHAIN_SERVICE, account).map_err(|_| "初始化系统 Keychain 凭据失败。".to_string())
+    Entry::new(keychain_service(), account)
+        .map_err(|_| "初始化系统 Keychain 凭据失败。".to_string())
 }
 
 fn string_at_path(value: &Value, path: &[&str]) -> Option<String> {
@@ -5201,6 +5236,20 @@ mod tests {
             |row| row.get(0),
         )
         .expect("count rows")
+    }
+
+    #[test]
+    fn keychain_service_isolated_by_app_identifier() {
+        assert_eq!(
+            keychain_service_name("com.duban.reader").as_deref(),
+            Ok("com.duban.reader.keychain.ai")
+        );
+        assert_eq!(
+            keychain_service_name("com.duban.reader.test").as_deref(),
+            Ok("com.duban.reader.test.keychain.ai")
+        );
+        assert!(keychain_service_name("").is_err());
+        assert!(keychain_service_name("com.duban.reader/test").is_err());
     }
 
     #[test]

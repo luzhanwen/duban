@@ -1,0 +1,82 @@
+{
+  "format": "duban.qa-fixtures",
+  "generatedBy": "npm run qa:fixtures",
+  "schemaVersion": "9",
+  "backupVersion": "3",
+  "fixtures": [
+    {
+      "id": "pdf-valid-two-page",
+      "kind": "book",
+      "format": "pdf",
+      "purpose": [
+        "SMK-003",
+        "SMK-005",
+        "RD-001"
+      ],
+      "expected": "Imports as a small two-page PDF and opens in the reader.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/books/duban-qa-two-page.pdf",
+      "byteSize": 1065,
+      "sha256": "bfdfe431c1239f915f827ca9bff42f53a49c54484637058e720b1e3eab83e5b2"
+    },
+    {
+      "id": "pdf-corrupt-negative",
+      "kind": "book-negative",
+      "format": "pdf",
+      "purpose": [
+        "LIB-003"
+      ],
+      "expected": "Import fails with a friendly error and no stored book remains.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/books/duban-qa-corrupt.pdf",
+      "byteSize": 88,
+      "sha256": "54b972b8ce1171e3ebacf4a51ebf7e5274724e80cd478ad5dc55ab2ba003565e"
+    },
+    {
+      "id": "mobi-source-html",
+      "kind": "source",
+      "format": "html",
+      "purpose": [
+        "SMK-004-source"
+      ],
+      "expected": "Source text only. Not an importable MOBI fixture.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/books/duban-qa-mini-book.html",
+      "byteSize": 347,
+      "sha256": "34e2f05b7c4f52a49e613ef822b34d112e1a84d8eb73f10676bc9a46a55a76b7"
+    },
+    {
+      "id": "backup-empty-v3",
+      "kind": "backup",
+      "format": "duban.local-backup",
+      "purpose": [
+        "BK-002",
+        "BK-003",
+        "UPG-004-preview"
+      ],
+      "expected": "Previews without validation errors. Merge import is a no-op; replace import clears data.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/backups/duban-backup-empty-v3/manifest.json",
+      "byteSize": 450,
+      "sha256": "ac254ef3ff448b7a4662cd763e4c0ab0ffa3c4d8e05ab28fdd507d97f4a55760"
+    },
+    {
+      "id": "backup-tampered-v3",
+      "kind": "backup-negative",
+      "format": "duban.local-backup",
+      "purpose": [
+        "BK-003",
+        "UPG-005"
+      ],
+      "expected": "Preview reports a manifest hash validation issue.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/backups/duban-backup-tampered-v3/manifest.json",
+      "byteSize": 452,
+      "sha256": "3d16f00246cfbd4bbf6fa61142bfcfe6165a4996b0eed2b729adf6f4340812fe"
+    }
+  ],
+  "policy": {
+    "copyrightedBookFiles": "Do not commit copyrighted PDF/MOBI files. Use public-domain, open-license, self-authored, or synthetic fixtures only.",
+    "privateData": "Do not include API keys, private notes, chat transcripts, prompts, absolute local paths, or user book text."
+  }
+}
