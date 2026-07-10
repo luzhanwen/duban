@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,10 @@ try {
       "",
       "- Release state fixture.",
       "",
+      "## [1.0.0] - 2026-01-01",
+      "",
+      "- Historical fixture.",
+      "",
     ].join("\n")
   );
 
@@ -41,6 +45,10 @@ try {
 
   runNode("release_check.mjs", ["candidate"]);
   runNode("release_prepare.mjs", ["--date=2026-07-10"]);
+  const preparedChangelog = readFileSync(path.join(fixtureRoot, "CHANGELOG.md"), "utf8");
+  if (!preparedChangelog.includes("- Release state fixture.\n\n## [1.0.0]")) {
+    throw new Error("Prepared changelog did not preserve a blank line before historical releases");
+  }
   git(["add", "CHANGELOG.md"]);
   git(["commit", "-m", `prepare ${tag}`]);
   git(["update-ref", "refs/remotes/origin/main", "HEAD"]);

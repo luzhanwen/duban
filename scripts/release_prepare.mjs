@@ -44,6 +44,7 @@ const replacement = [
   "",
   body,
   "",
+  "",
 ].join("\n");
 const nextText =
   state.changelogText.slice(0, state.changelog.unreleased.start) +
