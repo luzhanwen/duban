@@ -908,6 +908,7 @@ readingProfile: {
 - 2026-07-11：P6.8.2 本机信任根与发布产物代码完成：独立 updater 私钥已在项目外生成并收紧为 `600`，公钥进入 formal/release 配置；发布链强制生成和上传 ASCII 命名的 DMG、`.app.tar.gz` 与 `.sig`，普通 formal 构建不要求私钥。待用户完成离线备份并向 `macos-release` Environment 添加两个 updater Secrets 后进入 P6.8.3。
 - 2026-07-11：P6.8.3 Alpha manifest 状态机完成：两个 updater Environment Secrets 已配置；发布链从 signed archive/signature 生成 `darwin-aarch64` 静态 manifest，只在公开 Release assets 验证后原子更新 `updater-index/alpha/latest.json`。状态机支持同版本幂等，拒绝倒退和同版本改写，并允许通道发布失败后的受控续跑。等待 Alpha.3 首次真实执行，下一步进入 P6.8.4 设置页更新体验与安装前恢复点。
 - 2026-07-11：P6.8.4 完成：正式桌面设置页新增软件更新面板、release notes、下载进度、安装前目录式恢复点、签名安装后的安全重启和 GitHub Release 手动下载；opener capability 仅允许读伴 Releases URL。桌面 test channel 回归确认不显示入口，宽屏/390px 布局无溢出。下一步发布 Alpha.3，再由 Alpha.4 做真实双版本升级。
+- 2026-07-11：P6.8 PR #3 完整 CI 通过并合并至 `main`（merge `7ee097d`）；Alpha.3 candidate 检查通过，Changelog 已冻结为 2026-07-11，进入发布准备提交与 annotated tag 阶段。
 
 ## 当前已知限制
 

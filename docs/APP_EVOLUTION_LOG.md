@@ -119,6 +119,16 @@
 
 ## 实施日志
 
+### 2026-07-11：P6.8 合并与 Alpha.3 发布准备
+
+阶段：P6.8 自动更新 / Alpha.3 发布
+
+- P6.8 功能提交 `fc27564` 已通过 PR #3 的完整 CI；检查包含前端构建、Rust、security scan 和 release preflight，耗时 2 分 33 秒。
+- PR #3 已合并到 `main`，合并提交为 `7ee097d`；本地主分支与 `origin/main` 一致。
+- `release:check -- candidate` 通过，确认版本 `0.2.0-alpha.3`、目标 annotated tag `v0.2.0-alpha.3`、clean main 和 Unreleased Changelog 草稿。
+- `release:prepare` 已把 Alpha.3 Changelog 冻结为 2026-07-11；下一步提交发布准备、运行 tag-ready 检查并推送 tag。
+- updater 私钥离线备份继续作为扩大 Alpha 测试前事项，本次内部 Alpha.3 按用户决定继续推进。
+
 ### 2026-07-11：P6.8.4 软件更新界面、恢复点与重启
 
 阶段：P6.8 自动更新
