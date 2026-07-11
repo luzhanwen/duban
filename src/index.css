@@ -3099,6 +3099,80 @@ label[for] {
   align-items: center;
 }
 
+.settings-update-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.settings-update-notes {
+  margin-top: 1rem;
+  border-left: 2px solid rgb(185 65 50 / 0.34);
+  background: rgb(247 243 236 / 0.5);
+  padding: 0.85rem 1rem;
+}
+
+.settings-update-notes strong {
+  color: theme("colors.ink");
+  font-size: 0.82rem;
+}
+
+.settings-update-notes p {
+  max-height: 12rem;
+  overflow: auto;
+  margin: 0.45rem 0 0;
+  color: theme("colors.ink-soft");
+  font-size: 0.8rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-update-actions {
+  margin-top: 1rem;
+}
+
+.settings-update-progress {
+  margin-top: 1rem;
+  border: 1px solid rgb(230 221 207 / 0.84);
+  border-radius: 8px;
+  background: rgb(255 253 248 / 0.7);
+  padding: 0.8rem 0.9rem;
+}
+
+.settings-update-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: theme("colors.ink");
+  font-size: 0.8rem;
+}
+
+.settings-update-progress-track {
+  position: relative;
+  height: 0.4rem;
+  overflow: hidden;
+  margin-top: 0.65rem;
+  border-radius: 999px;
+  background: theme("colors.progress-track");
+}
+
+.settings-update-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--app-primary);
+  transition: width 180ms ease;
+}
+
+.settings-update-progress small {
+  display: block;
+  margin-top: 0.45rem;
+  color: theme("colors.ink-soft");
+  font-size: 0.72rem;
+}
+
 .settings-primary-button,
 .settings-secondary-button,
 .settings-danger-button {
@@ -3385,6 +3459,7 @@ label[for] {
 
   .settings-status-grid,
   .settings-security-grid,
+  .settings-update-summary,
   .settings-form-grid,
   .settings-metric-grid,
   .settings-metric-grid-compact {

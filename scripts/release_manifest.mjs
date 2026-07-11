@@ -32,7 +32,7 @@ const artifactPaths = [...collectFiles(bundleDir)].filter(
 );
 if (!artifactPaths.length) {
   fail(
-    `No release artifacts found for version ${version}, channel ${channel} and kind ${kind}. Expected a named .dmg, .zip, .tar.gz, .msi, .exe, .AppImage or .deb file.`
+    `No release artifacts found for version ${version}, channel ${channel} and kind ${kind}. Expected a named .dmg, .zip, .tar.gz, .sig, .msi, .exe, .AppImage or .deb file.`
   );
 }
 
@@ -94,7 +94,7 @@ function* collectFiles(directory) {
 }
 
 function isReleaseArtifact(filePath) {
-  return /\.(dmg|zip|tar\.gz|msi|exe|AppImage|deb)$/i.test(filePath);
+  return /\.(dmg|zip|tar\.gz|sig|msi|exe|AppImage|deb)$/i.test(filePath);
 }
 
 function matchesCurrentRelease(filePath) {

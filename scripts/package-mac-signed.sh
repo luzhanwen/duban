@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${APP_NAME:-读伴}"
+ARTIFACT_NAME="${ARTIFACT_NAME:-Duban}"
 VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
 ARCH="${RELEASE_ARCH:-$ARCH}"
@@ -16,7 +17,9 @@ else
 fi
 DMG_DIR="$TARGET_RELEASE_DIR/bundle/dmg"
 APP_PATH="$TARGET_RELEASE_DIR/bundle/macos/$APP_NAME.app"
-TARGET_DMG="$DMG_DIR/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg"
+TARGET_DMG="$DMG_DIR/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg"
+TARGET_UPDATE_ARCHIVE="$TARGET_RELEASE_DIR/bundle/macos/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.app.tar.gz"
+TARGET_UPDATE_SIGNATURE="${TARGET_UPDATE_ARCHIVE}.sig"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS signing must run on macOS."
@@ -29,10 +32,16 @@ if [[ -z "${APPLE_SIGNING_IDENTITY:-}" && -z "${APPLE_CERTIFICATE:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" || -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+  echo "Missing updater signing credentials."
+  echo "Set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in the release environment."
+  exit 1
+fi
+
 cd "$ROOT_DIR"
 npm run release:check
 npm run release:signing-preflight -- --strict --signing-only
-BUILD_ARGS=(build --bundles app,dmg --config src-tauri/tauri.formal.conf.json)
+BUILD_ARGS=(build --bundles app,dmg --config src-tauri/tauri.release.conf.json)
 if [[ -n "$TAURI_BUILD_TARGET" ]]; then
   BUILD_ARGS+=(--target "$TAURI_BUILD_TARGET")
 fi
@@ -56,10 +65,29 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+shopt -s nullglob
+UPDATE_ARCHIVES=("$TARGET_RELEASE_DIR/bundle/macos"/*.app.tar.gz)
+if [[ "${#UPDATE_ARCHIVES[@]}" -eq 0 ]]; then
+  echo "No updater archive was produced by Tauri."
+  exit 1
+fi
+LATEST_UPDATE_ARCHIVE="$(ls -t "${UPDATE_ARCHIVES[@]}" | head -n 1)"
+if [[ ! -f "${LATEST_UPDATE_ARCHIVE}.sig" ]]; then
+  echo "No updater signature was produced for: $LATEST_UPDATE_ARCHIVE"
+  exit 1
+fi
+if [[ "$LATEST_UPDATE_ARCHIVE" != "$TARGET_UPDATE_ARCHIVE" ]]; then
+  cp "$LATEST_UPDATE_ARCHIVE" "$TARGET_UPDATE_ARCHIVE"
+  cp "${LATEST_UPDATE_ARCHIVE}.sig" "$TARGET_UPDATE_SIGNATURE"
+fi
+
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 codesign --verify --strict --verbose=2 "$TARGET_DMG"
 
 echo "Created signed macOS DMG candidate:"
 echo "$TARGET_DMG"
+echo "Created signed updater artifacts:"
+echo "$TARGET_UPDATE_ARCHIVE"
+echo "$TARGET_UPDATE_SIGNATURE"
 
 RELEASE_ARCH="$ARCH" TAURI_BUILD_TARGET="$TAURI_BUILD_TARGET" RELEASE_KIND="$RELEASE_KIND" npm run release:manifest

@@ -45,6 +45,10 @@ const secretPatterns = [
     name: "Slack token",
     regex: /\bxox[baprs]-[0-9A-Za-z-]{24,}\b/g,
   },
+  {
+    name: "Tauri updater private key",
+    regex: /untrusted comment: minisign encrypted secret key\s*\n[A-Za-z0-9+/=]{80,}/g,
+  },
 ];
 
 scanForSecrets();
@@ -132,11 +136,35 @@ function validateCapabilityScope() {
     issues.push("src-tauri/capabilities/default.json: permissions must be an array");
     return;
   }
-  const blocked = permissions.filter((permission) =>
-    /^(fs|shell|process|http):/.test(permission) || permission.includes("shell")
-  );
+  const blocked = permissions.filter((permission) => {
+    if (typeof permission !== "string") {
+      return false;
+    }
+    if (/^(fs|shell|http):/.test(permission) || permission.includes("shell")) {
+      return true;
+    }
+    return ["process:default", "process:allow-exit"].includes(permission);
+  });
   if (blocked.length > 0) {
     issues.push(`src-tauri/capabilities/default.json: broad permissions found (${blocked.join(", ")})`);
+  }
+
+  const requiredUpdaterPermissions = ["updater:default", "process:allow-restart"];
+  for (const permission of requiredUpdaterPermissions) {
+    if (!permissions.includes(permission)) {
+      issues.push(`src-tauri/capabilities/default.json: missing updater permission (${permission})`);
+    }
+  }
+
+  const openerPermission = permissions.find(
+    (permission) => permission?.identifier === "opener:allow-open-url"
+  );
+  const openerUrls = openerPermission?.allow?.map((entry) => entry?.url).filter(Boolean) ?? [];
+  if (
+    openerUrls.length !== 1 ||
+    openerUrls[0] !== "https://github.com/luzhanwen/duban/releases*"
+  ) {
+    issues.push("src-tauri/capabilities/default.json: opener scope must stay limited to Duban GitHub Releases");
   }
 }
 

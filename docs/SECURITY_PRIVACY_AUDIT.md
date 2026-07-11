@@ -1,8 +1,16 @@
 # 安全与隐私审计记录
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 这份文档承接 P6.5「安全与隐私加固」。它记录依赖审计、Tauri 权限面、敏感信息边界和后续安全清单；不替代 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，也不替代完整隐私说明。
+
+## 2026-07-11 P6.8.4 更新下载权限增量审计
+
+- 新增官方 `tauri-plugin-opener` 2.5.4，只用于正式桌面版手动打开 GitHub Release fallback。
+- capability 未启用 `opener:default`、文件路径打开或 reveal 权限；只允许 `opener:allow-open-url`。
+- URL scope 固定为 `https://github.com/luzhanwen/duban/releases*`，安全扫描会在 scope 扩大、缺失或变更时失败。
+- updater 仍只开放 `updater:default` 与 `process:allow-restart`，没有开放 `process:allow-exit`、shell、fs 或任意 HTTP capability。
+- 安装前恢复点复用现有脱敏目录式备份，不包含 API Key；备份失败默认阻止下载和安装。
 
 ## P6.5.1 依赖与权限基线
 

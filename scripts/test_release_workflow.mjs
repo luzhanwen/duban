@@ -66,12 +66,16 @@ try {
     throw new Error("Explicit tag fetch did not restore the annotated tag object");
   }
 
-  const artifactPath = `src-tauri/target/release/bundle/dmg/读伴_${version}_formal_arm64_signed.dmg`;
+  const artifactPath = `src-tauri/target/release/bundle/dmg/Duban_${version}_formal_arm64_signed.dmg`;
   const artifactBytes = Buffer.from("synthetic signed dmg fixture\n", "utf8");
   write(artifactPath, artifactBytes);
+  const updaterPath = `src-tauri/target/release/bundle/macos/Duban_${version}_formal_arm64_signed.app.tar.gz`;
+  write(updaterPath, Buffer.from("synthetic updater archive fixture\n", "utf8"));
+  write(`${updaterPath}.sig`, "c3ludGhldGljLXVwZGF0ZXItc2lnbmF0dXJl\n");
   const releaseId = `duban-v${version}-formal-arm64-signed`;
   runNode("release_manifest.mjs", [], { RELEASE_ARCH: "arm64", RELEASE_KIND: "signed" });
   runNode("release_notes.mjs", ["final"]);
+  runNode("updater_manifest.mjs", [], { RELEASE_ARCH: "arm64" });
   write(
     `release-artifacts/${releaseId}-notary-log.json`,
     `${JSON.stringify({ id: "fixture", status: "Accepted" }, null, 2)}\n`
@@ -86,6 +90,7 @@ try {
     GITHUB_REF_NAME: tag,
     RELEASE_ARCH: "arm64",
   });
+  runNode("updater_publish.mjs", ["--dry-run"]);
 
   write("dirty.txt", "dirty\n");
   const dirtyCheck = runNode("release_check.mjs", ["tagged"], {}, { expectFailure: true });

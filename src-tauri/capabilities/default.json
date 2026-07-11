@@ -8,6 +8,16 @@
   "permissions": [
     "core:default",
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "updater:default",
+    "process:allow-restart",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/luzhanwen/duban/releases*"
+        }
+      ]
+    }
   ]
 }

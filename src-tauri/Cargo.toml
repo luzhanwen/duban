@@ -1,6 +1,6 @@
 [package]
 name = "duban"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 description = "读伴桌面应用"
 authors = ["luzhanwen"]
 license = "MIT"
@@ -23,6 +23,9 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.2", features = ["protocol-asset", "image-png"] }
 tauri-plugin-log = "2"
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }

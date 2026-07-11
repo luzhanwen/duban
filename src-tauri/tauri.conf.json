@@ -50,7 +50,7 @@
       "debugApplicationIdSuffix": ".debug"
     },
     "macOS": {
-      "bundleVersion": "0.2.102"
+      "bundleVersion": "0.2.103"
     }
   }
 }

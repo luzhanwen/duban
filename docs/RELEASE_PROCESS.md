@@ -143,7 +143,7 @@ npm run release:gatekeeper
 
 - `release:signing-preflight` 默认只检查本机工具、Tauri 配置、脚本入口和可见凭据，缺少证书/凭据时给 warning。
 - `npm run release:signing-preflight -- --strict` 会把缺少 Developer ID 证书或公证凭据视为失败，适合真正发布前使用。
-- `package:mac-signed` 需要 `APPLE_SIGNING_IDENTITY` 或 CI 的 `APPLE_CERTIFICATE`，会生成 `读伴_<version>_formal_<arch>_signed.dmg`。
+- `package:mac-signed` 需要 Apple 签名凭据和 updater 签名凭据，会生成 ASCII Release assets：`Duban_<version>_formal_<arch>_signed.dmg`、`.app.tar.gz` 和 `.app.tar.gz.sig`；App 内产品名仍为“读伴”。
 - `release:notarize` 默认提交 signed DMG，成功后执行 `xcrun stapler staple`、`xcrun stapler validate` 和 `spctl` DMG 验证。
 - `release:gatekeeper` 对本地 `.app` 和 signed DMG 执行 codesign、stapler 和 Gatekeeper 验证。
 

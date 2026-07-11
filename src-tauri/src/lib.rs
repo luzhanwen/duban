@@ -245,7 +245,14 @@ fn duban_ai_cancel_request(app: AppHandle, request_id: String) -> AiCancelResult
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init());
+
+    builder
         .invoke_handler(tauri::generate_handler![
             duban_ai_call_model,
             duban_ai_stream_model,
@@ -272,6 +279,10 @@ pub fn run() {
             storage::duban_storage_update_backup_metadata
         ])
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             #[cfg(target_os = "macos")]
             set_macos_dock_icon();
 

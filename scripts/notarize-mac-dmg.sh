@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${APP_NAME:-读伴}"
+ARTIFACT_NAME="${ARTIFACT_NAME:-Duban}"
 VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
 ARCH="${RELEASE_ARCH:-$ARCH}"
@@ -14,7 +15,7 @@ if [[ -n "$TAURI_BUILD_TARGET" ]]; then
 else
   TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/release"
 fi
-DMG_PATH="${1:-$TARGET_RELEASE_DIR/bundle/dmg/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
+DMG_PATH="${1:-$TARGET_RELEASE_DIR/bundle/dmg/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
 NOTARY_LOG_PATH="${NOTARY_LOG_PATH:-$ROOT_DIR/release-artifacts/duban-v${VERSION}-${RELEASE_CHANNEL}-${ARCH}-${RELEASE_KIND}-notary-log.json}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

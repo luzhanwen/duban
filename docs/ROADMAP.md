@@ -189,9 +189,9 @@ App 化专项路线和每次实施记录维护在 [APP_EVOLUTION_LOG.md](./APP_E
 - 已建立 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md) 和 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md)，为后续后端扩展和 AI 接手提供固定标准。
 - 已能生成 Developer ID 正式签名/Apple 公证的 macOS `.app`、`.dmg`；首个 `arm64` 候选包虽通过机器验证，但因人工回归发现旧 PDF `asset://` 状态 `0` 问题而作废。修复已进入桌面回归，通过后重新公证。
 - test/formal 桌面数据与 Keychain 已改为按 identifier 隔离；历史开发书库已从误用的正式目录迁入 `com.duban.reader.test`，并保留本机回滚快照。本地双进程验证显示测试库 2 本、正式库 0 本。
-- 版本管理基础和 App 内可见性已建立：当前开发版本 `0.2.0-alpha.2`，单一版本源、同步/校验/升版脚本、CI 版本护栏、VERSIONING 和 CHANGELOG 已落地；设置页/诊断会显示 channel、runtime、commit、dirty、SQLite schema 和 backup version。
+- 版本管理基础和 App 内可见性已建立：当前开发版本 `0.2.0-alpha.3`，单一版本源、同步/校验/升版脚本、CI 版本护栏、VERSIONING 和 CHANGELOG 已落地；设置页/诊断会显示 channel、runtime、commit、dirty、SQLite schema 和 backup version。
 - tag 驱动的 macOS 发布流水线已建立：clean annotated `v<version>` tag 会触发版本/Changelog/QA 校验、Developer ID 签名、Apple 公证/staple、Gatekeeper 检查和 GitHub Release artifact 上传；P6.8 自动更新将直接复用这套版本和发布资产。
-- 已将剩余生产级工作拆成 P6.1-P6.12；P6.1-P6.6 基础版、P6.7.1-P6.7.6、P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成；`v0.2.0-alpha.2` 自动签名、公证和 GitHub prerelease 已成功，等待公开下载 DMG 的人工 smoke test，之后进入 P6.8 自动更新。
+- 已将剩余生产级工作拆成 P6.1-P6.12；P6.1-P6.6 基础版、P6.7.1-P6.7.6、P6.8.1-P6.8.4、P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成；`v0.2.0-alpha.2` 自动签名、公证和 GitHub prerelease 已成功。下一步合并并发布 Alpha.3，再由 Alpha.4 完成 P6.8.5 双版本自动升级验收。
 
 可能方向：
 

@@ -5,6 +5,7 @@
     "beforeBuildCommand": "npm run build:formal"
   },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "macOS": {
       "hardenedRuntime": true,
       "entitlements": "entitlements.plist"

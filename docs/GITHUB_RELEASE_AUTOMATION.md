@@ -11,11 +11,12 @@
 1. 显式抓取远端 annotated tag object，再验证 tag、App version、Changelog、Git commit、`origin/main` 和 clean worktree。
 2. 运行正式前端构建、release preflight、Rust fmt/check/test、QA fixtures 和安全扫描。
 3. 进入受保护的 `macos-release` GitHub Environment。
-4. 导入 Developer ID `.p12`，构建 `arm64` signed DMG。
+4. 导入 Developer ID `.p12` 和 updater 签名凭据，构建 `arm64` signed DMG 与 updater archive/signature。
 5. 提交 Apple notarization，保存 JSON 结果并要求状态为 `Accepted`。
 6. staple 公证票据，执行 codesign、stapler 和 Gatekeeper 验证。
 7. 生成 release notes、manifest 和 SHA-256 checksums。
 8. 先创建 draft GitHub Release；全部资产上传成功后才转为公开 Release。
+9. 公开 Release 验证通过后，原子更新 `updater-index/alpha/latest.json`；前序失败不会移动用户更新指针。
 
 `alpha`、`beta`、`rc` 自动标记为 GitHub prerelease；无预发布后缀的版本发布为普通 Release。已经公开的 Release 不会被脚本覆盖或修改。
 
@@ -71,8 +72,19 @@ Settings -> Environments -> macos-release -> Environment secrets
 | `APPLE_PASSWORD` | Apple ID 的 App 专用密码，不是账号登录密码 | 必需 |
 | `APPLE_TEAM_ID` | `FBMN9293RM` | 必需 |
 | `APPLE_SIGNING_IDENTITY` | Developer ID Application 完整名称或 SHA-1 | 可选 |
+| `TAURI_SIGNING_PRIVATE_KEY` | `~/.tauri/duban-updater.key` 的完整加密私钥内容 | P6.8 起必需 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 生成 updater 私钥时设置的密码 | P6.8 起必需 |
 
 本机的 `duban-notarytool` Keychain profile 不能直接复制给 GitHub runner，因此 CI 使用 `APPLE_ID + APPLE_PASSWORD + APPLE_TEAM_ID` 完成公证。
+
+推荐用 `gh` 从文件标准输入直接写入 updater 私钥，避免把私钥复制到剪贴板：
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY --env macos-release < "$HOME/.tauri/duban-updater.key"
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env macos-release
+```
+
+第二条命令出现提示后输入 updater 私钥密码。GitHub 只会显示 Secret 名称和更新时间，不会再次显示内容。
 
 ### 4. 检查 Actions 权限
 
@@ -138,7 +150,9 @@ git push origin v<version>
 自动上传：
 
 ```text
-读伴_<version>_formal_arm64_signed.dmg
+Duban_<version>_formal_arm64_signed.dmg
+Duban_<version>_formal_arm64_signed.app.tar.gz
+Duban_<version>_formal_arm64_signed.app.tar.gz.sig
 duban-v<version>-formal-arm64-signed-manifest.json
 duban-v<version>-formal-arm64-signed-checksums.txt
 duban-v<version>-formal-arm64-signed-notary-log.json
@@ -158,11 +172,11 @@ duban-v<version>-release-notes.md
 
 ## P6.8 接口
 
-P6.8 自动更新将消费这里已经建立的不可变版本关系和 GitHub Release 资产：
+P6.8 自动更新已消费这里建立的不可变版本关系和 GitHub Release 资产：
 
 - `v<SemVer>` tag 是版本身份。
 - GitHub Release 区分 prerelease/stable 通道。
 - manifest 绑定 commit、tag、schema、backup version 和 DMG sha256。
-- updater 后续新增独立 updater 签名密钥、更新 bundle 和 `latest.json`。
+- updater 独立签名密钥、更新 bundle、静态 manifest 生成和 `latest.json` 原子发布已接入 workflow。
 
-P6.7.6 不生成 `latest.json`，也不启用 App 内自动安装；这些属于 P6.8，不能与 Developer ID 证书私钥混为同一套密钥。
+Developer ID 证书私钥与 updater 私钥仍是两套独立信任根。App 内安装交互、安装前恢复点和 Alpha.3 -> Alpha.4 实机升级仍由 P6.8.4/P6.8.5 完成。

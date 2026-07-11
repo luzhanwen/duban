@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="${APP_NAME:-读伴}"
+ARTIFACT_NAME="${ARTIFACT_NAME:-Duban}"
 VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version")"
 ARCH="$(uname -m)"
 ARCH="${RELEASE_ARCH:-$ARCH}"
@@ -15,7 +16,7 @@ else
   TARGET_RELEASE_DIR="$ROOT_DIR/src-tauri/target/release"
 fi
 APP_PATH="${APP_PATH:-$TARGET_RELEASE_DIR/bundle/macos/$APP_NAME.app}"
-DMG_PATH="${1:-$TARGET_RELEASE_DIR/bundle/dmg/${APP_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
+DMG_PATH="${1:-$TARGET_RELEASE_DIR/bundle/dmg/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Gatekeeper verification must run on macOS."
