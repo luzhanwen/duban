@@ -335,5 +335,5 @@
 - P6.9.3 发布检查清单与协作模板已完成：`docs/RELEASE_CHECKLIST.md`、`.github/PULL_REQUEST_TEMPLATE.md`、bug report 和 feature request issue forms 已落地。
 - P6.10.1 QA 矩阵基础版已完成：`docs/QA_MATRIX.md` 覆盖 P0 smoke、P1 核心回归、升级恢复、环境维度、样本策略和发布测试记录模板。
 - P6.10.2 fixtures/样本说明基础版已完成：`qa-fixtures/` 包含合成 PDF、坏 PDF、HTML 源文本、空备份 manifest、篡改备份 manifest 和 fixtures manifest；`npm run qa:fixtures` 可重生成，`npm run qa:fixtures:verify` 可校验。
-- P6.7.6 tag 驱动的 macOS 自动发布已实现：`release:check/prepare/notes/publish/self-test` 和 `.github/workflows/release-macos.yml` 把 annotated tag、Developer ID 签名、Apple 公证/staple、Gatekeeper 与 GitHub Release assets 串联；配置见 `docs/GITHUB_RELEASE_AUTOMATION.md`。当前尚未创建新 tag 或实际运行 GitHub 发布。
-- 仍待推进：`v0.2.0-alpha.2` tag release 实跑、干净 macOS 回归、P6.10 升级样本、artifact 内容扫描增强、压缩归档、备份签名、迁移夹具、P6.8 自动更新和 CI 中的 `cargo audit`。
+- P6.7.6 tag 驱动发布已实跑成功：`v0.2.0-alpha.2` 自动完成 tagged source 全检、Developer ID 签名、Apple 公证/staple、Gatekeeper 和 GitHub prerelease assets 上传；独立下载 SHA、stapler、spctl、codesign 验证通过。配置见 `docs/GITHUB_RELEASE_AUTOMATION.md`。
+- 仍待推进：`v0.2.0-alpha.2` 公开下载 DMG 的人工 smoke test、ASCII Release asset 命名、P6.10 升级样本、artifact 内容扫描增强、压缩归档、备份签名、迁移夹具、P6.8 自动更新和 CI 中的 `cargo audit`。

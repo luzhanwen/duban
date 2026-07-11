@@ -19,6 +19,8 @@
 
 `alpha`、`beta`、`rc` 自动标记为 GitHub prerelease；无预发布后缀的版本发布为普通 Release。已经公开的 Release 不会被脚本覆盖或修改。
 
+GitHub Release 会清洗包含中文字符的 asset 文件名；`v0.2.0-alpha.2` 的 DMG 因此显示为前导下划线名称。后续发布资产上传名使用 ASCII `Duban_<version>_...dmg`，App bundle 内的产品名仍保持“读伴”。
+
 ## 一次性 GitHub 配置
 
 ### 1. 创建发布 Environment

@@ -903,13 +903,14 @@ readingProfile: {
 - 2026-07-10：P6.7.5 版本可见性完成：Vite 从 `package.json`、Git/CI 和 Rust 存储常量注入 App version、channel、commit/dirty、schema、backup version；设置导航显示简版身份，诊断页显示并可复制完整构建身份。正式候选包要求 `formal`、目标 commit 且不带 `dirty`。
 - 2026-07-10：P6.7.6 tag 驱动发布链路完成：新增 release candidate/tag-ready/tagged 状态校验、Changelog 冻结、release notes、发布 manifest/checksum/notary evidence 和离线状态机自测。推送位于 `origin/main` 的 clean annotated `v<version>` tag 后，GitHub Actions 会在 `macos-release` Environment 中完成 arm64 Developer ID 签名、Apple 公证/staple、Gatekeeper 验证，并以 draft-first 方式上传和发布 GitHub Release；P6.8 后续直接消费同一套 tag/source metadata 与 Release assets。本轮未创建或推送 tag，也未实际发布 Release。
 - 2026-07-11：`v0.2.0-alpha.1` 首次 tag workflow 在签名前被 annotated-tag 护栏拦截：远端 tag 正确，但 checkout runner 的同名本地 ref 暂时指向 commit。未使用 Apple Secrets、未生成 DMG/Release；旧 tag 保持不可变。版本升为 `0.2.0-alpha.2`，两个 release job 增加显式远端 tag object fetch，并由 release preflight 固定检查。
+- 2026-07-11：`v0.2.0-alpha.2` 首个自动发布成功：GitHub Actions 完成 tagged source 全检、Developer ID 签名、Apple notarization `Accepted`、staple、Gatekeeper、manifest/checksum 和 prerelease assets 上传。独立下载 DMG 的 SHA-256、hdiutil、stapler、spctl、codesign 均通过；等待人工 smoke test。GitHub 会将中文 asset 文件名清洗为前导下划线，下个版本改用 ASCII `Duban_...` 上传名。
 
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - P6.4 AI transport 生产化主体已完成：Keychain 连续弹窗、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断均已落地。
-- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1-P6.7.6 已完成发布基础，`alpha.1` tag 在签名前安全失败，`alpha.2` 正在修复重发；P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成。
+- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1-P6.7.6 发布主体和首个自动 prerelease 已完成，等待 `alpha.2` 人工 smoke test；P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成。
 - 2026-07-08：桌面版主窗口点叉号改为隐藏到后台，不直接退出进程；macOS 点击 Dock 图标会重新显示并聚焦主窗口。
 - 2026-07-08：`tauri:dev` 下 Dock 右键退出可能短暂显示终端/调试进程图标；这是开发态未打包二进制的身份问题。Dock 图标一致性请用 `src-tauri/target/release/bundle/macos/读伴.app` 这类真实 bundle 测试包验证。
 - PDF 图片、表格、扫描件 OCR 暂未支持。

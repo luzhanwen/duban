@@ -366,11 +366,11 @@
 
 ## 推荐执行顺序
 
-P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。GitHub Environment/Secrets 已配置；`alpha.1` tag 在签名前因 runner tag object 差异安全失败，`alpha.2` 正在修复重发。
+P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。`v0.2.0-alpha.2` 已自动完成签名、公证和 GitHub prerelease，当前只差公开下载 DMG 的人工 smoke test；之后进入 P6.8 自动更新。
 
 推荐顺序：
 
-1. 完成旧 PDF `asset://` 修复桌面回归，配置 GitHub `macos-release` Environment/Secrets，用首个新版本 annotated tag 跑通自动签名、公证和 Release，再继续 P6.7 干净 macOS 全量回归。
+1. 从 GitHub Release 下载 `v0.2.0-alpha.2` DMG，完成安装、正式空书库、旧 PDF、MOBI、Keychain/AI、备份和重启恢复 smoke test，收口 P6.7。
 2. P6.10.3 升级样本：旧 schema 数据库、含书旧备份、含书新备份、损坏备份。
 3. P6.9 剩余增强：扩展正式构建 artifact 内容扫描和发布后检查。
 4. P6.8 自动更新。

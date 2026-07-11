@@ -115,9 +115,31 @@
 - 有数据 schema 版本和迁移策略。
 - 后续再评估签名、公证、自动更新和崩溃日志。
 
-状态：部分完成。已跑通 Developer ID 签名和 Apple 公证链路；首个 `arm64` 候选包因人工回归发现旧 PDF `asset://` 状态 `0` 和历史 test/formal 数据未隔离问题而作废。基础 Tauri 配置、数据目录和 Keychain 已完成 test/formal 隔离。`v0.2.0-alpha.1` 首次自动发布在签名前因 runner 的 tag object 获取方式被护栏阻止，没有产出 Release；修复进入 `0.2.0-alpha.2`，等待新 tag 实跑。
+状态：主体完成。`v0.2.0-alpha.2` 已由 GitHub Actions 自动完成 Developer ID 签名、Apple notarization/staple、Gatekeeper、manifest/checksum 和 prerelease 发布；独立下载复核通过。当前等待用户从 GitHub Release 下载 DMG 完成人工 smoke test，随后进入 P6.8 自动更新。GitHub 会清洗中文 Release asset 文件名，后续上传名需改为 ASCII `Duban_...`。
 
 ## 实施日志
+
+### 2026-07-11：v0.2.0-alpha.2 首个自动签名、公证与 GitHub Release 成功
+
+阶段：P6.7 正式 macOS 发布包 / P6.9 CI 与发布流水线
+
+发布结果：
+
+- annotated tag `v0.2.0-alpha.2` 绑定 clean `main` commit `8ae7653`；tagged source、版本、Changelog、fixtures、formal build、release preflight、Rust fmt/check/test 和安全扫描全部通过。
+- GitHub `macos-release` Environment 成功导入 Developer ID `.p12`，构建 `arm64` signed DMG；Apple notarization 返回 `Accepted`，staple、App/DMG Gatekeeper 和 codesign 验证通过。
+- GitHub Release `读伴 0.2.0-alpha.2` 已作为非 draft prerelease 发布，包含 DMG、release notes、manifest、checksums 和 notary log；workflow run `29144346955` 全绿。
+
+独立下载验证：
+
+- 下载 DMG 大小 `17,939,982` bytes，SHA-256 为 `eb078547f60f0123feed449a63949905a96932afa0ac0f249a52deb0b6ad787a`，与 manifest/checksums 一致。
+- manifest 为 `formal / signed / arm64`，source commit `8ae7653`、tag `v0.2.0-alpha.2`、`dirty=false`；notary log 状态为 `Accepted`。
+- `hdiutil verify`、系统权限下 `xcrun stapler validate`、`spctl` 和 `codesign --verify` 均通过，Gatekeeper 来源为 `Notarized Developer ID`。
+
+后续：
+
+- GitHub 将中文 DMG asset 名清洗为 `_0.2.0-alpha.2_formal_arm64_signed.dmg`；内容和包内“读伴”名称不受影响，下个版本改用 ASCII 上传名 `Duban_...`。
+- 用户仍需对公开下载 DMG 执行安装、首次启动、正式空书库、PDF/MOBI、Keychain、AI、备份和重启恢复 smoke test。
+- smoke test 通过后，P6.7 正式收口并进入 P6.8 Tauri updater。
 
 ### 2026-07-11：首次 Tag Release 失败保护与 Alpha.2 修复
 
