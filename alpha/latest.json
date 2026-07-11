@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0-alpha.3",
+  "notes": "# 读伴 0.2.0-alpha.3\n\n> Alpha 内测版 · formal 发布通道\n\n### Added\n\n- 接入 Tauri updater/process 客户端基础、最小权限和正式通道更新服务。\n- 新增 updater 预检、安全私钥扫描和自动更新架构文档。\n- 内置 Alpha updater 公钥和通道地址，发布流水线生成并校验 signed updater archive/signature。\n- 正式桌面设置页新增软件更新入口、版本说明、下载进度、安装前恢复点、安全重启和手动下载兜底。\n\n### Known limitations\n\n- Alpha.3 -> Alpha.4 实机升级、坏签名/断网/中断回归和 updater 私钥离线备份仍待 P6.8.5 完成。\n\n## 构建信息\n\n- App version：`0.2.0-alpha.3`\n- Git tag：`v0.2.0-alpha.3`\n- Git commit：`446d68a7eedc1895bb04c5db3179eb78a27c661e`\n- SQLite schema：`9`\n- Backup format：`3`\n\n## 安装与数据\n\n- 本版本仍是本地优先；书库、笔记和阅读进度默认保存在本机。\n- 桌面版 API Key 保存在系统 Keychain，不进入备份或诊断包。\n- 升级前建议先在设置页导出一次本地备份。",
+  "pub_date": "2026-07-11T15:38:25.656Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSlZaMmZNM0VyeTgzSUppRlZGd0NpK2FSTjk0VDh5ZmlpWmU0REJ5ZlJPV1FObWt5dUVWekZvVk9uUjg1Yjl6THNpRHRtWDJpUHhLb0d0eVpJb1RnUE8wblpBTnNQYkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzNzg0Mjc2CWZpbGU66K+75Ly0LmFwcC50YXIuZ3oKeWl0Zkw4cmhTekM2OHRidTYrVlYzeXNTUjBTZ0xlcTJ1N1JzMGxqRER3bndsQnRyT1ZTMzU2a2xGRnBWYVgxaTFMSXN4TTMwTzhwOFM4d3FKRzVtQ2c9PQo=",
+      "url": "https://github.com/luzhanwen/duban/releases/download/v0.2.0-alpha.3/Duban_0.2.0-alpha.3_formal_arm64_signed.app.tar.gz"
+    }
+  }
+}
