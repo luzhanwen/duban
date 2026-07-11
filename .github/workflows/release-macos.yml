@@ -72,6 +72,9 @@ jobs:
       - name: Security scan
         run: npm run security:scan
 
+      - name: Validate updater client configuration
+        run: npm run updater:preflight
+
   publish-macos:
     name: Sign, Notarize, and Publish macOS Release
     needs: validate-tag
@@ -123,6 +126,12 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      - name: Strict updater signing preflight
+        run: npm run updater:preflight -- --strict
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
       - name: Build Developer ID signed DMG
         run: npm run package:mac-signed
         env:
@@ -130,6 +139,8 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Submit DMG for Apple notarization and staple ticket
         run: npm run release:notarize
@@ -147,8 +158,17 @@ jobs:
       - name: Regenerate final manifest and checksums
         run: npm run release:manifest
 
+      - name: Generate signed updater channel candidate
+        run: npm run updater:manifest
+
       - name: Publish immutable GitHub Release assets
         run: npm run release:publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ALLOW_PUBLISHED_RESUME: "1"
+
+      - name: Publish Alpha updater channel pointer
+        run: npm run updater:publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -160,4 +180,6 @@ jobs:
           if-no-files-found: warn
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
             release-artifacts/**

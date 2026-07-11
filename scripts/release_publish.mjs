@@ -16,6 +16,8 @@ const manifestPath = path.join(outputDir, `${releaseId}-manifest.json`);
 const checksumsPath = path.join(outputDir, `${releaseId}-checksums.txt`);
 const notesPath = path.join(outputDir, `duban-v${state.version}-release-notes.md`);
 const notaryLogPath = path.join(outputDir, `${releaseId}-notary-log.json`);
+const updaterChannel = ["alpha", "beta", "rc"].includes(state.maturity) ? "alpha" : "stable";
+const updaterManifestPath = path.join(outputDir, `duban-v${state.version}-updater-${updaterChannel}.json`);
 const expectedTag = state.targetTag;
 
 if (state.git.dirty) fail("GitHub Release publishing requires a clean Git worktree");
@@ -26,7 +28,7 @@ if (process.env.GITHUB_REF_NAME && process.env.GITHUB_REF_NAME !== expectedTag) 
   fail(`GITHUB_REF_NAME ${process.env.GITHUB_REF_NAME} does not match ${expectedTag}`);
 }
 
-for (const filePath of [manifestPath, checksumsPath, notesPath, notaryLogPath]) {
+for (const filePath of [manifestPath, checksumsPath, notesPath, notaryLogPath, updaterManifestPath]) {
   if (!existsSync(filePath)) fail(`Missing release file: ${path.relative(state.root, filePath)}`);
 }
 
@@ -52,6 +54,11 @@ const artifactPaths = (manifest.artifacts || []).map((artifact) => {
 if (!artifactPaths.some((filePath) => filePath.endsWith(".dmg"))) {
   fail("Release manifest does not contain a DMG artifact");
 }
+const updaterArchive = artifactPaths.find((filePath) => filePath.endsWith(".app.tar.gz"));
+if (!updaterArchive) fail("Release manifest does not contain a macOS updater archive");
+if (!artifactPaths.includes(`${updaterArchive}.sig`)) {
+  fail("Release manifest does not contain the updater archive signature");
+}
 
 const checksums = readFileSync(checksumsPath, "utf8");
 for (const artifact of manifest.artifacts || []) {
@@ -63,7 +70,16 @@ for (const artifact of manifest.artifacts || []) {
 const notaryLog = readJson(notaryLogPath);
 if (notaryLog.status !== "Accepted") fail(`Notarization status is ${notaryLog.status || "unknown"}`);
 
-const assets = [...new Set([...artifactPaths, manifestPath, checksumsPath, notesPath, notaryLogPath])];
+const assets = [
+  ...new Set([
+    ...artifactPaths,
+    manifestPath,
+    checksumsPath,
+    notesPath,
+    notaryLogPath,
+    updaterManifestPath,
+  ]),
+];
 const prerelease = state.maturity !== "stable";
 
 if (dryRun) {
@@ -80,7 +96,19 @@ if (!process.env.GH_TOKEN && !process.env.GITHUB_TOKEN) {
 
 const existing = readExistingRelease(expectedTag);
 if (existing && !existing.isDraft) {
-  fail(`GitHub Release ${expectedTag} is already published and will not be mutated`);
+  if (process.env.RELEASE_ALLOW_PUBLISHED_RESUME !== "1") {
+    fail(`GitHub Release ${expectedTag} is already published and will not be mutated`);
+  }
+  if (Boolean(existing.isPrerelease) !== prerelease) {
+    fail(`Published Release prerelease state does not match ${state.maturity}`);
+  }
+  const publishedNames = new Set((existing.assets || []).map((asset) => asset.name));
+  const missingAssets = assets.map((asset) => path.basename(asset)).filter((name) => !publishedNames.has(name));
+  if (missingAssets.length) {
+    fail(`Published Release is missing expected assets: ${missingAssets.join(", ")}`);
+  }
+  console.log(`GitHub Release already published and verified for resume: ${existing.url || expectedTag}`);
+  process.exit(0);
 }
 if (existing && Boolean(existing.isPrerelease) !== prerelease) {
   fail(`Existing draft prerelease state does not match ${state.maturity}`);
@@ -114,7 +142,7 @@ if (!published || published.isDraft) fail(`GitHub Release ${expectedTag} was not
 console.log(`GitHub Release published: ${published.url || expectedTag}`);
 
 function readExistingRelease(tag) {
-  const result = spawnSync("gh", ["release", "view", tag, "--json", "isDraft,isPrerelease,url"], {
+  const result = spawnSync("gh", ["release", "view", tag, "--json", "isDraft,isPrerelease,url,assets"], {
     cwd: state.root,
     encoding: "utf8",
   });

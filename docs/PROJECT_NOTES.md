@@ -904,6 +904,10 @@ readingProfile: {
 - 2026-07-10：P6.7.6 tag 驱动发布链路完成：新增 release candidate/tag-ready/tagged 状态校验、Changelog 冻结、release notes、发布 manifest/checksum/notary evidence 和离线状态机自测。推送位于 `origin/main` 的 clean annotated `v<version>` tag 后，GitHub Actions 会在 `macos-release` Environment 中完成 arm64 Developer ID 签名、Apple 公证/staple、Gatekeeper 验证，并以 draft-first 方式上传和发布 GitHub Release；P6.8 后续直接消费同一套 tag/source metadata 与 Release assets。本轮未创建或推送 tag，也未实际发布 Release。
 - 2026-07-11：`v0.2.0-alpha.1` 首次 tag workflow 在签名前被 annotated-tag 护栏拦截：远端 tag 正确，但 checkout runner 的同名本地 ref 暂时指向 commit。未使用 Apple Secrets、未生成 DMG/Release；旧 tag 保持不可变。版本升为 `0.2.0-alpha.2`，两个 release job 增加显式远端 tag object fetch，并由 release preflight 固定检查。
 - 2026-07-11：`v0.2.0-alpha.2` 首个自动发布成功：GitHub Actions 完成 tagged source 全检、Developer ID 签名、Apple notarization `Accepted`、staple、Gatekeeper、manifest/checksum 和 prerelease assets 上传。独立下载 DMG 的 SHA-256、hdiutil、stapler、spctl、codesign 均通过；等待人工 smoke test。GitHub 会将中文 asset 文件名清洗为前导下划线，下个版本改用 ASCII `Duban_...` 上传名。
+- 2026-07-11：P6.8.1 自动更新客户端基础完成：版本升为 `0.2.0-alpha.3`，接入官方 Tauri updater/process 插件、最小 capability、正式通道更新服务、updater preflight 和私钥泄漏扫描。测试/浏览器环境不配置远程 endpoint；Alpha 使用独立 updater 信任根和 `updater-index/alpha/latest.json`，Alpha.3 内置信任根后由 Alpha.4 完成真实升级验收。详见 `AUTO_UPDATE_ARCHITECTURE.md`。
+- 2026-07-11：P6.8.2 本机信任根与发布产物代码完成：独立 updater 私钥已在项目外生成并收紧为 `600`，公钥进入 formal/release 配置；发布链强制生成和上传 ASCII 命名的 DMG、`.app.tar.gz` 与 `.sig`，普通 formal 构建不要求私钥。待用户完成离线备份并向 `macos-release` Environment 添加两个 updater Secrets 后进入 P6.8.3。
+- 2026-07-11：P6.8.3 Alpha manifest 状态机完成：两个 updater Environment Secrets 已配置；发布链从 signed archive/signature 生成 `darwin-aarch64` 静态 manifest，只在公开 Release assets 验证后原子更新 `updater-index/alpha/latest.json`。状态机支持同版本幂等，拒绝倒退和同版本改写，并允许通道发布失败后的受控续跑。等待 Alpha.3 首次真实执行，下一步进入 P6.8.4 设置页更新体验与安装前恢复点。
+- 2026-07-11：P6.8.4 完成：正式桌面设置页新增软件更新面板、release notes、下载进度、安装前目录式恢复点、签名安装后的安全重启和 GitHub Release 手动下载；opener capability 仅允许读伴 Releases URL。桌面 test channel 回归确认不显示入口，宽屏/390px 布局无溢出。下一步发布 Alpha.3，再由 Alpha.4 做真实双版本升级。
 
 ## 当前已知限制
 

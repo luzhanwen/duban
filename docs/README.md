@@ -1,6 +1,6 @@
 # 读伴文档索引
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 这个目录保存「读伴」的项目说明、路线图、UI 标准和开发日志。后续维护文档时，先看这份索引，再决定内容应该写到哪里。
 
@@ -24,6 +24,7 @@
 | [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) | 发布检查清单 | 每次发布前的本地检查、CI、local/signed 包、smoke test、release notes 和发布后确认 |
 | [VERSIONING.md](./VERSIONING.md) | 版本管理规范 | SemVer、单一版本源、升版命令、Git tag、Changelog 和 App/schema/backup 版本边界 |
 | [GITHUB_RELEASE_AUTOMATION.md](./GITHUB_RELEASE_AUTOMATION.md) | GitHub Release 自动发布 | Environment/Secrets、tag 触发、Developer ID 签名、公证、artifact 上传和失败恢复 |
+| [AUTO_UPDATE_ARCHITECTURE.md](./AUTO_UPDATE_ARCHITECTURE.md) | 自动更新架构与操作规范 | updater 信任根、Alpha/Stable 通道、发布产物、manifest、数据保护和双版本验收 |
 | [QA_MATRIX.md](./QA_MATRIX.md) | QA 矩阵与回归样本 | P6.10 smoke test、核心回归、升级恢复、环境维度和样本策略 |
 | [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md) | UI 设计标准 | 视觉气质、色彩字体、布局比例、卡片边界、页面过渡、动效规范、验收清单 |
 | [UI_CHANGELOG.md](./UI_CHANGELOG.md) | UI/体验更新日志 | 书架、阅读器、笔记、品牌视觉、交互细节等前端体验改动 |
@@ -48,9 +49,10 @@
 15. 要做发布前 QA、smoke test 或回归样本：读 [QA_MATRIX.md](./QA_MATRIX.md)。
 16. 要升版、创建 tag 或维护 Changelog：读 [VERSIONING.md](./VERSIONING.md)。
 17. 要配置或执行 tag 驱动的签名、公证与 GitHub Release：读 [GITHUB_RELEASE_AUTOMATION.md](./GITHUB_RELEASE_AUTOMATION.md)。
-18. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
-19. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
-20. 要继续打磨开书设置、捎话记忆或“设定读伴”体验：读 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
+18. 要推进 Tauri updater、更新密钥、通道 manifest 或升级验收：读 [AUTO_UPDATE_ARCHITECTURE.md](./AUTO_UPDATE_ARCHITECTURE.md)。
+19. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
+20. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
+21. 要继续打磨开书设置、捎话记忆或“设定读伴”体验：读 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
 
 ## 维护规则
 
@@ -71,6 +73,7 @@
   - 改变发布前检查步骤、PR/issue 模板、smoke test 或 release checklist：更新 `RELEASE_CHECKLIST.md`。
   - 改变 App 版本、升版脚本、Git tag 或 Changelog 规则：更新 `VERSIONING.md` 和根目录 `CHANGELOG.md`。
   - 改变 GitHub Environment/Secrets、tag release、CI 签名、公证或 Release 上传：更新 `GITHUB_RELEASE_AUTOMATION.md`。
+  - 改变 updater 信任根、更新通道、manifest、更新产物或升级回滚策略：更新 `AUTO_UPDATE_ARCHITECTURE.md`。
   - 改变 QA 矩阵、回归样本、测试环境维度或 smoke test 预期：更新 `QA_MATRIX.md`。
   - 改变视觉规范、布局标准、交互边界：更新 `UI_DESIGN_STANDARDS.md`。
   - 改变视觉、布局、交互、文案体验：更新 `UI_CHANGELOG.md`。

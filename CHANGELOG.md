@@ -4,7 +4,18 @@
 
 ## [Unreleased]
 
-目标版本：`待定`
+目标版本：`0.2.0-alpha.3`
+
+### Added
+
+- 接入 Tauri updater/process 客户端基础、最小权限和正式通道更新服务。
+- 新增 updater 预检、安全私钥扫描和自动更新架构文档。
+- 内置 Alpha updater 公钥和通道地址，发布流水线生成并校验 signed updater archive/signature。
+- 正式桌面设置页新增软件更新入口、版本说明、下载进度、安装前恢复点、安全重启和手动下载兜底。
+
+### Known limitations
+
+- Alpha.3 -> Alpha.4 实机升级、坏签名/断网/中断回归和 updater 私钥离线备份仍待 P6.8.5 完成。
 
 ## [0.2.0-alpha.2] - 2026-07-11
 

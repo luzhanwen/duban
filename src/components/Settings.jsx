@@ -46,6 +46,14 @@ import {
   formatBuildCommit,
   formatRuntimeTarget,
 } from "../lib/appVersion.js";
+import {
+  checkForAppUpdate,
+  clearPendingAppUpdate,
+  downloadAndInstallAppUpdate,
+  isAppUpdaterAvailable,
+  openAppReleasePage,
+  relaunchUpdatedApp,
+} from "../lib/appUpdater.js";
 
 const ANTHROPIC_MODEL_OPTIONS = [
   { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6（默认，均衡）" },
@@ -176,6 +184,13 @@ const SETTINGS_PANELS = [
     icon: "pulse",
   },
   {
+    id: "updates",
+    label: "软件更新",
+    desc: "检查并安装新版本",
+    icon: "update",
+    formalDesktopOnly: true,
+  },
+  {
     id: "advanced",
     label: "清空数据",
     desc: "删除本机全部内容",
@@ -229,6 +244,12 @@ export default function Settings({ onOpenPrivacy }) {
   const [backupMsg, setBackupMsg] = useState(null);
   const [diagnosticsMsg, setDiagnosticsMsg] = useState(null);
   const [buildInfoMsg, setBuildInfoMsg] = useState(null);
+  const [appUpdate, setAppUpdate] = useState(null);
+  const [updatePhase, setUpdatePhase] = useState("idle");
+  const [updateMsg, setUpdateMsg] = useState(null);
+  const [updateProgress, setUpdateProgress] = useState({ downloaded: 0, total: null });
+  const [updateRecoveryPoint, setUpdateRecoveryPoint] = useState(null);
+  const [updateInstallConfirmOpen, setUpdateInstallConfirmOpen] = useState(false);
   const [aiDiagnostics, setAiDiagnostics] = useState({ entries: [] });
   const [desktopHealthReport, setDesktopHealthReport] = useState(null);
   const [diagnosticPackageResult, setDiagnosticPackageResult] = useState(null);
@@ -244,6 +265,10 @@ export default function Settings({ onOpenPrivacy }) {
   const [activePanel, setActivePanel] = useState("ai");
   const desktopBackupAvailable = isDesktopBackupAvailable();
   const desktopDiagnosticsAvailable = isDesktopDiagnosticsAvailable();
+  const appUpdaterAvailable = isAppUpdaterAvailable();
+  const visibleSettingsPanels = SETTINGS_PANELS.filter(
+    (panel) => !panel.formalDesktopOnly || appUpdaterAvailable
+  );
 
   useEffect(() => {
     getSettings().then((settings) => {
@@ -257,6 +282,10 @@ export default function Settings({ onOpenPrivacy }) {
       refreshDesktopBackups();
     }
   }, [desktopBackupAvailable]);
+
+  useEffect(() => () => {
+    clearPendingAppUpdate();
+  }, []);
 
   function applySettingsToForm(settings) {
     const normalized = normalizeSettings(settings);
@@ -945,6 +974,101 @@ export default function Settings({ onOpenPrivacy }) {
     }
   }
 
+  async function handleCheckAppUpdate() {
+    setUpdatePhase("checking");
+    setUpdateMsg(null);
+    setAppUpdate(null);
+    setUpdateRecoveryPoint(null);
+    setUpdateProgress({ downloaded: 0, total: null });
+    try {
+      const result = await checkForAppUpdate();
+      if (!result.supported) {
+        setUpdatePhase("error");
+        setUpdateMsg({ type: "error", text: "当前环境不支持桌面自动更新。" });
+        return;
+      }
+      if (!result.available) {
+        setUpdatePhase("current");
+        setUpdateMsg({ type: "ok", text: `当前已是最新版本 ${APP_VERSION_INFO.appVersion}。` });
+        return;
+      }
+      setAppUpdate(result);
+      setUpdatePhase("available");
+      setUpdateMsg({ type: "ok", text: `发现新版本 ${result.version}。` });
+    } catch (error) {
+      setUpdatePhase("error");
+      setUpdateMsg({ type: "error", text: error?.message || "检查更新失败，请稍后重试。" });
+    }
+  }
+
+  async function handleInstallAppUpdate() {
+    if (!appUpdate?.version) return;
+    setUpdateInstallConfirmOpen(false);
+
+    let recoveryPointCreated = false;
+    setUpdateMsg(null);
+    setUpdateRecoveryPoint(null);
+    setUpdateProgress({ downloaded: 0, total: null });
+    try {
+      setUpdatePhase("backing-up");
+      const backup = await exportLocalBackup();
+      recoveryPointCreated = true;
+      setUpdateRecoveryPoint(backup);
+      if (backup.backupId) {
+        await updateLocalBackupMetadata(backup.backupId, {
+          label: `升级到 ${appUpdate.version} 前的恢复点`,
+          notes: `由读伴 ${APP_VERSION_INFO.appVersion} 在自动更新前创建。`,
+        }).catch(() => null);
+        await refreshDesktopBackups(backup.backupId);
+      }
+
+      setUpdatePhase("downloading");
+      let downloaded = 0;
+      let total = null;
+      await downloadAndInstallAppUpdate((progress) => {
+        if (progress.phase === "started") {
+          total = progress.contentLength;
+          downloaded = 0;
+        } else if (progress.phase === "progress") {
+          downloaded += progress.chunkLength;
+        } else if (progress.phase === "finished" && total) {
+          downloaded = total;
+        }
+        setUpdateProgress({ downloaded, total });
+      });
+
+      setUpdatePhase("restarting");
+      setUpdateMsg({ type: "ok", text: "更新已安装，正在重新打开读伴。" });
+      await relaunchUpdatedApp();
+    } catch (error) {
+      setUpdatePhase("error");
+      setUpdateMsg({
+        type: "error",
+        text: recoveryPointCreated
+          ? `${error?.message || "安装更新失败。"} 已保留更新前恢复点，可以重试或手动下载。`
+          : `${error?.message || "创建更新前恢复点失败。"} 自动安装已停止，尚未下载更新。`,
+      });
+    }
+  }
+
+  async function handleOpenAppReleasePage() {
+    try {
+      await openAppReleasePage(appUpdate?.version);
+    } catch (error) {
+      setUpdateMsg({ type: "error", text: error?.message || "打开下载页面失败。" });
+    }
+  }
+
+  async function handleRelaunchUpdatedApp() {
+    try {
+      setUpdatePhase("restarting");
+      await relaunchUpdatedApp();
+    } catch (error) {
+      setUpdatePhase("error");
+      setUpdateMsg({ type: "error", text: error?.message || "重启读伴失败，请手动退出后重新打开。" });
+    }
+  }
+
   return (
     <div className="settings-page">
       <div className="settings-shell">
@@ -970,7 +1094,7 @@ export default function Settings({ onOpenPrivacy }) {
 
         <div className="settings-layout">
           <aside className="settings-sidebar" aria-label="设置分类">
-            {SETTINGS_PANELS.map((panel) => (
+            {visibleSettingsPanels.map((panel) => (
               <SettingsNavButton
                 key={panel.id}
                 panel={panel}
@@ -1496,6 +1620,89 @@ export default function Settings({ onOpenPrivacy }) {
               </SettingsPanel>
             )}
 
+            {activePanel === "updates" && appUpdaterAvailable && (
+              <SettingsPanel>
+                <SettingsPanelHeader
+                  kicker="正式桌面版"
+                  title="软件更新"
+                  desc="安全检查、下载并安装读伴的新版本。"
+                />
+                <SettingsSection
+                  title="当前版本"
+                  desc="更新包必须通过读伴内置公钥签名验证，验证失败时不会安装。"
+                >
+                  <div className="settings-update-summary">
+                    <StatusTile label="已安装" value={APP_VERSION_INFO.appVersion} detail={formatAppChannel()} />
+                    <StatusTile
+                      label="更新状态"
+                      value={formatUpdatePhase(updatePhase)}
+                      detail={appUpdate?.version ? `可用版本 ${appUpdate.version}` : "Alpha 通道"}
+                      tone={updatePhase === "error" ? "warn" : appUpdate ? "ok" : "default"}
+                    />
+                    <StatusTile
+                      label="数据保护"
+                      value={updateRecoveryPoint ? "恢复点已创建" : "安装前自动备份"}
+                      detail={updateRecoveryPoint?.backupId || "备份失败会停止安装"}
+                      tone={updateRecoveryPoint ? "ok" : "default"}
+                    />
+                  </div>
+
+                  {appUpdate?.body && (
+                    <div className="settings-update-notes" aria-label={`读伴 ${appUpdate.version} 更新说明`}>
+                      <strong>版本说明</strong>
+                      <p>{appUpdate.body}</p>
+                    </div>
+                  )}
+
+                  {updatePhase === "downloading" && (
+                    <UpdateProgress progress={updateProgress} />
+                  )}
+
+                  <div className="settings-action-row settings-update-actions">
+                    <button
+                      type="button"
+                      className="settings-secondary-button"
+                      onClick={handleCheckAppUpdate}
+                      disabled={isUpdateBusy(updatePhase)}
+                    >
+                      {updatePhase === "checking" ? "正在检查..." : "检查更新"}
+                    </button>
+                    {appUpdate && updatePhase !== "restarting" && (
+                      <button
+                        type="button"
+                        className="settings-primary-button"
+                        onClick={() => setUpdateInstallConfirmOpen(true)}
+                        disabled={isUpdateBusy(updatePhase)}
+                      >
+                        {formatUpdateAction(updatePhase)}
+                      </button>
+                    )}
+                    {updatePhase === "restarting" && (
+                      <button
+                        type="button"
+                        className="settings-primary-button"
+                        onClick={handleRelaunchUpdatedApp}
+                      >
+                        重新打开读伴
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="settings-secondary-button"
+                      onClick={handleOpenAppReleasePage}
+                      disabled={isUpdateBusy(updatePhase)}
+                    >
+                      手动下载
+                    </button>
+                  </div>
+                  {updateMsg && <Hint msg={updateMsg} />}
+                  <p className="settings-note">
+                    自动恢复点保存在本机备份目录，不包含 API Key。安装失败时可以在“数据备份”中查看和恢复。
+                  </p>
+                </SettingsSection>
+              </SettingsPanel>
+            )}
+
             {activePanel === "advanced" && (
               <SettingsPanel>
                 <SettingsPanelHeader
@@ -1520,6 +1727,14 @@ export default function Settings({ onOpenPrivacy }) {
           </div>
         </div>
       </div>
+      {updateInstallConfirmOpen && appUpdate && (
+        <UpdateInstallConfirmDialog
+          currentVersion={APP_VERSION_INFO.appVersion}
+          nextVersion={appUpdate.version}
+          onCancel={() => setUpdateInstallConfirmOpen(false)}
+          onConfirm={handleInstallAppUpdate}
+        />
+      )}
     </div>
   );
 }
@@ -1577,6 +1792,83 @@ function StatusTile({ label, value, detail, tone = "default" }) {
       {detail && <small>{detail}</small>}
     </div>
   );
+}
+
+function UpdateInstallConfirmDialog({ currentVersion, nextVersion, onCancel, onConfirm }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        aria-label="取消安装更新"
+        onClick={onCancel}
+        className="absolute inset-0 bg-ink/30"
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`升级到读伴 ${nextVersion}`}
+        className="relative w-full max-w-md rounded-lg border border-line bg-paper-card p-5 shadow-xl"
+      >
+        <p className="settings-kicker">软件更新</p>
+        <h2 className="mt-1 font-serif text-2xl text-ink">安装读伴 {nextVersion}</h2>
+        <div className="mt-4 grid gap-3 text-sm leading-6 text-ink-soft">
+          <p>当前版本 {currentVersion}。安装前会先创建完整书库恢复点，备份失败时不会下载更新。</p>
+          <p>更新包通过签名验证并安装完成后，读伴会自动重启。</p>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onCancel} className="settings-secondary-button">
+            取消
+          </button>
+          <button type="button" onClick={onConfirm} className="settings-primary-button">
+            备份并安装
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function UpdateProgress({ progress }) {
+  const total = Number(progress.total) || 0;
+  const downloaded = Math.max(0, Number(progress.downloaded) || 0);
+  const percent = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
+  return (
+    <div className="settings-update-progress" aria-live="polite">
+      <div>
+        <span>正在下载并验证更新</span>
+        <strong>{percent === null ? formatBytes(downloaded) : `${percent}%`}</strong>
+      </div>
+      <div className="settings-update-progress-track" aria-hidden="true">
+        <span style={{ width: percent === null ? "28%" : `${Math.max(3, percent)}%` }} />
+      </div>
+      <small>
+        {total > 0 ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : `${formatBytes(downloaded)} 已下载`}
+      </small>
+    </div>
+  );
+}
+
+function isUpdateBusy(phase) {
+  return ["checking", "backing-up", "downloading", "restarting"].includes(phase);
+}
+
+function formatUpdatePhase(phase) {
+  return {
+    idle: "尚未检查",
+    checking: "正在检查",
+    current: "已是最新版",
+    available: "发现新版本",
+    "backing-up": "正在创建恢复点",
+    downloading: "正在下载与安装",
+    restarting: "等待重启",
+    error: "需要处理",
+  }[phase] || "未知状态";
+}
+
+function formatUpdateAction(phase) {
+  if (phase === "backing-up") return "正在备份...";
+  if (phase === "downloading") return "正在安装...";
+  return "备份、安装并重启";
 }
 
 function BackupMetricGrid({ preview, compact = false }) {

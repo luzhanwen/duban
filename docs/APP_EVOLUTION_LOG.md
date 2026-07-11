@@ -119,6 +119,119 @@
 
 ## 实施日志
 
+### 2026-07-11：P6.8.4 软件更新界面、恢复点与重启
+
+阶段：P6.8 自动更新
+
+改动：
+
+- 正式 Tauri 设置页新增独立“软件更新”分类；浏览器版和 test channel 通过运行环境/通道双重判断隐藏入口。
+- 更新面板显示已安装版本、Alpha 通道、检查状态、可用版本、release notes、数据保护状态和下载字节/百分比进度。
+- 新增应用内安装确认弹窗，替代关键更新流程中的原生 `window.confirm`。
+- 用户确认后先调用现有 `exportLocalBackup` 创建完整目录式恢复点，并写入升级目标版本标签和来源备注；备份失败时不会调用 updater 下载。
+- updater 下载并安装完成后调用 process relaunch；失败时保留恢复点信息，并允许重试或手动下载。
+- 新增官方 opener 2.5.4，手动下载只允许打开读伴 GitHub Releases URL；安全扫描固定检查该单一 scope。
+- 安装流程复用现有备份 schema、Keychain 隔离和 updater 签名验证，不新增数据库 schema 或备份格式。
+
+验证：
+
+- `npm run build` / `build:test` / `build:formal` 通过；正式构建的 updater/opener 动态 chunk 正常生成。
+- `cargo check`、`cargo fmt --check`、`cargo test` 通过，26 个 Rust 测试全部通过。
+- `npm run security:scan`、`npm run updater:preflight`、`npm run release:self-test`、`npm run version:check` 和 `git diff --check` 通过。
+- 本地 UI 回归在正式 Tauri mock 下验证：更新入口、idle 状态、模拟发现 Alpha.4、release notes 和应用内确认弹窗均正常。
+- 1280px 桌面截图布局正常；390x844 窄屏 `bodyScrollWidth=390`，更新面板宽 358px、按钮宽 324px，无横向溢出。
+- Tauri test mock 明确显示“测试通道 · 桌面版”，软件更新入口数量为 0；最终重新执行 formal build，临时 QA 注入未留在 `dist/index.html`。
+
+限制与下一步：
+
+- Alpha.3 尚未真实发布，当前没有可由 updater 下载的真实 Alpha.4；签名安装、失败中断和重启只能在 P6.8.5 双版本包中验收。
+- updater 私钥加密离线备份因用户暂时没有合适设备而延后，保留为 Alpha 扩大测试前人工检查项。
+- 下一步合并发布 Alpha.3，验证真实 updater assets、远端 manifest 和正式更新入口；随后发布 Alpha.4 完成旧版到新版升级。
+
+### 2026-07-11：P6.8.3 Alpha updater manifest 与原子通道发布
+
+阶段：P6.8 自动更新
+
+改动：
+
+- 验证 `macos-release` Environment 已存在两个 updater Secret，未读取或输出 Secret 值。
+- 新增 `updater_manifest.mjs`：从 clean tagged source、正式 release manifest、release notes、updater archive 和 `.sig` 生成 Tauri 静态 JSON。
+- 根据官方 updater 2.10.1 源码确认 Apple Silicon manifest 平台键为 `darwin-aarch64`。
+- 新增 `updater_publish.mjs`：只在 GitHub Release 已公开且包含目标 archive 后，通过 GitHub Git Data API 原子更新 `updater-index/alpha/latest.json`。
+- 首次执行建立 root commit；后续基于当前 tree 快进提交，支持未来保留 `stable/latest.json`。
+- 通道发布拒绝版本倒退和同版本不同内容；同版本相同内容为 no-op。
+- release publish 增加受控续跑：只有显式允许且公开 Release 包含全部预期 assets 时才跳过重复发布，供通道更新失败后安全重试。
+- workflow 在公开 Release 后才移动 Alpha 指针，并把生成的 updater manifest 同时保存在 Release assets 和 workflow evidence。
+
+验证：
+
+- `npm run release:self-test` 通过，离线覆盖 updater manifest 生成、Release dry run 和 updater channel dry run。
+- `npm run updater:preflight`、`npm run security:scan`、`npm run version:check` 和 `git diff --check` 通过。
+
+限制与下一步：
+
+- Alpha.3 尚未发布，因此远端 `updater-index` 分支和真实 `alpha/latest.json` 尚未创建。
+- P6.8.4 设置页更新体验、安装前恢复点、重启和手动下载 fallback 已在同轮后续完成。
+- Alpha.3 发布后只能验证产物和通道；真实旧版升级必须由后续 Alpha.4 验证。
+
+### 2026-07-11：P6.8.2 updater 信任根与签名更新产物
+
+阶段：P6.8 自动更新
+
+改动：
+
+- 用户在项目外的 `~/.tauri/` 生成独立 updater 密钥；仅读取并提交可公开公钥，私钥内容未读取或输出。
+- 将私钥文件权限从生成后的 `644` 收紧为 `600`，只允许当前用户读写。
+- formal Tauri 配置内置 updater 公钥和 Alpha manifest HTTPS 地址；test-safe 基础配置仍没有远程 updater endpoint。
+- 新增 `tauri.release.conf.json`，只在 tag release 构建中开启 `bundle.createUpdaterArtifacts`，避免日常 formal/test 构建要求 updater 私钥。
+- signed package 脚本要求 updater 私钥与密码环境变量，生成 ASCII 命名的 DMG、`.app.tar.gz` 和 `.app.tar.gz.sig`。
+- release manifest、GitHub publish 和离线发布状态机自测强制要求 updater archive/signature 成对存在。
+- release workflow 新增普通/严格 updater 预检、GitHub Secrets 注入和 updater 资产证据上传。
+
+验证：
+
+- updater 普通预检和模拟环境变量严格预检通过。
+- release workflow 离线状态机自测通过，覆盖 DMG、updater archive 和签名。
+- shell 语法检查、security scan、version check 和 `git diff --check` 通过。
+- `npm run tauri:build:formal` 通过，证明正式客户端可内置公钥与 endpoint，同时日常 formal 构建不要求私钥。
+
+限制与下一步：
+
+- GitHub `macos-release` Environment 已添加 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
+- 私钥仍需制作至少一份加密离线备份。
+- P6.8.3 manifest 生成与安全通道发布状态机已在同轮后续完成。
+
+### 2026-07-11：P6.8.1 自动更新客户端基础
+
+阶段：P6.8 自动更新
+
+目标：
+
+- 在不影响浏览器版、Tauri 测试环境和现有发布链路的前提下，接入 Tauri updater 客户端基础。
+- 先固定最小权限、通道隔离和密钥安全边界，再生成长期信任根。
+
+改动：
+
+- 开发版本从 `0.2.0-alpha.2` 升为 `0.2.0-alpha.3`，npm/Cargo/Tauri/macOS build version 和 Changelog 同步更新。
+- 接入 `@tauri-apps/plugin-updater`、`@tauri-apps/plugin-process`、`tauri-plugin-updater` 和 `tauri-plugin-process`。
+- Rust 注册 updater/process 插件；Tauri capability 只增加 `updater:default` 与 `process:allow-restart`。
+- 新增 `src/lib/appUpdater.js`，统一封装检查更新、下载/安装、待更新资源清理和重启；浏览器版与 test channel 会在发起网络请求前返回不支持。
+- 新增 `npm run updater:preflight`；普通模式允许在信任根配置前检查客户端基础，严格模式要求 formal 公钥、HTTPS endpoint、release updater artifacts 和私钥环境变量全部就绪。
+- 安全扫描新增 Tauri/minisign updater 私钥检测，防止长期私钥误入仓库。
+- 新增 [AUTO_UPDATE_ARCHITECTURE.md](./AUTO_UPDATE_ARCHITECTURE.md)，固定独立 updater 密钥、`updater-index/alpha/latest.json`、GitHub Release 不可变产物、安装前恢复点和 Alpha.3 -> Alpha.4 双版本验收策略。
+
+验证：
+
+- `cargo check` 通过，官方 updater/process Rust 插件可正常编译并注册。
+- `npm run updater:preflight` 通过，并正确提示 formal 信任根和 release updater 配置仍待完成。
+- `npm run version:check`、`npm run build`、`cargo fmt --check`、`cargo test`、`npm run security:scan` 和 `git diff --check` 通过；Rust 共 26 个测试全部通过。
+
+限制与下一步：
+
+- 尚未生成 updater 长期私钥，也未把占位公钥写入配置；这是有意的安全停点。
+- P6.8.2 需要用户确认私钥保管位置和密码管理方式后亲自生成密钥，再配置公钥、release updater artifacts 和 GitHub Environment Secrets。
+- Alpha.3 只负责把信任根带到已安装客户端；必须再发布 Alpha.4 才能验证真实自动升级。
+
 ### 2026-07-11：v0.2.0-alpha.2 首个自动签名、公证与 GitHub Release 成功
 
 阶段：P6.7 正式 macOS 发布包 / P6.9 CI 与发布流水线

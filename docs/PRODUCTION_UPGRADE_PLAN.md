@@ -273,15 +273,20 @@
 
 目标：让正式用户能从 App 内安全升级。
 
-要做：
+当前进展：
 
-- 接入 Tauri updater。
-- 生成并保管 updater 签名私钥，公开公钥进入 App 配置。
-- 设计更新通道：test、alpha、stable。
-- 发布 signed update manifest，并选择发布托管位置。
+- P6.8.1 客户端基础已完成：接入官方 updater/process Rust 与 JavaScript 插件，最小开放 `updater:default` 和 `process:allow-restart`，新增正式通道更新服务、预检脚本和 updater 私钥泄漏扫描。
+- 浏览器版与 Tauri test channel 不会访问正式更新源；远程 endpoint 只允许进入 formal 配置。
+- 已确定 Alpha 与 Stable 分离的固定 manifest 路径，版本化更新包继续使用不可变 GitHub Release assets。完整设计见 [AUTO_UPDATE_ARCHITECTURE.md](./AUTO_UPDATE_ARCHITECTURE.md)。
+- 当前开发版本升为 `0.2.0-alpha.3`；它将作为首个内置信任根的版本，`0.2.0-alpha.4` 用于验证真实旧版到新版升级。
+
+剩余步骤：
+
+- P6.8.2 已完成：独立 updater 私钥已生成且权限为 `600`，公钥进入 formal/release 配置，两个 updater GitHub Environment Secrets 已配置，release build、manifest、publish 和 workflow 已要求 `.app.tar.gz` 与 `.sig`。Alpha.3 发布前仍需人工确认加密离线备份。
+- P6.8.3 代码已完成：GitHub Release 公开后生成并原子更新 `updater-index/alpha/latest.json`；同版本幂等、禁止倒退、禁止同版本改写，并支持 Release 已公开后的安全续跑。等待 Alpha.3 首次真实执行建立远端分支。
+- P6.8.4 已完成：正式桌面设置页接入检查更新、版本说明、下载进度、安装前目录式恢复点、安全重启和受限 GitHub Release 手动下载；浏览器版与 Tauri test channel 不显示更新入口。
+- P6.8.5：发布 Alpha.3/Alpha.4，完成正常升级、坏签名、断网、中断、备份失败、schema 恢复和回滚验收。
 - 复用 P6.7.6 的 SemVer/tag/source metadata、GitHub Release 和 release notes；updater 只追加签名更新包与 `latest.json`，不得再维护第二套版本号。
-- 设计更新失败回滚和手动下载 fallback。
-- 更新前提示用户备份，重大 schema 升级前强制做恢复点或提示导出备份。
 
 完成标准：
 
@@ -366,15 +371,15 @@
 
 ## 推荐执行顺序
 
-P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。`v0.2.0-alpha.2` 已自动完成签名、公证和 GitHub prerelease，当前只差公开下载 DMG 的人工 smoke test；之后进入 P6.8 自动更新。
+P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。`v0.2.0-alpha.2` 已自动完成签名、公证和 GitHub prerelease；P6.8.1 自动更新客户端基础已完成，当前进入 P6.8.2 信任根与签名更新产物。
 
 推荐顺序：
 
-1. 从 GitHub Release 下载 `v0.2.0-alpha.2` DMG，完成安装、正式空书库、旧 PDF、MOBI、Keychain/AI、备份和重启恢复 smoke test，收口 P6.7。
-2. P6.10.3 升级样本：旧 schema 数据库、含书旧备份、含书新备份、损坏备份。
-3. P6.9 剩余增强：扩展正式构建 artifact 内容扫描和发布后检查。
-4. P6.8 自动更新。
-5. P6.11 Public alpha 准备。
+1. 合并并发布 Alpha.3，首次真实验证签名更新产物、Alpha manifest 和正式设置页入口。
+2. P6.8.5 发布 Alpha.4，完成 Alpha.3 -> Alpha.4 双版本实机验收。
+3. 补齐 updater 私钥加密离线备份，作为 Alpha 对外扩大测试前的发布检查项。
+5. P6.10.3 升级样本和 P6.9 发布后检查增强。
+6. P6.11 Public alpha 准备。
 7. P6.12 可选云同步/后端决策。
 
 如果目标变成“尽快给少数可信用户试用”，可以把 P6.7 提前到 P6.6 之前，但必须保留 P6.1 的恢复事务/备份校验、P6.2 的结构化存储边界和 P6.5 的基础安全护栏。
