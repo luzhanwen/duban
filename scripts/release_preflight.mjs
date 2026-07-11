@@ -55,6 +55,11 @@ expectFileContains("src/lib/appVersion.js", "buildVersionSupportText");
 expectFileContains("src/components/Settings.jsx", "APP_VERSION_INFO");
 expectFileContains(".github/workflows/release-macos.yml", "npm run release:publish");
 expectFileContains(".github/workflows/release-macos.yml", "environment: macos-release");
+expectFileOccurrences(
+  ".github/workflows/release-macos.yml",
+  'git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"',
+  2
+);
 expectWorkflowStepEnv("Build Developer ID signed DMG", "APPLE_CERTIFICATE");
 expectWorkflowStepEnv("Build Developer ID signed DMG", "APPLE_CERTIFICATE_PASSWORD");
 expectWorkflowStepEnv("Build Developer ID signed DMG", "KEYCHAIN_PASSWORD");
@@ -95,6 +100,12 @@ function expectEnvChannel(relativePath, channel) {
 function expectFileContains(relativePath, expectedText) {
   const content = readText(relativePath);
   expect(content.includes(expectedText), `${relativePath} must include ${expectedText}`);
+}
+
+function expectFileOccurrences(relativePath, expectedText, expectedCount) {
+  const content = readText(relativePath);
+  const count = content.split(expectedText).length - 1;
+  expect(count === expectedCount, `${relativePath} must include ${expectedText} exactly ${expectedCount} times`);
 }
 
 function expectWorkflowStepEnv(stepName, envName) {

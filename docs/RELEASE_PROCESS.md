@@ -8,7 +8,7 @@ P6.7.6 已新增 tag 驱动的 GitHub Release 自动化；GitHub Environment、S
 
 ## P6.7.1 当前结论
 
-- 当前开发版本为 `0.2.0-alpha.1`；`package.json` 是单一版本源，完整规则见 [VERSIONING.md](./VERSIONING.md)。
+- 当前开发版本为 `0.2.0-alpha.2`；`package.json` 是单一版本源，完整规则见 [VERSIONING.md](./VERSIONING.md)。
 - 正式 macOS bundle identifier：`com.duban.reader`。
 - 测试 macOS bundle identifier：`com.duban.reader.test`。
 - 正式 App 名称：`读伴`。

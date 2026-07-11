@@ -1,7 +1,7 @@
 {
   "name": "duban",
   "private": true,
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.2",
   "type": "module",
   "license": "MIT",
   "description": "读伴 —— 本地优先的 AI 伴读应用（BYOK）",

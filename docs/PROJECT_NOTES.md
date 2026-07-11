@@ -1,6 +1,6 @@
 # 读伴项目记录
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
@@ -902,13 +902,14 @@ readingProfile: {
 - 2026-07-10：版本管理第一步完成：由于历史 `v0.1.0` 已指向旧提交且不可复用，当前开发线升为 `0.2.0-alpha.1`。新增 `scripts/version.mjs`、`version:check/set/bump`、`docs/VERSIONING.md` 和根目录 `CHANGELOG.md`；`package.json` 为单一人工版本源，脚本同步 Cargo/npm lock，并为 macOS 派生数字版本 `0.2.0` / build `0.2.101`；CI、release preflight 和 signing preflight 接入一致性检查。
 - 2026-07-10：P6.7.5 版本可见性完成：Vite 从 `package.json`、Git/CI 和 Rust 存储常量注入 App version、channel、commit/dirty、schema、backup version；设置导航显示简版身份，诊断页显示并可复制完整构建身份。正式候选包要求 `formal`、目标 commit 且不带 `dirty`。
 - 2026-07-10：P6.7.6 tag 驱动发布链路完成：新增 release candidate/tag-ready/tagged 状态校验、Changelog 冻结、release notes、发布 manifest/checksum/notary evidence 和离线状态机自测。推送位于 `origin/main` 的 clean annotated `v<version>` tag 后，GitHub Actions 会在 `macos-release` Environment 中完成 arm64 Developer ID 签名、Apple 公证/staple、Gatekeeper 验证，并以 draft-first 方式上传和发布 GitHub Release；P6.8 后续直接消费同一套 tag/source metadata 与 Release assets。本轮未创建或推送 tag，也未实际发布 Release。
+- 2026-07-11：`v0.2.0-alpha.1` 首次 tag workflow 在签名前被 annotated-tag 护栏拦截：远端 tag 正确，但 checkout runner 的同名本地 ref 暂时指向 commit。未使用 Apple Secrets、未生成 DMG/Release；旧 tag 保持不可变。版本升为 `0.2.0-alpha.2`，两个 release job 增加显式远端 tag object fetch，并由 release preflight 固定检查。
 
 ## 当前已知限制
 
 - 浏览器 IndexedDB 不应视为长期大型书库的最终存储方案。
 - 浏览器版直连 OpenAI-compatible 服务可能遇到 CORS 限制；Tauri 桌面版已通过本地 Rust command 代理模型请求。
 - P6.4 AI transport 生产化主体已完成：Keychain 连续弹窗、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断均已落地。
-- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1-P6.7.6 已完成发布基础，首个公证候选包因旧 PDF 回归问题作废，自动发布链路等待 GitHub Secrets 配置和首个新 tag 实跑；P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成。
+- P6.5 安全与隐私加固基础版已完成；P6.6 本地诊断与可支持性基础版已完成；P6.7.1-P6.7.6 已完成发布基础，`alpha.1` tag 在签名前安全失败，`alpha.2` 正在修复重发；P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成。
 - 2026-07-08：桌面版主窗口点叉号改为隐藏到后台，不直接退出进程；macOS 点击 Dock 图标会重新显示并聚焦主窗口。
 - 2026-07-08：`tauri:dev` 下 Dock 右键退出可能短暂显示终端/调试进程图标；这是开发态未打包二进制的身份问题。Dock 图标一致性请用 `src-tauri/target/release/bundle/macos/读伴.app` 这类真实 bundle 测试包验证。
 - PDF 图片、表格、扫描件 OCR 暂未支持。

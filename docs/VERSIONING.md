@@ -1,12 +1,13 @@
 # 读伴版本管理规范
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 本文档定义读伴的 App 版本、Git tag、发布通道、数据兼容版本和升版流程。版本相关改动必须同时遵守 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) 与 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
 ## 当前版本
 
-- 当前开发版本：`0.2.0-alpha.1`
+- 当前开发版本：`0.2.0-alpha.2`
+- `v0.2.0-alpha.1`：首次自动发布失败 tag，签名前停止且没有 GitHub Release；保持不可变。
 - 上一个历史 tag：`v0.1.0`，指向旧提交 `be4fb57`，不得移动、覆盖或删除。
 - 当前阶段：内部 Alpha；不得仅凭版本号宣称可公开稳定发布。
 
@@ -22,7 +23,7 @@
 
 ```bash
 npm run version:check
-npm run version:set -- 0.2.0-alpha.1
+npm run version:set -- 0.2.0-alpha.2
 npm run version:bump -- prerelease
 npm run version:bump -- patch
 npm run version:bump -- minor

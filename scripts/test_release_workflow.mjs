@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "duban-release-test-"));
+const remoteRoot = `${fixtureRoot}-remote.git`;
 const version = "1.2.3-alpha.1";
 const tag = `v${version}`;
 
@@ -55,6 +56,16 @@ try {
   runNode("release_check.mjs", ["tag-ready"]);
   git(["tag", "-a", tag, "-m", `Release ${version}`]);
 
+  execFileSync("git", ["clone", "--bare", fixtureRoot, remoteRoot], { encoding: "utf8" });
+  git(["tag", "--force", tag, "HEAD"]);
+  if (git(["cat-file", "-t", tag]) !== "commit") {
+    throw new Error("Lightweight checkout tag fixture was not created");
+  }
+  git(["fetch", "--force", remoteRoot, `refs/tags/${tag}:refs/tags/${tag}`]);
+  if (git(["cat-file", "-t", tag]) !== "tag") {
+    throw new Error("Explicit tag fetch did not restore the annotated tag object");
+  }
+
   const artifactPath = `src-tauri/target/release/bundle/dmg/读伴_${version}_formal_arm64_signed.dmg`;
   const artifactBytes = Buffer.from("synthetic signed dmg fixture\n", "utf8");
   write(artifactPath, artifactBytes);
@@ -85,6 +96,7 @@ try {
   console.log("Release workflow self-test passed.");
 } finally {
   rmSync(fixtureRoot, { recursive: true, force: true });
+  rmSync(remoteRoot, { recursive: true, force: true });
 }
 
 function runNode(scriptName, args, extraEnv = {}, { expectFailure = false } = {}) {

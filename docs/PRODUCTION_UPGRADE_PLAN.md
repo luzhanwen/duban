@@ -1,6 +1,6 @@
 # 读伴生产级升级路线
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 这份文档记录读伴从“本地可用的桌面 App”升级到“可长期使用、可分发、可维护的生产级 App”还需要完成什么。它不替代 [ROADMAP.md](./ROADMAP.md) 和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)：Roadmap 记录产品方向，App 化日志记录每次实施流水，这里专门维护剩余生产级升级步骤和完成标准。
 
@@ -366,7 +366,7 @@
 
 ## 推荐执行顺序
 
-P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。P6.7 首个公证包已因旧 PDF 回归问题作废；新的 tag 自动发布链路已就绪，仍需完成修复版人工回归、GitHub Environment/Secrets 配置并实际跑通首个 tag release。
+P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。GitHub Environment/Secrets 已配置；`alpha.1` tag 在签名前因 runner tag object 差异安全失败，`alpha.2` 正在修复重发。
 
 推荐顺序：
 

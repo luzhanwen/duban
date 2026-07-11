@@ -1,6 +1,6 @@
 # GitHub Release 自动发布配置
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 本文档说明如何把不可变 Git tag、GitHub Actions、Developer ID 签名、Apple 公证和 GitHub Release 连接起来。版本规范见 [VERSIONING.md](./VERSIONING.md)，人工验收项见 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
@@ -8,7 +8,7 @@
 
 推送 `v<package.json version>` annotated tag 后，[release-macos.yml](../.github/workflows/release-macos.yml) 会：
 
-1. 验证 tag、App version、Changelog、Git commit、`origin/main` 和 clean worktree。
+1. 显式抓取远端 annotated tag object，再验证 tag、App version、Changelog、Git commit、`origin/main` 和 clean worktree。
 2. 运行正式前端构建、release preflight、Rust fmt/check/test、QA fixtures 和安全扫描。
 3. 进入受保护的 `macos-release` GitHub Environment。
 4. 导入 Developer ID `.p12`，构建 `arm64` signed DMG。
@@ -110,7 +110,7 @@ npm run release:notes -- draft
 
 ```bash
 git add CHANGELOG.md
-git commit -m "release: prepare v0.2.0-alpha.1"
+git commit -m "release: prepare v<version>"
 git push origin main
 git fetch origin main --tags
 ```
@@ -119,8 +119,8 @@ git fetch origin main --tags
 
 ```bash
 npm run release:check -- tag-ready
-git tag -a v0.2.0-alpha.1 -m "读伴 0.2.0-alpha.1"
-git push origin v0.2.0-alpha.1
+git tag -a v<version> -m "读伴 <version>"
+git push origin v<version>
 ```
 
 不要使用 lightweight tag，不要移动已有 tag，不要使用 `git push --force`。Workflow 会再次验证 tag 指向、Changelog、`origin/main` 和 clean 状态。
@@ -150,6 +150,7 @@ duban-v<version>-release-notes.md
 - Secrets、Apple 服务或上传瞬时失败，且源码/tag 没有变化：修正外部条件后可重新运行失败 job；脚本可以继续使用同一个 draft Release。
 - 已经公开的 Release：脚本拒绝覆盖。发现问题必须升版本并创建新 tag。
 - 需要修改代码或 Changelog：不得移动旧 tag；删除未公开 draft（如有），升到新版本，重新走完整流程。
+- tag workflow 在签名前因代码或 checkout 差异失败：旧 tag 仍保持不变；修复代码、提升 prerelease 版本并创建新 tag。`v0.2.0-alpha.1` 即按此规则保留，修复进入 `v0.2.0-alpha.2`。
 - 公证不是 `Accepted`：不会 staple、不会公开 Release，JSON 结果保留在 workflow artifact 供排查。
 - 签名/公证成功但 GitHub 发布失败：DMG、manifest、checksum、notes 和 notary log 会保留在 workflow artifact；修复权限后重跑。
 
