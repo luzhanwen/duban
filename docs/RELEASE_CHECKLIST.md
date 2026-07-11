@@ -8,7 +8,7 @@
 
 ## 0. 发布边界
 
-- [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.1`。
+- [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.2`。
 - [ ] 确认发布通道：`formal`。
 - [ ] 在候选包「诊断 -> 版本与构建」确认 App version、Git commit 与目标发布提交一致，且不显示 `dirty`。
 - [ ] 确认发布类型：`local` 内测包，或 `signed` 正式签名包。

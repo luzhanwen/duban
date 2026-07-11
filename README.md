@@ -157,7 +157,7 @@ npm run security:scan
 npm run security:audit
 ```
 
-当前开发版本为 `0.2.0-alpha.1`。App 版本以 `package.json` 为唯一人工修改来源；升版、Git tag 和 Changelog 规则见 [docs/VERSIONING.md](docs/VERSIONING.md)。
+当前开发版本为 `0.2.0-alpha.2`。App 版本以 `package.json` 为唯一人工修改来源；升版、Git tag 和 Changelog 规则见 [docs/VERSIONING.md](docs/VERSIONING.md)。
 
 设置页会显示当前 App version 和发布通道；「诊断 -> 版本与构建」可查看并复制 commit/dirty、运行环境、SQLite schema 和备份格式。正式候选包不得显示 `dirty`。
 
@@ -176,7 +176,7 @@ npm run package:mac-local # 生成本地测试版 .app + .dmg
 
 ```text
 src-tauri/target/release/bundle/macos/读伴.app
-src-tauri/target/release/bundle/dmg/读伴_0.2.0-alpha.1_formal_arm64_local.dmg
+src-tauri/target/release/bundle/dmg/读伴_0.2.0-alpha.2_formal_arm64_local.dmg
 ```
 
 本地 `package:mac-local` 产物仍是 ad-hoc 测试包。正式发布使用 Developer ID 签名和 Apple notarization；推送经过校验的 annotated `v<version>` tag 后，由 GitHub Actions 自动构建、公证并上传 GitHub Release。一次性配置和发版步骤见 [docs/GITHUB_RELEASE_AUTOMATION.md](docs/GITHUB_RELEASE_AUTOMATION.md)。

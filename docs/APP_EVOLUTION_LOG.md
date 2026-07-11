@@ -1,6 +1,6 @@
 # 读伴 App 化路线与实施日志
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 这份文档专门记录「读伴」从纯前端 MVP 演进为本地优先 App 的路线、阶段边界和每次实际完成的工作。
 
@@ -115,9 +115,29 @@
 - 有数据 schema 版本和迁移策略。
 - 后续再评估签名、公证、自动更新和崩溃日志。
 
-状态：部分完成。已跑通 Developer ID 签名和 Apple 公证链路；首个 `arm64` 候选包因人工回归发现旧 PDF `asset://` 状态 `0` 和历史 test/formal 数据未隔离问题而作废。PDF 兼容修复已进入桌面回归；基础 Tauri 配置、开发脚本、App 数据目录和 Keychain service 已完成 test/formal 隔离，历史开发书库已迁回 test 并保留快照，正式目录当前为空。P6.7.6 已把 annotated Git tag、GitHub Actions 签名/公证和 GitHub Release artifact 发布串成自动流水线；确认回归后需从干净主线提交创建首个新版本 tag。
+状态：部分完成。已跑通 Developer ID 签名和 Apple 公证链路；首个 `arm64` 候选包因人工回归发现旧 PDF `asset://` 状态 `0` 和历史 test/formal 数据未隔离问题而作废。基础 Tauri 配置、数据目录和 Keychain 已完成 test/formal 隔离。`v0.2.0-alpha.1` 首次自动发布在签名前因 runner 的 tag object 获取方式被护栏阻止，没有产出 Release；修复进入 `0.2.0-alpha.2`，等待新 tag 实跑。
 
 ## 实施日志
+
+### 2026-07-11：首次 Tag Release 失败保护与 Alpha.2 修复
+
+阶段：P6.7 正式 macOS 发布包 / P6.9 CI 与发布流水线
+
+结果：
+
+- `v0.2.0-alpha.1` 已作为 annotated tag 推送并绑定 `main` 提交 `27ebb82`；远端 API 和 `git ls-remote` 均确认 tag object 正确。
+- GitHub Actions `Validate Tagged Source` 在签名前停止：`actions/checkout` 在 runner 中把触发 SHA 暂时解析为同名 lightweight tag，`release:check tagged` 因此按设计拒绝继续。
+- `macos-release` Environment 的 6 个 Secrets 已配置，但失败发生在无 Secrets 的校验 job；Developer ID 私钥和 Apple 公证凭据未被使用，没有 DMG、draft Release 或公开 Release。
+
+处理：
+
+- 保留 `v0.2.0-alpha.1` 不移动、不删除、不复用；版本升为 `0.2.0-alpha.2`。
+- 两个 release job 在 checkout 后显式 force-fetch `refs/tags/<tag>`，确保本地 ref 指向远端 annotated tag object。
+- release preflight 新增双 job tag-fetch 护栏；Changelog、版本规范、发布文档、Roadmap 和 AI 接手事实同步更新。
+
+下一步：
+
+- 完成 Alpha.2 的本地/PR CI，冻结 Changelog 后创建 `v0.2.0-alpha.2`，重新运行签名、公证与 GitHub Release。
 
 ### 2026-07-10：P6.7.6 Tag 驱动的签名、公证与 GitHub Release 自动发布
 

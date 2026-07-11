@@ -1,6 +1,6 @@
 # 后续 AI 接手提示词
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-11
 
 本文档保存后续让 AI 接手读伴项目时可直接复制的提示词模板。它不是产品 prompt；产品内导读、问答、读后交流 prompt 仍维护在 `src/prompts/`，写作标准见 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)，开书契约上下文见 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
 
@@ -329,11 +329,11 @@
 - P6.7.2 签名/公证链路已跑通，但首个公证候选包在人工回归中发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记作废。修复在 `fileAdapter` 中用 XHR 接收自定义协议有效响应，并让 `PdfReader` 以二进制 `data` 加载；formal build 和安全扫描通过，等待下一轮桌面人工回归。确认旧书可读后必须重新签名、公证、Gatekeeper/checksum 验证，再继续干净环境全量回归。
 - test/formal 环境必须严格隔离：基础 Tauri 配置和 `npm run tauri:dev` 均使用 `com.duban.reader.test`，正式配置显式使用 `com.duban.reader`；Keychain service 分别为 `com.duban.reader.test.keychain.ai` 与 `com.duban.reader.keychain.ai`。不得把开发入口改回生产 identifier，不得让测试版自动迁移正式目录。
 - 本机已同时启动 test/formal 验证隔离：test SQLite 为 2 本书，formal 新库为 0 本书；后续改启动脚本、identifier、数据目录或 Keychain service 时必须重复 QA `REL-007` / `AI-008`。
-- 当前 App 开发版本为 `0.2.0-alpha.1`。`package.json` 是唯一人工版本源；禁止单独修改 Tauri/Cargo/lockfile，必须使用 `npm run version:set -- <semver>` 或 `npm run version:bump -- <kind>`，并执行 `npm run version:check`。历史 `v0.1.0` tag 不得移动或复用；版本规则见 `docs/VERSIONING.md`，用户变化写入根目录 `CHANGELOG.md`。
+- 当前 App 开发版本为 `0.2.0-alpha.2`。`package.json` 是唯一人工版本源；禁止单独修改 Tauri/Cargo/lockfile，必须使用 `npm run version:set -- <semver>` 或 `npm run version:bump -- <kind>`，并执行 `npm run version:check`。`v0.2.0-alpha.1` 是签名前失败且无 Release 的不可变 tag，历史 `v0.1.0` 也不得移动或复用；版本规则见 `docs/VERSIONING.md`。
 - App 内版本信息由 `vite.config.js` 构建注入并由 `src/lib/appVersion.js` 统一消费；禁止在组件里手写 App/schema/backup 版本。正式候选包诊断页必须显示 `formal`、目标 commit 且不带 `dirty`。
 - P6.9.1 基础 CI 和 P6.9.2 Release preflight CI 已完成：`.github/workflows/ci.yml` 会执行 formal build、release preflight、Rust fmt/check/test 和安全扫描。
 - P6.9.3 发布检查清单与协作模板已完成：`docs/RELEASE_CHECKLIST.md`、`.github/PULL_REQUEST_TEMPLATE.md`、bug report 和 feature request issue forms 已落地。
 - P6.10.1 QA 矩阵基础版已完成：`docs/QA_MATRIX.md` 覆盖 P0 smoke、P1 核心回归、升级恢复、环境维度、样本策略和发布测试记录模板。
 - P6.10.2 fixtures/样本说明基础版已完成：`qa-fixtures/` 包含合成 PDF、坏 PDF、HTML 源文本、空备份 manifest、篡改备份 manifest 和 fixtures manifest；`npm run qa:fixtures` 可重生成，`npm run qa:fixtures:verify` 可校验。
 - P6.7.6 tag 驱动的 macOS 自动发布已实现：`release:check/prepare/notes/publish/self-test` 和 `.github/workflows/release-macos.yml` 把 annotated tag、Developer ID 签名、Apple 公证/staple、Gatekeeper 与 GitHub Release assets 串联；配置见 `docs/GITHUB_RELEASE_AUTOMATION.md`。当前尚未创建新 tag 或实际运行 GitHub 发布。
-- 仍待推进：GitHub `macos-release` Environment/Secrets 配置与首个 tag release 实跑、干净 macOS 回归、P6.10 升级样本、artifact 内容扫描增强、压缩归档、备份签名、迁移夹具、P6.8 自动更新和 CI 中的 `cargo audit`。
+- 仍待推进：`v0.2.0-alpha.2` tag release 实跑、干净 macOS 回归、P6.10 升级样本、artifact 内容扫描增强、压缩归档、备份签名、迁移夹具、P6.8 自动更新和 CI 中的 `cargo audit`。

@@ -4,7 +4,21 @@
 
 ## [Unreleased]
 
-目标版本：`待定`
+目标版本：`0.2.0-alpha.2`
+
+### Added
+
+- 首个计划公开下载的 Alpha，完整包含 `0.2.0-alpha.1` 记录的桌面存储、备份、AI transport、诊断、环境隔离、历史 PDF 兼容和发布自动化能力。
+
+### Fixed
+
+- GitHub Actions 的两个 release job 会显式重新抓取远端 annotated tag object，避免 checkout 将触发 SHA 暂时表现为 lightweight tag 并误阻断发布。
+
+### Known limitations
+
+- `v0.2.0-alpha.1` 在 tagged source 校验阶段失败，未进入签名 job，也未创建 GitHub Release；该 tag 保持不可变。
+- 当前正式 macOS 构建仅提供 Apple Silicon `arm64`。
+- 自动更新、完整升级 fixtures、压缩备份归档和备份签名仍待后续阶段。
 
 ## [0.2.0-alpha.1] - 2026-07-10
 
@@ -38,7 +52,7 @@
 
 ### Known limitations
 
-- 当前 `0.2.0-alpha.1` 尚未完成新的 signed/notarized DMG 和完整人工 smoke test，不得公开发布。
+- `v0.2.0-alpha.1` 的首次 tag workflow 在签名前因 runner 未保留 annotated tag object 而停止，没有生成安装包或 GitHub Release。
 - 当前正式 macOS 构建仅验证 Apple Silicon `arm64`。
 - 自动更新、完整升级 fixtures、压缩备份归档和备份签名仍待后续阶段。
 

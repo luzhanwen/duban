@@ -95,7 +95,7 @@
 - `RELEASE_PROCESS.md` 已建立 P6.7 发布流程，记录 test/formal channel、artifact 命名、release preflight、manifest、checksum 和 release notes 约定。
 - `RELEASE_CHECKLIST.md` 已建立 P6.9.3 发布检查清单，配合 GitHub PR/issue 模板使用。
 - `QA_MATRIX.md` 已建立 P6.10.1 QA 矩阵基础版，并在 P6.10.2 接入 `qa-fixtures/`、fixture manifest、生成脚本和验证脚本。
-- `VERSIONING.md` 和根目录 `CHANGELOG.md` 已建立版本管理基础；当前开发版本为 `0.2.0-alpha.1`，CI 会校验 npm/Tauri/Cargo/lockfile 一致性。
+- `VERSIONING.md` 和根目录 `CHANGELOG.md` 已建立版本管理基础；当前开发版本为 `0.2.0-alpha.2`，CI 会校验 npm/Tauri/Cargo/lockfile 一致性。
 - `GITHUB_RELEASE_AUTOMATION.md` 已建立 tag 驱动的 macOS 发布规范；CI 会绑定 tag/commit、Developer ID 签名、公证证据和 GitHub Release assets，P6.8 后续复用这套来源。
 - `BACKEND_DEVELOPMENT_STANDARDS.md` 是后端和本地后端工程护栏，后续改 Tauri/Rust、SQLite、Keychain、备份或 AI transport 前应先读。
 - `AI_HANDOFF_PROMPTS.md` 是后续 AI 接手入口，包含通用接手、后端修改、迁移、备份、安全审查和最终汇报提示词。
