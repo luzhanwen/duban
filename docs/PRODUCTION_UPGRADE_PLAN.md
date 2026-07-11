@@ -283,7 +283,7 @@
 剩余步骤：
 
 - P6.8.2 已完成：独立 updater 私钥已生成且权限为 `600`，公钥进入 formal/release 配置，两个 updater GitHub Environment Secrets 已配置，release build、manifest、publish 和 workflow 已要求 `.app.tar.gz` 与 `.sig`。Alpha.3 发布前仍需人工确认加密离线备份。
-- P6.8.3 代码已完成：GitHub Release 公开后生成并原子更新 `updater-index/alpha/latest.json`；同版本幂等、禁止倒退、禁止同版本改写，并支持 Release 已公开后的安全续跑。等待 Alpha.3 首次真实执行建立远端分支。
+- P6.8.3 已完成真实执行：Alpha.3 GitHub Release 公开后建立 `updater-index` root commit，并原子发布 `alpha/latest.json`；远端版本、平台键、签名与 archive URL 已独立核验。
 - P6.8.4 已完成：正式桌面设置页接入检查更新、版本说明、下载进度、安装前目录式恢复点、安全重启和受限 GitHub Release 手动下载；浏览器版与 Tauri test channel 不显示更新入口。
 - P6.8.5：发布 Alpha.3/Alpha.4，完成正常升级、坏签名、断网、中断、备份失败、schema 恢复和回滚验收。
 - 复用 P6.7.6 的 SemVer/tag/source metadata、GitHub Release 和 release notes；updater 只追加签名更新包与 `latest.json`，不得再维护第二套版本号。
@@ -375,10 +375,10 @@ P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.9.1-P6.9.3 CI/协作基础
 
 推荐顺序：
 
-1. 合并并发布 Alpha.3，首次真实验证签名更新产物、Alpha manifest 和正式设置页入口。
+1. 从 GitHub Release 安装 Alpha.3，人工确认正式书库、软件更新入口、手动下载和重启。
 2. P6.8.5 发布 Alpha.4，完成 Alpha.3 -> Alpha.4 双版本实机验收。
 3. 补齐 updater 私钥加密离线备份，作为 Alpha 对外扩大测试前的发布检查项。
-5. P6.10.3 升级样本和 P6.9 发布后检查增强。
+4. P6.10.3 升级样本和 P6.9 发布后检查增强。
 6. P6.11 Public alpha 准备。
 7. P6.12 可选云同步/后端决策。
 

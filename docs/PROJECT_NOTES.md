@@ -909,6 +909,7 @@ readingProfile: {
 - 2026-07-11：P6.8.3 Alpha manifest 状态机完成：两个 updater Environment Secrets 已配置；发布链从 signed archive/signature 生成 `darwin-aarch64` 静态 manifest，只在公开 Release assets 验证后原子更新 `updater-index/alpha/latest.json`。状态机支持同版本幂等，拒绝倒退和同版本改写，并允许通道发布失败后的受控续跑。等待 Alpha.3 首次真实执行，下一步进入 P6.8.4 设置页更新体验与安装前恢复点。
 - 2026-07-11：P6.8.4 完成：正式桌面设置页新增软件更新面板、release notes、下载进度、安装前目录式恢复点、签名安装后的安全重启和 GitHub Release 手动下载；opener capability 仅允许读伴 Releases URL。桌面 test channel 回归确认不显示入口，宽屏/390px 布局无溢出。下一步发布 Alpha.3，再由 Alpha.4 做真实双版本升级。
 - 2026-07-11：P6.8 PR #3 完整 CI 通过并合并至 `main`（merge `7ee097d`）；Alpha.3 candidate 检查通过，Changelog 已冻结为 2026-07-11，进入发布准备提交与 annotated tag 阶段。
+- 2026-07-11：`v0.2.0-alpha.3` 首次 updater 发布成功：workflow `29158078112` 完成签名、公证、staple、Gatekeeper、updater archive/signature、8 个 Release assets 和 `updater-index/alpha/latest.json`。独立下载 DMG 的 checksum、hdiutil、stapler、spctl 均通过；远端 manifest 正确指向 `darwin-aarch64 / 0.2.0-alpha.3`。下一步用户安装 Alpha.3，再发布 Alpha.4 做真实升级。
 
 ## 当前已知限制
 

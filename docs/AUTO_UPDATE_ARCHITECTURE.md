@@ -1,7 +1,7 @@
 # 读伴自动更新架构与操作规范
 
 > 最后更新：2026-07-11  
-> 当前阶段：P6.8.1-P6.8.4 已合并至 `main`，正在准备 Alpha.3/Alpha.4 双版本真实验收
+> 当前阶段：Alpha.3 已发布并建立真实 Alpha manifest，等待安装 Alpha.3 后发布 Alpha.4 验证升级
 
 ## 目标
 
@@ -71,7 +71,7 @@ https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.jso
 
 ### P6.8.5 双版本验收
 
-- `0.2.0-alpha.3` 首次内置 updater 公钥和 Alpha manifest 地址。
+- `0.2.0-alpha.3` 已首次内置 updater 公钥和 Alpha manifest 地址；签名、公证、updater archive/signature、GitHub Release 和远端 `alpha/latest.json` 已真实发布并独立核验。
 - `0.2.0-alpha.4` 发布 signed updater artifact，用 Alpha.3 实机完成检查、下载、签名校验、安装、重启和数据恢复验证。
 - 另做篡改签名、断网、下载中断、备份失败、manifest 仍指向旧版和手动下载 fallback 测试。
 

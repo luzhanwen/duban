@@ -119,6 +119,32 @@
 
 ## 实施日志
 
+### 2026-07-11：v0.2.0-alpha.3 首次真实 updater 发布成功
+
+阶段：P6.8.5 双版本验收（第一版）
+
+发布结果：
+
+- annotated tag `v0.2.0-alpha.3` 绑定 clean `main` 提交 `446d68a`；tagged source、QA fixtures、formal build、release/updater preflight、Rust fmt/check/test 和 security scan 全部通过。
+- Release workflow `29158078112` 两个 job 全绿；Developer ID 签名、Apple notarization/staple、Gatekeeper、updater signing、GitHub Release 和 Alpha channel publication 全部成功。
+- GitHub Release `读伴 0.2.0-alpha.3` 已作为非 draft prerelease 公开：<https://github.com/luzhanwen/duban/releases/tag/v0.2.0-alpha.3>。
+- Release 共 8 个 assets：ASCII DMG、`.app.tar.gz`、`.app.tar.gz.sig`、release manifest、checksums、notary log、release notes 和 updater Alpha JSON。
+- `updater-index` 分支已由 root commit `515680c` 建立，公开 `alpha/latest.json` 指向 `0.2.0-alpha.3` 的 `darwin-aarch64` archive。
+
+独立下载验证：
+
+- DMG 大小 `18,648,247` bytes，SHA-256 为 `b5a7996b599aa98dcd3479a9d3ba423bfa919e3733395d7f3bf544335379a02f`，与 Release digest/checksums 一致。
+- updater archive SHA-256 为 `c63718ba829a3ed18e1386b0702b20211c5d5910ad4838f4fefbb87f85a733c7`；`.sig` SHA-256 为 `da6ed7e3a7cf3c6852a020354b14cec2a266c9df6f5ea71d2b4854eec5a170eb`。
+- Apple notary submission `02f147bc-5c71-49fe-8cf3-6bef77b2f558` 状态为 `Accepted`。
+- 已下载公开 DMG 并通过 `hdiutil verify`、`xcrun stapler validate` 和 `spctl`；Gatekeeper 来源为 `Notarized Developer ID`。
+- 远端 manifest 版本、release notes、`pub_date`、`darwin-aarch64`、签名文本和 GitHub archive URL 均可读取且互相一致。
+
+下一步：
+
+- 用户从 GitHub Release 安装 Alpha.3，确认正式书库、软件更新入口、手动下载和 App 重启正常。
+- Alpha.3 安装确认后把开发版本升到 Alpha.4，发布第二个 signed updater artifact，并从 Alpha.3 完成真实检查、恢复点、下载、安装和重启。
+- 坏签名、断网/中断、备份失败和 schema 恢复仍在 Alpha.4 验收中覆盖。
+
 ### 2026-07-11：P6.8 合并与 Alpha.3 发布准备
 
 阶段：P6.8 自动更新 / Alpha.3 发布
