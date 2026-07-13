@@ -924,6 +924,7 @@ readingProfile: {
 - 2026-07-13：读伴产品方向完成能力优先校正，并新增 P7 主动陪读引擎规划。保留“用户为一本书设定读伴并由它陪完整本书”的核心，但暂停继续扩展没有功能差异的名字、颜色、表情和抽象人格标签。P7 按章节内容地图、提问埋点预生成、阅读事件、介入调度、阅读中提问、回答记忆、章节沉淀、开书设置收敛、诊断 QA 和视觉身份重构十步推进；任何用户设置都必须映射到真实埋点选择、触发频率或问题形式。详细设计见 [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md)。本轮只更新规划与决策记录，尚未修改产品代码、数据 schema 或现有用户数据。
 - 2026-07-13：阶段顺序正式调整为 P6 生产化整体收尾、P7 主动陪读引擎、P8 手机版 App、P9 云后端与多设备同步。原 P6.12 云同步/后端决策整体移动到 P9，P6.12 改为生产化总验收与阶段冻结，统一收口正式候选包、自动更新双版本验收、升级样本、自动化回归、`cargo audit`、Public Alpha 说明、updater 私钥离线备份和最终 release/QA 检查。P8 手机版首期不依赖账号和云服务，先完成本地导入、阅读、AI、笔记和手动迁移闭环；P9 再建设账号、本地优先同步、加密、云基础设施和可选模型代理。新增 [MOBILE_APP_PLAN.md](./MOBILE_APP_PLAN.md) 与 [CLOUD_BACKEND_PLAN.md](./CLOUD_BACKEND_PLAN.md)。本轮只调整路线与文档，没有开始 P8/P9 代码实现。
 - 2026-07-13：P6.12.1 正式候选包准备启动。已从 `main@2a6d82f` 建立 `codex/p6.12.1-alpha.4` 分支，并使用统一升版脚本将 npm、Cargo、Tauri、macOS bundleVersion、lockfile 和 Changelog 目标同步到 `0.2.0-alpha.4`。候选内容包含受限 Tauri fs 旧 PDF 修复、首次 AI 配置向导、品牌三规格、PDF 自适应/手势/动画、窄窗口专注阅读和本节页码。正式构建、版本检查、发布状态机、release preflight、安全扫描、QA fixtures、Rust fmt/check、26 个 Rust 测试和联网 `npm audit` 已通过，依赖审计结果为 0 漏洞。真实 `读伴 Test.app` 已直接恢复升级前保存的《全球通史》，原页与文本层正常；自动化操作验证了滚动切翻页、本节第 3→4 页边缘点击和专注阅读收起侧栏。候选尚未签名、公证或在另一台干净 macOS 上完成最终人工回归。
+- 2026-07-13：Alpha.4 候选 PR #4 的 GitHub Actions 已通过并合并到 `main@ccb4cc1`。`release:prepare` 已将 Changelog 的 Alpha.4 内容从 Unreleased 冻结为 `2026-07-13` 正式版本段；下一步提交 release preparation、通过 tag-ready 检查并推送 annotated `v0.2.0-alpha.4` tag，触发 GitHub Environment 中的签名、公证、staple、Gatekeeper、updater artifacts 和 GitHub prerelease 流程。
 
 ## 当前已知限制
 

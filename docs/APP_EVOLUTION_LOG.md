@@ -147,7 +147,7 @@
 
 剩余：
 
-- 候选源码需形成 clean commit 后运行严格签名预检。
+- 候选源码 PR #4 已通过 GitHub Actions 并合并到 `main@ccb4cc1`；Changelog 已冻结，等待 release preparation commit 与 annotated tag。
 - 正式签名、公证、staple、Gatekeeper 与 artifact 校验尚未执行。
 - 干净 macOS 环境的首次安装、空书架、AI Key、导入/旧书迁移、备份和重启恢复仍需最终人工验收。
 
