@@ -199,6 +199,7 @@ App 化专项路线和每次实施记录维护在 [APP_EVOLUTION_LOG.md](./APP_E
 - 阅读计划内页码已区分本节相对页码与原书来源页码；底层定位继续使用真实 PDF 页码，现有进度、笔记和高亮无需迁移。
 - 已确认下一阶段不再先扩展读伴外观或抽象人格标签，而是建设可验证的主动陪读底座：章节内容地图、提问埋点、阅读事件、触发策略、回答记忆和章节闭环。详细拆解见 [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md)。
 - 已将剩余生产级工作拆成 P6.1-P6.12；P6.1-P6.6 基础版、P6.7.1-P6.7.6、P6.8.1-P6.8.4、P6.9.1-P6.9.3、P6.10.1/P6.10.2 已完成；`v0.2.0-alpha.3` 已真实完成签名、公证、updater assets、GitHub prerelease 和 Alpha manifest 发布。下一步安装 Alpha.3，再由 Alpha.4 完成 P6.8.5 双版本自动升级验收。
+- P6.12.1 Alpha.4 正式候选的机器发布与本机旧书回归已完成：`v0.2.0-alpha.4` 已签名、公证、staple、通过 Gatekeeper 并发布更新清单；独立下载 DMG 的 SHA-256、镜像、签名和公证票据验证通过，正式包成功打开升级前旧 PDF。剩余干净 macOS 首次安装人工验收，并进入 P6.12.2 Alpha.3 → Alpha.4 自动更新验收。
 
 可能方向：
 

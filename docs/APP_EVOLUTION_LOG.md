@@ -119,6 +119,24 @@
 
 ## 实施日志
 
+### 2026-07-13：P6.12.1 Alpha.4 正式候选发布与旧书回归
+
+完成：
+
+- PR #4 和最终 `main@512718f` CI 通过；annotated `v0.2.0-alpha.4` 已推送。
+- Release workflow `29221217621` 完成 Developer ID 签名、Apple 公证 `Accepted`、staple、Gatekeeper、updater 签名、GitHub prerelease 和 Alpha manifest 更新。
+- Apple Submission ID：`dc424207-65de-4cb6-b2f4-b7934457b264`。
+- 正式 DMG SHA-256：`09824f8dabb1976b2f5c5105cba4a85d8c0f117167524d0c25f3f516bd5adff8`，独立下载结果与 Release checksum 一致。
+- 独立执行 `hdiutil verify`、`xcrun stapler validate`、DMG/App `codesign` 和 `spctl`，全部通过并显示 `Notarized Developer ID`。
+- 包内 App 为 arm64、`com.duban.reader`、Developer ID team `FBMN9293RM`、hardened runtime、bundle version `0.2.104`。
+- 从只读挂载 DMG 启动正式 Alpha.4，成功打开 Alpha.4 前正式环境导入的旧 PDF；原书第 48 页起的原页和文本层正常，没有 `Unexpected server response (0)`。
+- 正式/测试书库的同名书使用不同 id、不同文件和不同创建时间，确认本次没有 test/formal 串库。
+
+剩余：
+
+- 当前机器已有正式数据，不能充当干净 macOS 首次安装环境；需在另一台 Mac 或独立干净用户完成首次启动、空书架、AI 配置、导入、备份和重启恢复。
+- P6.12.2 继续用已安装 Alpha.3 验证 App 内升级到 Alpha.4。
+
 ### 2026-07-13：P6.12.1 Alpha.4 候选源码与桌面回归
 
 目标：将 Alpha.3 之后确认的旧 PDF 修复和阅读体验改动整理为可追溯的下一正式候选版本。

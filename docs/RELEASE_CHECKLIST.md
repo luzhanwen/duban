@@ -6,6 +6,8 @@
 
 首个 `0.1.0 formal arm64 signed` 候选包虽通过机器验证，但人工 Smoke Test 发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记为不得分发。Test bundle 已改用受限 Tauri fs 插件并完成旧书回归；下一正式候选仍需重新签名/公证和执行本清单全部人工项。完整证据见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
 
+`v0.2.0-alpha.4` 已完成重新签名、公证、staple、Gatekeeper、独立下载校验和正式旧书回归，确认上述状态 `0` 问题已在正式候选中修复。干净 macOS 首次安装与 Alpha.3 → Alpha.4 自动更新仍按本清单和 QA Matrix 继续验收。
+
 ## 0. 发布边界
 
 - [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.4`。
