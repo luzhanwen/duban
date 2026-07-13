@@ -273,7 +273,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
               disabled={Boolean(uploadState)}
               className="shelf-tool-button"
             >
-              <ChineseIcon name="sample" className="h-4 w-4" decorative />
+              <ChineseIcon name="test" className="h-4 w-4" decorative />
               导入测试
             </button>
           )}
@@ -495,25 +495,36 @@ function getImportOverallPercent({ phase, current = 0, total = 0, percent = null
 
 function EmptyShelf({ onUpload }) {
   return (
-    <section className="mt-10 rounded-lg border border-dashed border-line bg-paper-card px-6 py-14 text-center shadow-sm">
-      <div className="empty-shelf-illustration mx-auto mb-7 flex h-28 max-w-sm items-end justify-center gap-2">
-        <span className="h-20 w-8 rounded-t-md bg-[#6f8f72]" />
-        <span className="h-24 w-9 rounded-t-md bg-[#8d83a8]" />
-        <span className="h-16 w-7 rounded-t-md bg-[#5b7f95]" />
-        <span className="h-[5.5rem] w-8 rounded-t-md bg-[#9a8d63]" />
+    <section className="empty-shelf-panel" aria-label="空书架">
+      <div className="empty-shelf-visual" aria-hidden="true">
+        <div className="empty-shelf-ticket">
+          <span className="empty-shelf-ticket-mark">
+            <ChineseIcon name="books" className="h-5 w-5" decorative />
+          </span>
+          <div className="empty-shelf-book-stack">
+            <span className="is-sage" />
+            <span className="is-cinnabar" />
+            <span className="is-ink" />
+          </div>
+          <div className="empty-shelf-stamp">
+            <span>书架</span>
+            <strong>暂空</strong>
+          </div>
+        </div>
       </div>
-      <h3 className="font-serif text-2xl text-ink">从第一本书开始</h3>
-      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink-soft">
-        导入 PDF 或 MOBI 后，可以确认目录、生成阅读计划，再按章节开始阅读。图片和复杂表格目前只提供有限支持。
-      </p>
-      <button
-        type="button"
-        onClick={onUpload}
-        className="shelf-tool-button mt-6"
-      >
-        <ChineseIcon name="upload" className="h-4 w-4" decorative />
-        选择书籍
-      </button>
+      <div className="empty-shelf-copy">
+        <p className="empty-shelf-kicker">暂无书籍</p>
+        <h3>上传第一本书</h3>
+        <p>支持 PDF / MOBI。上传后确认信息，并设置读伴。</p>
+        <button
+          type="button"
+          onClick={onUpload}
+          className="empty-shelf-upload-button"
+        >
+          <ChineseIcon name="upload" className="h-4 w-4" decorative />
+          上传书籍
+        </button>
+      </div>
     </section>
   );
 }

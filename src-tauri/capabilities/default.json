@@ -9,6 +9,14 @@
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        {
+          "path": "$APPDATA/files/**"
+        }
+      ]
+    },
     "updater:default",
     "process:allow-restart",
     {

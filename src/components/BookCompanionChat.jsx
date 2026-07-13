@@ -250,7 +250,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
 
           <div className="book-companion-context-card">
             <div className="book-companion-section-title">
-              <ChineseIcon name="scroll" className="h-4 w-4" decorative />
+              <ChineseIcon name="bookmark" className="h-4 w-4" decorative />
               <span>读到这里</span>
             </div>
             <strong>{context.positionTitle}</strong>

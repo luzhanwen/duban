@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AiSetupWizard from "./components/AiSetupWizard.jsx";
 import BookCompanionChat from "./components/BookCompanionChat.jsx";
 import BookSalon from "./components/BookSalon.jsx";
 import BookSetup from "./components/BookSetup.jsx";
@@ -12,6 +13,7 @@ import Privacy from "./components/Privacy.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 import { initializeDesktopWindowIcon } from "./lib/desktopIcon.js";
 import { APP_RUNTIME } from "./lib/runtime.js";
+import { getSettings, normalizeSettings } from "./lib/storage.js";
 
 const DESKTOP_DOWNLOAD_URL =
   import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim() ||
@@ -26,6 +28,7 @@ export default function App() {
   const [readerRequest, setReaderRequest] = useState(null);
   const [showSplash, setShowSplash] = useState(true);
   const [splashLeaving, setSplashLeaving] = useState(false);
+  const [aiSetup, setAiSetup] = useState({ status: "loading", settings: null });
   const inReader = view === "reader";
 
   useEffect(() => {
@@ -33,13 +36,31 @@ export default function App() {
 
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const leaveDelay = prefersReducedMotion ? 300 : 2050;
-    const removeDelay = prefersReducedMotion ? 520 : 2520;
+    const removeDelay = prefersReducedMotion ? 520 : 2640;
     const leaveTimer = window.setTimeout(() => setSplashLeaving(true), leaveDelay);
     const removeTimer = window.setTimeout(() => setShowSplash(false), removeDelay);
 
     return () => {
       window.clearTimeout(leaveTimer);
       window.clearTimeout(removeTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getSettings()
+      .then((settings) => {
+        if (!active) return;
+        setAiSetup({
+          status: hasConfiguredAi(settings) ? "configured" : "needed",
+          settings,
+        });
+      })
+      .catch(() => {
+        if (active) setAiSetup({ status: "unavailable", settings: null });
+      });
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -76,7 +97,18 @@ export default function App() {
 
   return (
     <div className="app-root min-h-full">
-      {showSplash && <SplashScreen leaving={splashLeaving} />}
+      {showSplash && (
+        <SplashScreen leaving={splashLeaving} toSetup={aiSetup.status === "needed"} />
+      )}
+
+      {(splashLeaving || !showSplash) && aiSetup.status === "needed" && (
+        <AiSetupWizard
+          initialSettings={aiSetup.settings}
+          transitioningFromSplash={splashLeaving}
+          onDismiss={() => setAiSetup((current) => ({ ...current, status: "dismissed" }))}
+          onComplete={() => setAiSetup((current) => ({ ...current, status: "configured" }))}
+        />
+      )}
 
       {!inReader && (
         <header className="border-b border-line bg-paper-card/90 backdrop-blur">
@@ -85,7 +117,7 @@ export default function App() {
               onClick={() => setView("shelf")}
               className="rounded-lg outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
             >
-              <BrandLogo />
+              <BrandLogo variant="horizontal" />
             </button>
             <nav className="literary-ui flex items-center gap-1 text-sm">
               <NavTab
@@ -96,7 +128,7 @@ export default function App() {
                 藏书
               </NavTab>
               <NavTab
-                icon="seal"
+                icon="settings"
                 active={view === "settings"}
                 onClick={() => setView("settings")}
               >
@@ -203,5 +235,15 @@ function NavTab({ icon, active, onClick, children }) {
       {icon && <ChineseIcon name={icon} className="h-4 w-4" decorative />}
       {children}
     </button>
+  );
+}
+
+function hasConfiguredAi(settings) {
+  const normalized = normalizeSettings(settings);
+  return Boolean(
+    normalized.anthropic.apiKey ||
+      normalized.anthropic.hasApiKey ||
+      normalized.openaiCompatible.apiKey ||
+      normalized.openaiCompatible.hasApiKey
   );
 }

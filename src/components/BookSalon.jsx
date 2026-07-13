@@ -207,7 +207,7 @@ export default function BookSalon({
           </button>
           {context.canRead ? (
             <button type="button" onClick={() => onReadBook(book.id)} className="is-primary">
-              <ChineseIcon name="scroll" className="h-4 w-4" decorative />
+              <ChineseIcon name="bookmark" className="h-4 w-4" decorative />
               继续阅读
             </button>
           ) : (
@@ -252,7 +252,7 @@ export default function BookSalon({
 
           <section className="book-salon-reading-card">
             <div className="book-salon-section-title">
-              <ChineseIcon name="scroll" className="h-4 w-4" decorative />
+              <ChineseIcon name="bookmark" className="h-4 w-4" decorative />
               <span>当前进度</span>
             </div>
             <strong>{context.currentTitle}</strong>
@@ -378,7 +378,7 @@ export default function BookSalon({
                     </>
                   ) : (
                     <div className="book-salon-editor-empty">
-                      <ChineseIcon name="sample" className="h-6 w-6" decorative />
+                      <ChineseIcon name="ink" className="h-6 w-6" decorative />
                       <p>选择左侧笔记。</p>
                     </div>
                   )}

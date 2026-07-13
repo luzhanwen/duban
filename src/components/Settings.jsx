@@ -163,7 +163,7 @@ const SETTINGS_PANELS = [
     id: "config",
     label: "批量配置",
     desc: "用 TXT 一次导入",
-    icon: "scroll",
+    icon: "config",
   },
   {
     id: "backup",

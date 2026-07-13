@@ -1,6 +1,6 @@
 # 读伴项目记录
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-13
 
 这份文档用于记录「读伴」的产品需求、架构共识和开发日志。README 保持简短，这里保留更完整的上下文，方便后续继续迭代时不丢失方向。
 
@@ -384,7 +384,7 @@ readingProfile: {
 - 品牌视觉：
   - 顶部导航已从纯文字品牌名升级为 `BrandLogo`，图形由“打开的书页 + 对话气泡”组成，对应“读”和“伴”。
   - `public/logo.svg` 作为独立 SVG 品牌资产，同时接入 `index.html` favicon。
-  - `BrandName` 统一渲染界面中的「读伴」二字，使用更纤细、偏手写的中文字体栈；普通 UI 文本仍保持原有清晰字体。
+  - `BrandName` 统一渲染界面中的「读伴」二字，使用项目内置的轻量书写字标字体；普通 UI 文本仍保持原有清晰字体。
   - Markdown 渲染器会识别回答、导读和笔记里出现的「读伴」，并套用同一品牌字形。
   - 应用启动时显示一次全屏开屏动画：书页展开、对话气泡出现、手写「读伴」显现，然后自动淡出进入书架；动画尊重 `prefers-reduced-motion`。
 - 设置页：
@@ -678,7 +678,7 @@ readingProfile: {
   - 新增 `public/logo.svg`，作为可独立复用的品牌资产和浏览器 favicon。
   - 顶部导航从纯文字“读伴”改为图形 logo + wordmark；图形由打开的书页和对话气泡组成，表达“读”和“伴”。
   - `index.html` 新增 `<link rel="icon" type="image/svg+xml" href="/logo.svg" />`。
-  - 新增 `.brand-script` 字体类，优先使用 `HanziPen SC`、`Xingkai SC`、`Kaiti SC` 等更纤细、偏手写的中文字体；没有这些字体时降级到楷体/衬线字体。
+  - 新增 `.brand-script` 字体类；最初使用系统手写字体栈，现已升级为项目内置 `Duban Brand Script` 两字子集，并仅以楷体/衬线字体作为加载失败兜底。
   - 界面中可控的「读伴」二字统一通过 `BrandName` 渲染，和普通 UI 字体拉开气质差异。
   - Markdown 文本渲染也会识别「读伴」并套用品牌字形，覆盖导读、聊天回答、笔记内容等动态文本中的品牌名。
 
@@ -859,7 +859,7 @@ readingProfile: {
 - 本地文件路径改为白名单形态：普通书籍 blob 只允许顶层文件，封面缓存只允许 `covers/` 下文件；封面读取、备份读取和孤儿文件清理都走统一安全路径拼接。
 - 导入/备份链路继续保留 manifest/file sha256、导入前预览、校验报告、merge/replace 和失败自动回滚；本轮没有改变备份格式版本。
 - Tauri 配置新增正式 CSP、dev CSP、`X-Content-Type-Options` 和 `Permissions-Policy`；Web 静态部署新增 `public/_headers`，包含 `Referrer-Policy`。
-- 新增 `scripts/security_scan.mjs` 与 `npm run security:scan`，检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时运行 `npm audit`、Rust 重复依赖树和安全扫描。
+- 新增 `scripts/security_scan.mjs` 与 `npm run security:scan`，检查真实密钥形态、Tauri CSP/headers、asset protocol 必须关闭、fs 单文件只读 scope、其他 capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时运行 `npm audit`、Rust 重复依赖树和安全扫描。
 - 更新根目录 `SECURITY.md`、`PRIVACY.md`，以及 P6.5 审计、生产级路线、后端标准、AI 接手提示词、公开成熟度和 App 化日志文档。
 - 已知限制：`cargo audit` 尚未纳入当前本机命令，需要在 P6.9 CI 或发布机补齐；`public/_headers` 只覆盖支持该约定的静态托管平台。
 
@@ -910,6 +910,20 @@ readingProfile: {
 - 2026-07-11：P6.8.4 完成：正式桌面设置页新增软件更新面板、release notes、下载进度、安装前目录式恢复点、签名安装后的安全重启和 GitHub Release 手动下载；opener capability 仅允许读伴 Releases URL。桌面 test channel 回归确认不显示入口，宽屏/390px 布局无溢出。下一步发布 Alpha.3，再由 Alpha.4 做真实双版本升级。
 - 2026-07-11：P6.8 PR #3 完整 CI 通过并合并至 `main`（merge `7ee097d`）；Alpha.3 candidate 检查通过，Changelog 已冻结为 2026-07-11，进入发布准备提交与 annotated tag 阶段。
 - 2026-07-11：`v0.2.0-alpha.3` 首次 updater 发布成功：workflow `29158078112` 完成签名、公证、staple、Gatekeeper、updater archive/signature、8 个 Release assets 和 `updater-index/alpha/latest.json`。独立下载 DMG 的 checksum、hdiutil、stapler、spctl 均通过；远端 manifest 正确指向 `darwin-aarch64 / 0.2.0-alpha.3`。下一步用户安装 Alpha.3，再发布 Alpha.4 做真实升级。
+- 2026-07-12：桌面测试环境修复：Tauri updater 插件已在应用启动时注册，测试配置缺少合法 `plugins.updater` 对象会导致 `npm run tauri:dev` 初始化失败；现已为 `tauri.test.conf.json` 补齐与 Alpha 通道一致的公钥和 manifest endpoint。测试环境仍通过前端渠道判断隐藏“软件更新”入口，本修复只保证插件初始化和桌面验收环境可启动。
+- 2026-07-12：首次 AI 配置向导完成：开屏结束后只读取设置中的非敏感 Key 状态，无 Key 时先显示仅含图标、欢迎标题和一句设置提示的系统式欢迎页，再进入三步居中悬浮引导；默认推荐 DeepSeek Flash，也可选 Claude Sonnet。连接验证成功后才复用现有 `saveSettings` 写入浏览器存储或桌面 Keychain。稍后设置只关闭当前会话，已有 Key 用户不会看到引导，也不会因此主动读取 Keychain 明文。宽屏与 390px 定位、溢出和可访问性回归通过，真实 DeepSeek/Keychain 连接待桌面人工验证。
+- 2026-07-12：首次 AI 欢迎动效完成：无 Key 用户的开屏 Logo 会缩小并移动到欢迎弹窗 Logo 的精确位置，弹窗 Logo 在最后一帧接管，过程中只显示一个 Logo；纸面背景同步变为虚化遮罩，弹窗从中心展开。Splash 延后到共享动画结束后卸载，过渡来源状态保持到向导结束，避免空白帧和二次闪入。欢迎页已移除右上角关闭按钮，保留底部“稍后设置”。桌面交接位置/尺寸、时间轴截图和控制台检查通过，减少动态效果偏好继续即时切换。
+- 2026-07-12：首次 AI 欢迎动效视觉/性能修正：欢迎页改用与 Splash 相同的透明 `LogoMark`，删除带米白底的图片和外层 Logo 背景、边框、阴影。移除大面积 dialog blur 与动态 backdrop-filter 插值，Logo 接管改为最后 32% 连续交叉；最终 `68×68px` Logo 为透明背景且时间轴无控制台告警。
+- 2026-07-12：品牌字标与 Logo 三规格完成：基于 Google Fonts 官方 OFL 字体 Ma Shan Zheng 生成仅含“读伴”的 `Duban Brand Script` WOFF2 子集，约 `1.8 KB`，许可证随 App 分发。`BrandLogo` 新增 horizontal / vertical / compact variant，分别用于导航、Splash 和首次设置；横版根据预览反馈默认隐藏 `DUBAN` 并收紧图文间距，竖版保留英文，浏览器确认字体加载、三种真实布局和共享 Logo 尺寸均正常。
+- 2026-07-12：全局产品字体统一到 `--font-app-cn`，标题、正文、按钮、输入和阅读辅助界面暂以系统 `Songti SC` 作为无授权评审基线，品牌字标与等宽技术信息保持独立。商业字体评估首选汉仪君黑、备选汉仪玄宋；未将任何试用商业字体加入仓库，采购前需确认桌面 App/Webfont/DMG 与更新包分发/字体子集化授权。
+- 2026-07-13：本地旧书读取完成真实 Test bundle 修复：此前 `asset:// + XHR` 在当前 macOS WebKit 中仍失败，现改用 Tauri 官方 fs 插件读取 `$APPDATA/files/**`，只授予单文件只读权限；PDF.js 统一接收二进制 `data`。重新构建测试包后，《全球通史》第 48 页原页、文本层和后续页面成功渲染，阅读进度未迁移或重建；完整前端、Rust、发布预检和安全检查通过。下一正式候选版本必须包含该修复并重新签名、公证。
+- 2026-07-13：PDF 翻页模式完成窗口宽高自适应：渲染比例同时受可用宽度和高度约束，一屏完整显示单页且阅读面板无纵向滚动；新增“专注阅读”收起/恢复读伴侧栏。真实 Test.app 验证第 48 页带侧栏和专注模式均保持比例居中，切到第 49 页后页码与继续阅读位置同步。自动双页和 MOBI 动态分页待后续。
+- 2026-07-13：PDF 翻页交互继续收口：新增书页左右边缘热区、触摸/手写笔滑动、触控板横向滚动和防连跳阈值；所有入口统一更新页码和阅读进度。新增可持久化的翻页动画开关，默认使用 240ms 轻微横移/淡入/缩放，reduced motion 下关闭。Test.app 实测边缘点击从 48→49，关闭动画后 49→50，状态正常；触控板惯性手感待用户人工验收。
+- 2026-07-13：阅读器窄窗口回归修正：专注阅读扩展到滚动模式；900–1180px 下标题与工具栏分行，读伴默认收起且重新打开时为覆盖层，不再压缩书页。滚动 PDF 设置 640px 可读宽度下限，解决窄窗口标题竖排、页面异常缩小和正文不可辨认。
+- 2026-07-13：阅读计划以本节页码作为主显示：全球通史 PDF 第48页在当前阅读项中显示为本节第1页，后续依次递增；原书页码只在本节第一页旁轻量提示一次，顶部和读伴卡片不重复强调。底层 pageNumber、高亮、笔记、AI 上下文与恢复进度仍保存真实 PDF 页码，历史数据无需迁移；独立引用页码明确标为“原书第X页”。
+- 2026-07-13：读伴产品方向完成能力优先校正，并新增 P7 主动陪读引擎规划。保留“用户为一本书设定读伴并由它陪完整本书”的核心，但暂停继续扩展没有功能差异的名字、颜色、表情和抽象人格标签。P7 按章节内容地图、提问埋点预生成、阅读事件、介入调度、阅读中提问、回答记忆、章节沉淀、开书设置收敛、诊断 QA 和视觉身份重构十步推进；任何用户设置都必须映射到真实埋点选择、触发频率或问题形式。详细设计见 [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md)。本轮只更新规划与决策记录，尚未修改产品代码、数据 schema 或现有用户数据。
+- 2026-07-13：阶段顺序正式调整为 P6 生产化整体收尾、P7 主动陪读引擎、P8 手机版 App、P9 云后端与多设备同步。原 P6.12 云同步/后端决策整体移动到 P9，P6.12 改为生产化总验收与阶段冻结，统一收口正式候选包、自动更新双版本验收、升级样本、自动化回归、`cargo audit`、Public Alpha 说明、updater 私钥离线备份和最终 release/QA 检查。P8 手机版首期不依赖账号和云服务，先完成本地导入、阅读、AI、笔记和手动迁移闭环；P9 再建设账号、本地优先同步、加密、云基础设施和可选模型代理。新增 [MOBILE_APP_PLAN.md](./MOBILE_APP_PLAN.md) 与 [CLOUD_BACKEND_PLAN.md](./CLOUD_BACKEND_PLAN.md)。本轮只调整路线与文档，没有开始 P8/P9 代码实现。
+- 2026-07-13：P6.12.1 正式候选包准备启动。已从 `main@2a6d82f` 建立 `codex/p6.12.1-alpha.4` 分支，并使用统一升版脚本将 npm、Cargo、Tauri、macOS bundleVersion、lockfile 和 Changelog 目标同步到 `0.2.0-alpha.4`。候选内容包含受限 Tauri fs 旧 PDF 修复、首次 AI 配置向导、品牌三规格、PDF 自适应/手势/动画、窄窗口专注阅读和本节页码。正式构建、版本检查、发布状态机、release preflight、安全扫描、QA fixtures、Rust fmt/check、26 个 Rust 测试和联网 `npm audit` 已通过，依赖审计结果为 0 漏洞。真实 `读伴 Test.app` 已直接恢复升级前保存的《全球通史》，原页与文本层正常；自动化操作验证了滚动切翻页、本节第 3→4 页边缘点击和专注阅读收起侧栏。候选尚未签名、公证或在另一台干净 macOS 上完成最终人工回归。
 
 ## 当前已知限制
 

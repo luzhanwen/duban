@@ -1,6 +1,6 @@
 # 读伴文档索引
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-13
 
 这个目录保存「读伴」的项目说明、路线图、UI 标准和开发日志。后续维护文档时，先看这份索引，再决定内容应该写到哪里。
 
@@ -29,6 +29,9 @@
 | [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md) | UI 设计标准 | 视觉气质、色彩字体、布局比例、卡片边界、页面过渡、动效规范、验收清单 |
 | [UI_CHANGELOG.md](./UI_CHANGELOG.md) | UI/体验更新日志 | 书架、阅读器、笔记、品牌视觉、交互细节等前端体验改动 |
 | [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md) | 开书读伴设定流程 | 开书设置改为多轮设定读伴对话、开书记忆和开书地图降级的实现边界 |
+| [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md) | P7 主动陪读引擎 | 章节内容地图、提问埋点、阅读事件、介入调度、回答记忆、章节沉淀与读伴视觉重构顺序 |
+| [MOBILE_APP_PLAN.md](./MOBILE_APP_PLAN.md) | P8 手机版 App | 移动技术验证、手机信息架构、文件存储、阅读器、手动迁移、QA 与 Beta 分发 |
+| [CLOUD_BACKEND_PLAN.md](./CLOUD_BACKEND_PLAN.md) | P9 云后端与同步 | 账号、设备身份、本地优先同步、加密、基础设施、可选云服务与合规边界 |
 
 ## 阅读顺序
 
@@ -53,6 +56,9 @@
 19. 要开发或修改前端界面：先读 [UI_DESIGN_STANDARDS.md](./UI_DESIGN_STANDARDS.md)。
 20. 想追踪界面为什么变成现在这样：读 [UI_CHANGELOG.md](./UI_CHANGELOG.md)。
 21. 要继续打磨开书设置、捎话记忆或“设定读伴”体验：读 [OPENING_COMPANION_ONBOARDING.md](./OPENING_COMPANION_ONBOARDING.md)。
+22. 要推进读伴主动提问、内容埋点、介入调度或陪读记忆闭环：读 [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md)。
+23. 要推进 iOS/Android 手机版、移动阅读器或手机数据迁移：读 [MOBILE_APP_PLAN.md](./MOBILE_APP_PLAN.md)。
+24. 要推进账号、多设备同步、云备份或云端模型代理：读 [CLOUD_BACKEND_PLAN.md](./CLOUD_BACKEND_PLAN.md)。
 
 ## 维护规则
 
@@ -78,6 +84,9 @@
   - 改变视觉规范、布局标准、交互边界：更新 `UI_DESIGN_STANDARDS.md`。
   - 改变视觉、布局、交互、文案体验：更新 `UI_CHANGELOG.md`。
   - 改变开书读伴对话、捎话记忆或开书地图主次关系：更新 `OPENING_COMPANION_ONBOARDING.md`。
+  - 推进 P7 主动陪读、章节内容地图、提问埋点、阅读事件、介入调度、回答记忆或读伴视觉状态：更新 `COMPANION_ACTIVE_READING_PLAN.md`。
+  - 推进 P8 手机版、移动平台能力、手机阅读器、移动存储或 Beta 分发：更新 `MOBILE_APP_PLAN.md`。
+  - 推进 P9 账号、云后端、多设备同步、云备份、模型代理或云端隐私边界：更新 `CLOUD_BACKEND_PLAN.md`。
 - 每次更新都尽量写清楚三件事：为什么改、改了什么、还有什么限制。
 - `PROJECT_NOTES.md` 可以保留完整背景，但不要把所有 UI 微调都塞进去；细节优先放到 `UI_CHANGELOG.md`。
 - `ROADMAP.md` 不写流水账，只写当前状态、下一步和取舍。
@@ -106,5 +115,8 @@
 - `DESKTOP_STORAGE_SCHEMA.md` 已记录桌面 schema 9 的 SQLite 表、App 数据目录、迁移顺序和 Keychain/备份边界。
 - `READING_CONTRACT_CONTEXT.md` 是开书契约和单本书读伴记忆的专项来源，当前已记录章节导读、阅读中问答、读后交流三条链路的接入情况。
 - `OPENING_COMPANION_ONBOARDING.md` 记录开书设置从“等待整本书导读”改为“多轮设定读伴对话”的体验和实现边界。
+- `COMPANION_ACTIVE_READING_PLAN.md` 是 P7 的专项来源，明确先完成主动陪读能力闭环，再收敛开书设置和读伴视觉身份。
+- `MOBILE_APP_PLAN.md` 是 P8 的专项来源；手机版先本地闭环，不等待云后端。
+- `CLOUD_BACKEND_PLAN.md` 是 P9 的专项来源；原 P6.12 云同步/后端决策已整体迁入该阶段。
 - `UI_DESIGN_STANDARDS.md` 用来保护现有视觉气质和组件边界，尤其是封面书架比例、封面主操作、菜单边界、动效克制和主次操作层级。
 - `UI_CHANGELOG.md` 适合作为界面演进记录，尤其适合记录书架、阅读器、笔记和品牌视觉的连续试错。
