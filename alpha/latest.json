@@ -1,11 +1,11 @@
 {
-  "version": "0.2.0-alpha.3",
-  "notes": "# 读伴 0.2.0-alpha.3\n\n> Alpha 内测版 · formal 发布通道\n\n### Added\n\n- 接入 Tauri updater/process 客户端基础、最小权限和正式通道更新服务。\n- 新增 updater 预检、安全私钥扫描和自动更新架构文档。\n- 内置 Alpha updater 公钥和通道地址，发布流水线生成并校验 signed updater archive/signature。\n- 正式桌面设置页新增软件更新入口、版本说明、下载进度、安装前恢复点、安全重启和手动下载兜底。\n\n### Known limitations\n\n- Alpha.3 -> Alpha.4 实机升级、坏签名/断网/中断回归和 updater 私钥离线备份仍待 P6.8.5 完成。\n\n## 构建信息\n\n- App version：`0.2.0-alpha.3`\n- Git tag：`v0.2.0-alpha.3`\n- Git commit：`446d68a7eedc1895bb04c5db3179eb78a27c661e`\n- SQLite schema：`9`\n- Backup format：`3`\n\n## 安装与数据\n\n- 本版本仍是本地优先；书库、笔记和阅读进度默认保存在本机。\n- 桌面版 API Key 保存在系统 Keychain，不进入备份或诊断包。\n- 升级前建议先在设置页导出一次本地备份。",
-  "pub_date": "2026-07-11T15:38:25.656Z",
+  "version": "0.2.0-alpha.4",
+  "notes": "# 读伴 0.2.0-alpha.4\n\n> Alpha 内测版 · formal 发布通道\n\n### Added\n\n- 新增首次 AI 配置引导；未配置用户可按服务、密钥验证和完成三步连接模型，默认推荐 DeepSeek。\n- PDF 翻页模式新增窗口宽高自适应、专注阅读、书页边缘点击、横向手势和可关闭的轻量翻页动画。\n- 品牌 Logo 收束为横版、竖版和简版三种规格，并统一应用内中文字体入口。\n\n### Changed\n\n- PDF 阅读项优先显示“本节页码”，原书页码仅在来源和引用场景中提示。\n- 窄窗口下读伴改为覆盖式侧栏，滚动和翻页模式都支持专注阅读。\n- 测试与正式桌面环境继续使用独立数据目录、Keychain service 和发布通道。\n\n### Fixed\n\n- 桌面版历史 PDF 不再通过 macOS `asset://` 协议读取；改用受限 Tauri fs 插件从 App 数据目录读取二进制，修复 PDF.js 状态 `0` 导致的旧书加载失败。\n- 测试版补齐 updater 插件初始化配置，避免桌面测试环境启动失败。\n- 修复窄窗口下标题竖排、PDF 过度缩小和正文不可辨认的问题。\n\n### Security\n\n- 关闭 Tauri asset protocol，只保留 `$APPDATA/files/**` 范围内的单文件只读权限。\n\n### Known limitations\n\n- 当前正式 macOS 构建仅发布 Apple Silicon `arm64`。\n- 扫描版 PDF OCR、PDF 图片/表格理解、MOBI 内嵌图片和自动双页仍未支持。\n- Alpha.3 → Alpha.4 App 内自动更新与干净 macOS 环境回归需在候选包发布后完成人工验收。\n\n## 构建信息\n\n- App version：`0.2.0-alpha.4`\n- Git tag：`v0.2.0-alpha.4`\n- Git commit：`512718fb24bbd7179e1a29deb340c374d1b45470`\n- SQLite schema：`9`\n- Backup format：`3`\n\n## 安装与数据\n\n- 本版本仍是本地优先；书库、笔记和阅读进度默认保存在本机。\n- 桌面版 API Key 保存在系统 Keychain，不进入备份或诊断包。\n- 升级前建议先在设置页导出一次本地备份。",
+  "pub_date": "2026-07-13T03:22:12.718Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSlZaMmZNM0VyeTgzSUppRlZGd0NpK2FSTjk0VDh5ZmlpWmU0REJ5ZlJPV1FObWt5dUVWekZvVk9uUjg1Yjl6THNpRHRtWDJpUHhLb0d0eVpJb1RnUE8wblpBTnNQYkFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzNzg0Mjc2CWZpbGU66K+75Ly0LmFwcC50YXIuZ3oKeWl0Zkw4cmhTekM2OHRidTYrVlYzeXNTUjBTZ0xlcTJ1N1JzMGxqRER3bndsQnRyT1ZTMzU2a2xGRnBWYVgxaTFMSXN4TTMwTzhwOFM4d3FKRzVtQ2c9PQo=",
-      "url": "https://github.com/luzhanwen/duban/releases/download/v0.2.0-alpha.3/Duban_0.2.0-alpha.3_formal_arm64_signed.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSlZaMmZNM0VyeXhDNytqMDZTMXFFTCtlVUYxaHVRS3Z1Y3h1NHVGUG9qNDAzM0R0VlhUMkU2eFRUVkN4MllYdGtMV3FDNEpuZ1dEb0FCREVBWjBEK2pIRVpaYmc3ZlFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgzOTEyOTAyCWZpbGU66K+75Ly0LmFwcC50YXIuZ3oKTE0rLzd2T3JIOGsyaVJxTm53V0tGaHh3RlNLKy9zaUhOWWhEdVlHZWRTOTFuZ2ZLampsOGFUZm5kVWcvY0p0RTVnQm9EQkhQVXgxVHB4ZS9Db1ZJREE9PQo=",
+      "url": "https://github.com/luzhanwen/duban/releases/download/v0.2.0-alpha.4/Duban_0.2.0-alpha.4_formal_arm64_signed.app.tar.gz"
     }
   }
 }
