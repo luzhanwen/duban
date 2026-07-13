@@ -6,8 +6,9 @@
 
 ## 当前版本
 
-- 当前开发版本：`0.2.0-alpha.2`
-- `v0.2.0-alpha.2`：首个完成自动签名、公证并发布 GitHub prerelease 的版本，等待人工 smoke test。
+- 当前开发版本：`0.2.0-alpha.4`
+- `v0.2.0-alpha.3`：首个包含 updater 信任根、签名更新包和 Alpha manifest 的正式 prerelease。
+- `0.2.0-alpha.4`：P6.12.1 正式候选目标，包含旧 PDF fs 读取修复，并用于 Alpha.3 → Alpha.4 自动更新验收。
 - `v0.2.0-alpha.1`：首次自动发布失败 tag，签名前停止且没有 GitHub Release；保持不可变。
 - 上一个历史 tag：`v0.1.0`，指向旧提交 `be4fb57`，不得移动、覆盖或删除。
 - 当前阶段：内部 Alpha；不得仅凭版本号宣称可公开稳定发布。
@@ -24,7 +25,7 @@
 
 ```bash
 npm run version:check
-npm run version:set -- 0.2.0-alpha.2
+npm run version:set -- 0.2.0-alpha.4
 npm run version:bump -- prerelease
 npm run version:bump -- patch
 npm run version:bump -- minor

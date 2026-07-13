@@ -1,7 +1,7 @@
 {
   "name": "duban",
   "private": true,
-  "version": "0.2.0-alpha.3",
+  "version": "0.2.0-alpha.4",
   "type": "module",
   "license": "MIT",
   "description": "读伴 —— 本地优先的 AI 伴读应用（BYOK）",
@@ -46,6 +46,7 @@
   "dependencies": {
     "@lingo-reader/mobi-parser": "^0.4.6",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",

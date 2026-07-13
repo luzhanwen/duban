@@ -1,6 +1,6 @@
 # 读伴 App 化路线与实施日志
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-13
 
 这份文档专门记录「读伴」从纯前端 MVP 演进为本地优先 App 的路线、阶段边界和每次实际完成的工作。
 
@@ -118,6 +118,203 @@
 状态：主体完成。`v0.2.0-alpha.2` 已由 GitHub Actions 自动完成 Developer ID 签名、Apple notarization/staple、Gatekeeper、manifest/checksum 和 prerelease 发布；独立下载复核通过。当前等待用户从 GitHub Release 下载 DMG 完成人工 smoke test，随后进入 P6.8 自动更新。GitHub 会清洗中文 Release asset 文件名，后续上传名需改为 ASCII `Duban_...`。
 
 ## 实施日志
+
+### 2026-07-13：P6.12.1 Alpha.4 候选源码与桌面回归
+
+目标：将 Alpha.3 之后确认的旧 PDF 修复和阅读体验改动整理为可追溯的下一正式候选版本。
+
+完成：
+
+- 建立 `codex/p6.12.1-alpha.4` 发布分支，并把 npm、Cargo、Tauri、macOS bundleVersion、lockfile 和 Changelog 目标统一升到 `0.2.0-alpha.4`。
+- Alpha.4 Changelog 已覆盖受限 fs 旧书读取、首次 AI 设置、品牌三规格、PDF 自适应/手势/动画、窄窗口专注阅读和本节页码。
+- 生成真实 `读伴 Test.app`，直接读取 `com.duban.reader.test` 中升级前保存的《全球通史》，无需重新导入；PDF 原页、文本层和历史阅读位置正常。
+- 桌面自动化验证滚动切翻页、书页边缘从本节第 3 页翻到第 4 页，以及专注阅读收起读伴侧栏。
+- Tauri asset protocol 保持关闭；本地书籍只通过 `$APPDATA/files/**` 范围内的 `fs:allow-read-file` 权限读取。
+
+验证：
+
+- `npm run build`
+- `npm run version:check`
+- `npm run release:self-test`
+- `npm run release:preflight`
+- `npm run security:scan`
+- `npm run qa:fixtures:verify`
+- `npm audit --audit-level=high`：0 漏洞
+- `cargo fmt --check`
+- `cargo check`
+- `cargo test`：26 passed
+- `git diff --check`
+
+剩余：
+
+- 候选源码需形成 clean commit 后运行严格签名预检。
+- 正式签名、公证、staple、Gatekeeper 与 artifact 校验尚未执行。
+- 干净 macOS 环境的首次安装、空书架、AI Key、导入/旧书迁移、备份和重启恢复仍需最终人工验收。
+
+### 2026-07-13：P6-P9 阶段边界重新确认
+
+目标：把生产化收尾、主动陪读、手机版和云后端拆成职责清晰的连续阶段。
+
+调整：
+
+- P6 不再包含云后端决策，改为完整完成正式候选包、自动更新、升级恢复、自动化 QA、安全审计、Public Alpha 和发布密钥恢复能力后整体关闭。
+- P7 保持为主动陪读引擎，先完成章节内容地图、提问埋点、阅读事件、介入调度和回答记忆。
+- P8 明确为手机版 App；首期本地优先，不等待账号或云同步，优先验证 iOS 并保留 Android 路径。
+- P9 承接原 P6.12，统一建设账号、云后端、本地优先多设备同步、加密、云备份和可选模型代理。
+- 新增 `MOBILE_APP_PLAN.md` 与 `CLOUD_BACKEND_PLAN.md`，并更新生产路线、总路线、文档索引和项目日志。
+
+验证：
+
+- `git diff --check` 通过。
+- 当前路线文档中的 P6.12 已统一为生产化总验收；历史日志保留旧编号背景，并由新日志说明迁移关系。
+
+限制：
+
+- 本轮只调整路线与文档，没有开始 P8/P9 实现。
+- P6.12.7 updater 私钥加密离线备份仍需要用户准备受控离线介质后人工完成。
+
+### 2026-07-13：PDF 自适应单页、横向手势与专注阅读
+
+阶段：Alpha.4 发布前阅读体验收口
+
+实现：
+
+- PDF 翻页模式从仅按宽度缩放改为 `min(widthScale, heightScale)`，通过 `ResizeObserver` 同时跟踪阅读容器宽高。
+- Canvas、text layer 和高亮仍使用同一个 PDF.js viewport；滚动模式不受影响。
+- 翻页阅读面板改为无纵向滚动的完整单页居中布局，PDF 纸张宽度跟随真实页面尺寸。
+- 新增“专注阅读”开关，可收起/恢复读伴侧栏；布局变化会触发页面重新适配，不改变页码与进度。
+- 阅读器双栏断点收紧为 `900px`，覆盖桌面 App 的 `960px` 最小窗口，避免最小尺寸提前切成上下堆叠并重新引入页面滚动。
+- 新增书页左右边缘点击、触摸/手写笔左右滑动和触控板横向滚动翻页；所有入口复用 `handleReaderPageJump`，统一更新页码、进度和动画方向。
+- 横向滚动使用累计阈值、纵横方向判断和 `420ms` 锁，降低触控板惯性连续跳页风险。
+- 新增持久化“翻页动画”开关；动画为 `240ms` 轻微横移/淡入/缩放，关闭开关或系统启用 reduced motion 时即时切页。
+
+验证：
+
+- 真实 Test bundle 中，第 48 页在带侧栏模式完整显示；专注模式收起侧栏后仍保持比例和居中。
+- 下一页切换到第 49 页，页码由 `1/30` 更新为 `2/30`，继续阅读位置同步，阅读区无纵向滚动条。
+- 点击书页右边缘从第 48 页翻到 49；关闭动画后再翻到 50，checkbox 状态、页码与继续阅读位置均同步。触控板手势代码已接入，真实惯性手感留给用户人工验收。
+
+后续：
+
+- 自动双页和 MOBI/纯文本按窗口重新分页尚未实现。
+
+窄窗口回归修正：
+
+- 专注阅读入口扩展到滚动模式，切换阅读方式不再强制恢复侧栏。
+- `900–1180px` 下顶部标题与操作区分行，读伴默认收起；重新打开时以覆盖层显示，不压缩 PDF 阅读区。
+- 滚动模式 PDF 渲染宽度下限设为 `640px`，防止极窄窗口继续缩小文字；滚动与翻页模式仍共享同一文件、文本层和进度状态。
+
+阅读项页码语义：
+
+- 当前阅读项从 PDF 第 48 页开始时，界面主页码从“第 48 页”改为“本节第 1 页”；原始位置只在本节第一页旁轻量提示一次。
+- 顶部恢复提示、翻页 stepper、连续页面标签和读伴状态只使用相对页码；笔记、高亮、AI 上下文与 SQLite 进度继续保存真实 PDF 页码。
+- Test.app 实测《全球通史》连续页按本节 1/2/3 对应原书 48/49/50，历史进度无需迁移。
+
+### 2026-07-13：本地书籍读取从 asset protocol 迁到受限 fs 插件
+
+阶段：Alpha.4 发布前核心阅读链路修复
+
+问题：
+
+- 已保存旧 PDF 在真实 `读伴 Test.app` 中仍显示 `Unexpected server response (0)`；此前让 PDF.js 在 `asset:` 下改读 XHR 的兼容补丁，在当前 macOS WebKit 中会触发错误事件，无法稳定取得响应体。
+- 排查时发现旧打包测试进程与当前调试进程同时存在，自动化最初命中了旧包；后续回归固定为关闭残留进程、重新构建并只启动最新 Test bundle。
+
+实现：
+
+- PDF.js 不再接收任何本地 asset URL，统一通过 `readFileAsArrayBuffer()` 得到二进制 `data` 后打开文档。
+- 桌面本地文件读取改用 Tauri 官方 `@tauri-apps/plugin-fs` / `tauri-plugin-fs`；浏览器上传仍使用原生 File API，上层接口不变。
+- capability 只授予 `fs:allow-read-file`，scope 限制为 `$APPDATA/files/**`；未开放写入、删除、目录遍历、用户主目录或下载目录。
+- 移除已经没有调用方的 `convertFileSrc`、`protocol-asset` feature、asset scope 和对应 CSP 来源；安全扫描要求 asset protocol 保持关闭，并精确校验 fs 权限形态。
+- 空文件、取消和插件读取失败继续转换为用户可读错误，不暴露本地路径或底层错误详情。
+
+验证：
+
+- 重新构建 `读伴 Test.app`，使用现有测试书库打开迁移前保存的《全球通史》，第 48 页 PDF 原页、文本层和后续页面成功渲染，阅读进度保持不变。
+- `npm run tauri:build:test`、`npm run build:formal`、`npm run release:preflight`、`npm run security:scan`、`cargo fmt --check`、`cargo check`、`cargo test` 和 `git diff --check` 通过；Rust 26 个测试通过。
+
+发布影响：
+
+- `v0.2.0-alpha.3` 不包含本修复；下一候选版本必须重新签名、公证，并把旧书读取列为正式包 smoke test 阻断项。
+
+### 2026-07-12：全局产品字体基线与商业字体候选
+
+阶段：Alpha.4 发布前视觉一致性收口
+
+实现：
+
+- 将标题、正文、按钮、输入和阅读辅助界面统一到 `--font-app-cn`，当前使用系统 `Songti SC` 及跨平台宋体回退作为无授权依赖的评审基线。
+- Tailwind `serif` / `sans` 共同消费该变量，品牌两字子集与等宽技术信息继续保持独立字体职责。
+- 商业字体评估首选汉仪君黑，备选汉仪玄宋；在取得桌面嵌入、Webfont、安装/更新包分发和子集化授权前，不把试用字体纳入仓库与产物。
+
+验证：
+
+- `npm run build:test`、`npm run build:formal`、`npm run release:preflight` 和 `npm run security:scan` 均通过。
+- 1280px 设置页实际命中 `Songti SC`，密集表单、导航和标题层级清晰，页面无横向溢出；字体改动不改变此前已通过的 390px 响应式尺寸与断点。
+
+### 2026-07-12：品牌字标与横版 / 竖版 / 简版 Logo
+
+阶段：Alpha.4 发布前品牌体验收口
+
+实现：
+
+- 原品牌字体从依赖系统 `HanziPen SC` 的纤细手写栈，迁为项目内置 `Duban Brand Script`；字形基础来自 OFL 授权的 Ma Shan Zheng，仅裁剪“读伴”两个字并重命名内部 family。
+- 字体从约 `5.6 MB` 原文件裁剪为约 `1.8 KB` WOFF2；完整许可证随 `public/fonts/` 和正式构建产物分发。
+- `BrandLogo` 收束为 `horizontal`、`vertical`、`compact` 三种正式 variant，分别接入顶部导航、Splash 和首次 AI 设置共享 Logo。
+- 三种版本共享 `LogoMark` 与品牌尺寸规则；横版/竖版使用 `BrandName`，竖版默认增加 `DUBAN`，简版只保留图形和无障碍名称，业务组件不再自行拼接 Logo。
+- 横版实机预览后移除默认 `DUBAN` 并缩短图文间距，解决右侧空白过大和英文悬在下方的问题；竖版保留英文，组件提供 `showLatin` 覆盖能力。
+
+验证：
+
+- 字体 cmap 仅包含 `U+4F34` / `U+8BFB`，内部名称为 `Duban Brand Script` / `DubanBrandScript-Regular`。
+- test build 正确复制 WOFF2 与 OFL 文件；浏览器 `document.fonts.check()` 为 true。
+- 1280×800 实际截图覆盖竖版开屏、简版欢迎页和横版导航；三种版本均渲染正常，控制台无告警。
+- 简版仍为 `68×68px`，未改变此前校准的共享 Logo 位置与缩放轨迹。
+- 收紧后的横版约 `104×40px`，只包含图形和中文字标；390px 顶部导航无重叠、页面无横向溢出。
+
+后续限制：
+
+- 当前字体子集只允许渲染“读伴”，不能用于其他中文文案；需要新增品牌文字时必须重新评估字体范围、授权和构建体积。
+
+### 2026-07-12：未配置用户的首次 AI 引导
+
+阶段：Alpha.4 发布前用户体验收口
+
+目标：
+
+- 新用户不需要先理解完整设置页，就能按顺序完成模型选择、API Key 验证和安全保存。
+- 已配置用户不被打扰，也不因为状态检查主动读取 Keychain 明文。
+
+实现：
+
+- 新增 `AiSetupWizard`，在开屏结束后按 `getSettings()` 返回的非敏感 `hasApiKey` 状态决定是否显示。
+- 引导第一屏新增安静的系统式欢迎页，只保留应用图标、欢迎标题和一句连接 AI 的提示；具体模型、安全和保存信息在用户开始设置后再展示。
+- Anthropic 或 OpenAI-compatible 任一供应商已有 Key 时跳过引导；无 Key 时默认推荐 `DeepSeek Flash`，也可选择 `Claude Sonnet`。
+- DeepSeek 快速配置复用现有 `openai-compatible` transport，写入项目已有 Base URL、模型和价格字段；Claude 复用现有 Anthropic transport。
+- API Key 先完成真实连接测试，测试成功后再走现有 `saveSettings`；桌面 Keychain、浏览器存储、脱敏诊断和备份排除规则均未另起实现。
+- 支持稍后设置、Escape、显示/隐藏 Key、Enter 提交、忙碌/错误/成功状态和步骤反馈；稍后设置只在当前启动会话内关闭。
+- 根据用户试用反馈修正弹窗定位：提高 fixed 遮罩规则优先级，避免被 App 壳的相对定位规则覆盖；手机端也使用页面中央悬浮弹窗，不做贴底 sheet。
+- 开屏结束与首次设置改为共享元素动画：Splash Logo 从 `112px` 缩小并移动到欢迎弹窗 Logo 的最终位置，弹窗 Logo 保持隐藏直到交接帧，视觉上始终只有一个 Logo。欢迎弹窗同时从中心展开，背景从纸面过渡为虚化遮罩。
+- 桌面轨迹按实际布局从 `(640, 345.75)` 移到 `(640, 313.16)` 并缩为 `68px`；390px 轨迹使用独立响应式位移和缩放。Splash 延后到共享动画结束后卸载，避免提前断开。
+- 欢迎页右上角关闭按钮已移除，用户通过底部“稍后设置”表达跳过意图。
+- 欢迎页改用开屏同源的透明 `LogoMark`，去除带底色的图片资产和 Logo 外层背景、边框、阴影，避免弹窗纸面上出现双重底色。
+- 性能收口移除 dialog 大面积 `filter: blur()` 和动画中的 `backdrop-filter` 插值；Logo 接管由末尾离散切换改为最后 32% 的连续透明度交叉，降低结束帧 GPU 合成压力。
+- “来自开屏”的过渡状态在本次向导生命周期内保持不变，防止 Splash 卸载时 class 切换导致弹窗再次播放普通入场动画。
+
+验证：
+
+- `npm run build:test`、`npm run build:formal`、`npm run release:preflight` 和 `npm run security:scan` 通过；最终 `dist` 为不含测试入口的 formal 产物。
+- 全新浏览器 origin 验证未配置时自动出现，DeepSeek 默认选中并带推荐标记；已有数据 origin 不出现引导。
+- 1280×800 下遮罩为完整 fixed 视口，弹窗宽 `672px`、居中且页面无横向溢出。
+- 390×844 下遮罩覆盖完整视口，弹窗宽约 `363px`、居中悬浮且 `body.scrollWidth = 390`。
+- 欢迎页在 1280×800 和 390×844 下均保持居中；点击“开始设置”可进入 DeepSeek 默认选中的服务选择页。
+- 动画时间轴截图覆盖开屏稳定态、交叉过渡态和最终欢迎页；最终弹窗 `opacity = 1`、`transform = scale(1)`，Splash 已卸载且无控制台错误。
+- 共享 Logo 交接帧两层中心坐标误差小于 `0.03px`、尺寸误差小于 `0.02px`；最终只保留弹窗 Logo，欢迎页关闭按钮数量为 `0`。
+- 最终 Logo 容器计算样式为透明背景、无边框、无阴影，SVG 尺寸 `68×68px`；时间轴复查无控制台错误或警告。
+- 第二步的密钥输入框拥有独立 `API Key` 可访问名称，空 Key 时验证按钮禁用。
+
+后续限制：
+
+- 不在自动化测试中发送真实密钥；需要在 Tauri test 环境人工完成 DeepSeek 连接、Keychain 保存、重启后不再弹出和不触发连续密码框的验证。
 
 ### 2026-07-11：v0.2.0-alpha.3 首次真实 updater 发布成功
 

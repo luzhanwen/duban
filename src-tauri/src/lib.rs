@@ -245,7 +245,7 @@ fn duban_ai_cancel_request(app: AppHandle, request_id: String) -> AiCancelResult
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
 
     #[cfg(desktop)]
     let builder = builder

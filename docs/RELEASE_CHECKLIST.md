@@ -1,14 +1,14 @@
 # 读伴 Release Checklist
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-13
 
 这份清单用于每次发布前逐项确认。它不替代 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)，而是把发布当天要做的检查压成一张可执行 checklist。
 
-首个 `0.1.0 formal arm64 signed` 候选包虽通过机器验证，但人工 Smoke Test 发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记为不得分发。修复版需完成桌面回归、重新签名/公证和本清单全部人工项；完整证据见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
+首个 `0.1.0 formal arm64 signed` 候选包虽通过机器验证，但人工 Smoke Test 发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记为不得分发。Test bundle 已改用受限 Tauri fs 插件并完成旧书回归；下一正式候选仍需重新签名/公证和执行本清单全部人工项。完整证据见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
 
 ## 0. 发布边界
 
-- [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.2`。
+- [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.4`。
 - [ ] 确认发布通道：`formal`。
 - [ ] 在候选包「诊断 -> 版本与构建」确认 App version、Git commit 与目标发布提交一致，且不显示 `dirty`。
 - [ ] 确认发布类型：`local` 内测包，或 `signed` 正式签名包。
@@ -103,6 +103,7 @@ RELEASE_KIND=signed npm run release:manifest
 - [ ] 首次启动。
 - [ ] 书架显示。
 - [ ] 导入一本 PDF。
+- [ ] 完全退出后重新打开一本文档库中已有的 PDF，确认无需重新导入、能恢复历史页码，原页与文本层正常。
 - [ ] 导入一本 MOBI。
 - [ ] 打开阅读器。
 - [ ] 保存阅读进度。

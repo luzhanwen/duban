@@ -48,6 +48,7 @@ const READER_VIEW_MODES = {
   scroll: "scroll",
   page: "page",
 };
+const PAGE_ANIMATION_PREFERENCE_KEY = "duban:reader:page-animation";
 
 const PAGE_TURN_TRANSITION_MS = 1460;
 const DEFAULT_READER_COMPANION_PROFILE = {
@@ -1159,6 +1160,9 @@ function ReadingStage({
   const pdfBook = isPdfBook(book);
   const pageUnitLabel = getBookPageUnitLabel(book);
   const [readingMode, setReadingMode] = useState(READER_VIEW_MODES.scroll);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [pageAnimationEnabled, setPageAnimationEnabled] = useState(readPageAnimationPreference);
+  const [pageTurnDirection, setPageTurnDirection] = useState("none");
   const [scrollAnchorPage, setScrollAnchorPage] = useState(initialPage);
   const pageMode = readingMode === READER_VIEW_MODES.page;
   const pageRange = useMemo(() => {
@@ -1174,6 +1178,17 @@ function ReadingStage({
   useEffect(() => {
     setScrollAnchorPage(initialPage);
   }, [item?.id, initialPage]);
+
+  useEffect(() => {
+    const compactWindow = window.matchMedia("(min-width: 900px) and (max-width: 1180px)");
+    const closeSidebarForCompactWindow = () => {
+      if (compactWindow.matches) setSidebarOpen(false);
+    };
+
+    closeSidebarForCompactWindow();
+    compactWindow.addEventListener("change", closeSidebarForCompactWindow);
+    return () => compactWindow.removeEventListener("change", closeSidebarForCompactWindow);
+  }, []);
 
   useEffect(() => {
     if (!pageMode) return undefined;
@@ -1201,12 +1216,14 @@ function ReadingStage({
     } else {
       resetReaderPaneScroll(readerPaneRef.current);
     }
+    setPageTurnDirection("none");
     setReadingMode(nextMode);
   }
 
   function handleReaderPageJump(pageNumber) {
     const nextPage = normalizePageNumber(pageNumber, item);
     if (nextPage === activeReaderPage) return;
+    setPageTurnDirection(nextPage > activeReaderPage ? "next" : "previous");
     setScrollAnchorPage(nextPage);
     onCurrentPageChange(nextPage);
     resetReaderPaneScroll(readerPaneRef.current);
@@ -1218,13 +1235,16 @@ function ReadingStage({
         <div className="reader-reading-header-inner">
           <div className="reader-reading-title-block">
             <p className="reader-reading-kicker">
-              <ChineseIcon name="scroll" className="h-4 w-4" decorative />
+              <ChineseIcon name="bookmark" className="h-4 w-4" decorative />
               <span>{toText(book.title)} · Day {item.day}</span>
             </p>
             <h1 className="reader-reading-title">{item.title}</h1>
             {continuing && savedLocation?.pageNumber && (
               <p className="reader-reading-resume">
-                继续上次：{formatPageLabel(savedLocation.pageNumber, pageUnitLabel)}
+                继续上次：本节第 {getReadingPagePosition(
+                  savedLocation.pageNumber,
+                  pageRange.start
+                )} 页
                 {savedLocation.updatedAt ? ` · ${formatReadingTime(savedLocation.updatedAt)}` : ""}
               </p>
             )}
@@ -1240,13 +1260,28 @@ function ReadingStage({
               onModeChange={handleReadingModeChange}
               onPrevious={() => handleReaderPageJump(activeReaderPage - 1)}
               onNext={() => handleReaderPageJump(activeReaderPage + 1)}
+              animationEnabled={pageAnimationEnabled}
+              onAnimationEnabledChange={(enabled) => {
+                setPageTurnDirection("none");
+                setPageAnimationEnabled(enabled);
+                writePageAnimationPreference(enabled);
+              }}
             />
+            <button
+              type="button"
+              aria-pressed={!sidebarOpen}
+              onClick={() => setSidebarOpen((open) => !open)}
+              className="reader-reading-action-button"
+            >
+              <ChineseIcon name="focus" className="h-4 w-4" decorative />
+              <span>{sidebarOpen ? "专注阅读" : "打开读伴"}</span>
+            </button>
             <button
               type="button"
               onClick={onIntro}
               className="reader-reading-action-button"
             >
-              <ChineseIcon name="plan" className="h-4 w-4" decorative />
+              <ChineseIcon name="guide" className="h-4 w-4" decorative />
               <span>回到导读</span>
             </button>
             <button
@@ -1269,7 +1304,7 @@ function ReadingStage({
         </div>
       </header>
 
-      <main className="reader-reading-layout">
+      <main className={`reader-reading-layout ${!sidebarOpen ? "is-focus-mode" : ""}`}>
         <article
           ref={readerPaneRef}
           className={`reader-reading-pane ${
@@ -1284,6 +1319,12 @@ function ReadingStage({
               initialPage={readerInitialPage}
               readingMode={readingMode}
               activePage={activeReaderPage}
+              canGoPrevious={canGoPreviousPage}
+              canGoNext={canGoNextPage}
+              onPreviousPage={() => handleReaderPageJump(activeReaderPage - 1)}
+              onNextPage={() => handleReaderPageJump(activeReaderPage + 1)}
+              pageTurnDirection={pageTurnDirection}
+              pageAnimationEnabled={pageAnimationEnabled}
               highlights={visibleHighlights}
               onCurrentPageChange={onCurrentPageChange}
               onAskSelection={onAskSelection}
@@ -1302,7 +1343,7 @@ function ReadingStage({
           )}
         </article>
 
-        <TutorSidebar
+        {sidebarOpen && <TutorSidebar
           item={item}
           book={book}
           currentIndex={currentIndex}
@@ -1341,7 +1382,7 @@ function ReadingStage({
           onCancelChat={onCancelChat}
           onJump={onJump}
           onMarkUnfinished={onMarkUnfinished}
-        />
+        />}
       </main>
 
       {pendingNoteDraft && (
@@ -1363,6 +1404,22 @@ function ReadingStage({
   );
 }
 
+function readPageAnimationPreference() {
+  try {
+    return globalThis.localStorage?.getItem(PAGE_ANIMATION_PREFERENCE_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writePageAnimationPreference(enabled) {
+  try {
+    globalThis.localStorage?.setItem(PAGE_ANIMATION_PREFERENCE_KEY, enabled ? "on" : "off");
+  } catch {
+    // Reading remains usable when storage is unavailable.
+  }
+}
+
 function ReadingModeControl({
   mode,
   activePage,
@@ -1373,6 +1430,8 @@ function ReadingModeControl({
   onModeChange,
   onPrevious,
   onNext,
+  animationEnabled,
+  onAnimationEnabledChange,
 }) {
   const pagePosition = Math.max(1, activePage - pageRange.start + 1);
 
@@ -1398,35 +1457,46 @@ function ReadingModeControl({
             mode === READER_VIEW_MODES.page ? "is-active" : ""
           }`}
         >
-          <ChineseIcon name="sample" className="h-3.5 w-3.5" decorative />
+          <ChineseIcon name="page" className="h-3.5 w-3.5" decorative />
           <span>翻页</span>
         </button>
       </div>
 
       {mode === READER_VIEW_MODES.page && (
-        <div className="reader-page-stepper">
-          <button
-            type="button"
-            aria-label="上一页"
-            disabled={!canGoPrevious}
-            onClick={onPrevious}
-            className="reader-page-stepper-button"
-          >
-            ←
-          </button>
-          <span className="reader-page-stepper-label">
-            {formatPageLabel(activePage, pageUnitLabel)} · {pagePosition}/{pageRange.total}
-          </span>
-          <button
-            type="button"
-            aria-label="下一页"
-            disabled={!canGoNext}
-            onClick={onNext}
-            className="reader-page-stepper-button"
-          >
-            →
-          </button>
-        </div>
+        <>
+          <div className="reader-page-stepper">
+            <button
+              type="button"
+              aria-label="上一页"
+              disabled={!canGoPrevious}
+              onClick={onPrevious}
+              className="reader-page-stepper-button"
+            >
+              ←
+            </button>
+            <span className="reader-page-stepper-label">
+              本节 {pagePosition}/{pageRange.total}
+            </span>
+            <button
+              type="button"
+              aria-label="下一页"
+              disabled={!canGoNext}
+              onClick={onNext}
+              className="reader-page-stepper-button"
+            >
+              →
+            </button>
+          </div>
+          <label className="reader-page-animation-toggle">
+            <input
+              type="checkbox"
+              checked={animationEnabled}
+              onChange={(event) => onAnimationEnabledChange(event.target.checked)}
+            />
+            <span className="reader-page-animation-switch" aria-hidden="true" />
+            <span>翻页动画</span>
+          </label>
+        </>
       )}
     </div>
   );
@@ -1982,7 +2052,7 @@ function TutorSidebar({
   const companion = getReaderCompanion(book);
   const companionThinking = chatLoading || loading;
   const companionStatus = currentPage
-    ? formatPageLabel(currentPage, pageUnitLabel)
+    ? `本节第 ${getReadingPagePosition(currentPage, item?.startPage)} 页`
     : "读伴";
 
   useEffect(() => {
@@ -3574,7 +3644,11 @@ function formatPageRange(startPage, endPage, pageUnitLabel = "页") {
 
 function formatPageLabel(pageNumber, pageUnitLabel = "页") {
   if (pageUnitLabel === "文本页") return `文本页 ${pageNumber}`;
-  return `第 ${pageNumber} 页`;
+  return `原书第 ${pageNumber} 页`;
+}
+
+function getReadingPagePosition(pageNumber, startPage = 1) {
+  return Math.max(1, Number(pageNumber) - (Number(startPage) || 1) + 1);
 }
 
 function addReadingDay(progress) {

@@ -1,6 +1,6 @@
 # 安全与隐私审计记录
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-13
 
 这份文档承接 P6.5「安全与隐私加固」。它记录依赖审计、Tauri 权限面、敏感信息边界和后续安全清单；不替代 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，也不替代完整隐私说明。
 
@@ -21,7 +21,7 @@
 - 建立可复跑的依赖安全审计入口。
 - 记录当前前端依赖审计结果。
 - 记录 Rust 依赖树和 `cargo audit` 工具缺口。
-- 盘点 Tauri capabilities、asset protocol、command 暴露面和当前风险。
+- 盘点 Tauri capabilities、本地文件读取、command 暴露面和当前风险。
 
 ### 可复跑命令
 
@@ -69,14 +69,14 @@ Rust 依赖：
 当前未授予：
 
 - shell 插件权限。
-- fs 插件通用读写权限。
+- fs 插件写入、删除、目录遍历或用户目录权限。
 - dialog/http 插件权限。
 
-当前 asset protocol：
+当前本地书籍读取权限：
 
-- 已启用 `protocol-asset`。
-- scope 限制为 `$APPDATA/files/**`。
-- 用途：让前端读取桌面 App 数据目录下的本地书籍文件和封面缓存。
+- 已接入 Tauri 官方 fs 插件，只启用 `fs:allow-read-file`。
+- scope 限制为 `$APPDATA/files/**`，用于读取 SQLite 已索引的本地书籍文件；不开放写入、删除或其他用户目录。
+- PDF.js 只接收已经读取的二进制 `data`，不直接请求本地路径或 `asset://` URL。
 
 当前 CSP：
 
@@ -164,7 +164,7 @@ AI command：
 - 文件名写入本地索引和备份前会清理路径分隔符、控制字符和无意义前后缀。
 - Tauri 正式 CSP、dev CSP 和基础安全头已写入 `src-tauri/tauri.conf.json`。
 - Web 静态部署安全头写入 `public/_headers`。
-- 新增 `scripts/security_scan.mjs`，检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点。
+- 新增 `scripts/security_scan.mjs`，检查真实密钥形态、Tauri CSP/headers、asset protocol 保持关闭、fs 单文件只读 scope、其他 capabilities 和备份密钥剥离锚点。
 - 根目录 `SECURITY.md` 与 `PRIVACY.md` 已更新浏览器版/桌面版边界。
 
 本轮可复跑命令：

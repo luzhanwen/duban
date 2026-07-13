@@ -115,9 +115,8 @@ function validateTauriSecurityConfig() {
     issues.push("src-tauri/tauri.conf.json: devCsp should explicitly allow Vite HMR");
   }
 
-  const assetScope = security.assetProtocol?.scope ?? [];
-  if (!Array.isArray(assetScope) || assetScope.length !== 1 || assetScope[0] !== "$APPDATA/files/**") {
-    issues.push("src-tauri/tauri.conf.json: asset protocol scope must stay limited to $APPDATA/files/**");
+  if (security.assetProtocol?.enable) {
+    issues.push("src-tauri/tauri.conf.json: asset protocol must remain disabled");
   }
 
   const headers = security.headers ?? {};
@@ -165,6 +164,20 @@ function validateCapabilityScope() {
     openerUrls[0] !== "https://github.com/luzhanwen/duban/releases*"
   ) {
     issues.push("src-tauri/capabilities/default.json: opener scope must stay limited to Duban GitHub Releases");
+  }
+
+  const fsPermissions = permissions.filter(
+    (permission) => typeof permission === "object" && permission?.identifier?.startsWith("fs:")
+  );
+  const fsReadPermission = fsPermissions[0];
+  const fsPaths = fsReadPermission?.allow?.map((entry) => entry?.path).filter(Boolean) ?? [];
+  if (
+    fsPermissions.length !== 1 ||
+    fsReadPermission?.identifier !== "fs:allow-read-file" ||
+    fsPaths.length !== 1 ||
+    fsPaths[0] !== "$APPDATA/files/**"
+  ) {
+    issues.push("src-tauri/capabilities/default.json: fs permission must stay read-only and limited to $APPDATA/files/**");
   }
 }
 

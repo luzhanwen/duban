@@ -20,10 +20,10 @@ export default {
         "line-strong": "#D3C1AD", // 重点边框、选中框
         "progress-track": "#E6DAC9", // 进度条轨道
       },
-      // 字体：正文阅读区用衬线字体，界面其余部分用无衬线
+      // 字体：产品界面与阅读正文统一使用全局宋体变量，品牌字标另行管理
       fontFamily: {
-        serif: ['"Songti SC"', '"Noto Serif CJK SC"', '"Source Han Serif SC"', '"Noto Serif SC"', 'Georgia', 'serif'],
-        sans: ['"PingFang SC"', '"Microsoft YaHei"', '"Noto Sans CJK SC"', '"Noto Sans SC"', 'system-ui', 'sans-serif'],
+        serif: ["var(--font-app-cn)"],
+        sans: ["var(--font-app-cn)"],
         latin: ['"Inter"', '"SF Pro Text"', 'system-ui', 'sans-serif'],
       },
     },

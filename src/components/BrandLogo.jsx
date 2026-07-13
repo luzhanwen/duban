@@ -1,11 +1,29 @@
-export default function BrandLogo({ className = "", showWordmark = true }) {
+const BRAND_LOGO_VARIANTS = new Set(["horizontal", "vertical", "compact"]);
+
+export default function BrandLogo({
+  className = "",
+  variant = "horizontal",
+  showWordmark = true,
+  markClassName = "",
+  wordmarkClassName = "",
+  nameClassName = "",
+  latinClassName = "",
+  showLatin,
+}) {
+  const normalizedVariant = BRAND_LOGO_VARIANTS.has(variant) ? variant : "horizontal";
+  const compact = normalizedVariant === "compact" || !showWordmark;
+  const displayLatin = !compact && (showLatin ?? normalizedVariant === "vertical");
+
   return (
-    <span className={`inline-flex items-center gap-3 text-ink ${className}`}>
-      <LogoMark className="h-10 w-10 shrink-0" />
-      {showWordmark && (
-        <span className="flex flex-col items-start leading-none">
-          <BrandName className="text-[1.65rem] leading-none text-ink" />
-          <span className="mt-1.5 text-[10px] font-medium uppercase text-ink-soft">DUBAN</span>
+    <span
+      className={`brand-logo brand-logo-${normalizedVariant} ${className}`}
+      aria-label={compact ? "读伴" : undefined}
+    >
+      <LogoMark className={`brand-logo-mark ${markClassName}`} />
+      {!compact && (
+        <span className={`brand-logo-wordmark ${wordmarkClassName}`}>
+          <BrandName className={`brand-logo-name ${nameClassName}`} />
+          {displayLatin && <span className={`brand-logo-latin ${latinClassName}`}>DUBAN</span>}
         </span>
       )}
     </span>
@@ -13,7 +31,11 @@ export default function BrandLogo({ className = "", showWordmark = true }) {
 }
 
 export function BrandName({ className = "" }) {
-  return <span className={`brand-script inline-block whitespace-nowrap align-baseline ${className}`}>读伴</span>;
+  return (
+    <span lang="zh-CN" className={`brand-script inline-block whitespace-nowrap align-baseline ${className}`}>
+      读伴
+    </span>
+  );
 }
 
 export function BrandText({ children, className = "" }) {

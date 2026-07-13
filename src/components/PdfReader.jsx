@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.mjs?url";
 import { getBookFile } from "../lib/books.js";
-import { getLocalFileAssetUrl, readFileAsArrayBuffer } from "../lib/fileAdapter.js";
+import { readFileAsArrayBuffer } from "../lib/fileAdapter.js";
 import { BrandName } from "./BrandLogo.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -14,13 +14,23 @@ export default function PdfReader({
   initialPage,
   readingMode = "scroll",
   activePage,
+  canGoPrevious = false,
+  canGoNext = false,
+  onPreviousPage,
+  onNextPage,
+  pageTurnDirection = "none",
+  pageAnimationEnabled = true,
   highlights = [],
   onCurrentPageChange,
   onAskSelection,
 }) {
   const containerRef = useRef(null);
+  const swipeStartRef = useRef(null);
+  const wheelDistanceRef = useRef(0);
+  const wheelResetTimerRef = useRef(null);
+  const wheelLockedUntilRef = useRef(0);
   const [pdf, setPdf] = useState(null);
-  const [containerWidth, setContainerWidth] = useState(720);
+  const [containerSize, setContainerSize] = useState({ width: 720, height: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectionToolbar, setSelectionToolbar] = useState(null);
@@ -70,11 +80,11 @@ export default function PdfReader({
         const file = await getBookFile(bookId);
         if (!file) throw new Error("没有找到原始 PDF 文件。");
 
-        const url = getLocalFileAssetUrl(file);
-        // PDF.js rejects status 0 from macOS custom protocols, even when the response has valid data.
-        loadingTask = url && !url.startsWith("asset:")
-          ? pdfjsLib.getDocument({ url })
-          : pdfjsLib.getDocument({ data: await readFileAsArrayBuffer(file) });
+        // Keep PDF.js away from Tauri asset URLs. WebKit can expose the same local
+        // file through different custom URL forms whose successful response has
+        // status 0, which PDF.js rejects before reading the body.
+        const data = await readFileAsArrayBuffer(file);
+        loadingTask = pdfjsLib.getDocument({ data });
         const loadedPdf = await loadingTask.promise;
         if (alive) setPdf(loadedPdf);
       } catch (e) {
@@ -96,7 +106,10 @@ export default function PdfReader({
     if (!node) return;
 
     function updateWidth() {
-      setContainerWidth(Math.max(320, node.clientWidth));
+      setContainerSize({
+        width: Math.max(320, node.clientWidth),
+        height: Math.max(0, node.clientHeight),
+      });
     }
 
     updateWidth();
@@ -161,6 +174,51 @@ export default function PdfReader({
   useEffect(() => {
     setSelectionToolbar(null);
   }, [activePage, bookId, readingMode, startPage, endPage]);
+
+  useEffect(() => () => {
+    window.clearTimeout(wheelResetTimerRef.current);
+  }, []);
+
+  function handlePageWheel(event) {
+    if (!pageMode || Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 4) {
+      return;
+    }
+
+    event.preventDefault();
+    const now = Date.now();
+    if (now < wheelLockedUntilRef.current) return;
+
+    wheelDistanceRef.current += event.deltaX;
+    window.clearTimeout(wheelResetTimerRef.current);
+    wheelResetTimerRef.current = window.setTimeout(() => {
+      wheelDistanceRef.current = 0;
+    }, 180);
+
+    if (Math.abs(wheelDistanceRef.current) < 48) return;
+    const direction = wheelDistanceRef.current > 0 ? "next" : "previous";
+    wheelDistanceRef.current = 0;
+    wheelLockedUntilRef.current = now + 420;
+
+    if (direction === "next" && canGoNext) onNextPage?.();
+    if (direction === "previous" && canGoPrevious) onPreviousPage?.();
+  }
+
+  function handlePagePointerDown(event) {
+    if (!pageMode || !["touch", "pen"].includes(event.pointerType)) return;
+    swipeStartRef.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  }
+
+  function handlePagePointerUp(event) {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || start.pointerId !== event.pointerId) return;
+
+    const deltaX = event.clientX - start.x;
+    const deltaY = event.clientY - start.y;
+    if (Math.abs(deltaX) < 52 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.2) return;
+    if (deltaX < 0 && canGoNext) onNextPage?.();
+    if (deltaX > 0 && canGoPrevious) onPreviousPage?.();
+  }
 
   function updateSelectionToolbar(event) {
     if (event?.target?.closest?.(".pdf-selection-toolbar")) return;
@@ -227,7 +285,11 @@ export default function PdfReader({
   return (
     <div
       ref={containerRef}
-      className="pdf-reader-surface"
+      className={`pdf-reader-surface ${pageMode ? "is-page-mode" : ""}`}
+      onWheel={handlePageWheel}
+      onPointerDown={handlePagePointerDown}
+      onPointerUp={handlePagePointerUp}
+      onPointerCancel={() => { swipeStartRef.current = null; }}
       onMouseUp={updateSelectionToolbar}
       onKeyUp={updateSelectionToolbar}
     >
@@ -251,7 +313,16 @@ export default function PdfReader({
               key={pageNumber}
               pdf={pdf}
               pageNumber={pageNumber}
-              containerWidth={containerWidth}
+              startPage={startPage}
+              containerWidth={containerSize.width}
+              containerHeight={containerSize.height}
+              pageMode={pageMode}
+              canGoPrevious={canGoPrevious}
+              canGoNext={canGoNext}
+              onPreviousPage={onPreviousPage}
+              onNextPage={onNextPage}
+              pageTurnDirection={pageTurnDirection}
+              pageAnimationEnabled={pageAnimationEnabled}
               highlights={highlightsByPage[pageNumber] || []}
             />
           ))}
@@ -353,12 +424,27 @@ function getScrollParent(node) {
   return null;
 }
 
-function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
+function PdfPage({
+  pdf,
+  pageNumber,
+  startPage,
+  containerWidth,
+  containerHeight,
+  pageMode,
+  canGoPrevious,
+  canGoNext,
+  onPreviousPage,
+  onNextPage,
+  pageTurnDirection,
+  pageAnimationEnabled,
+  highlights,
+}) {
   const canvasRef = useRef(null);
   const textLayerRef = useRef(null);
   const [pageSize, setPageSize] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+  const readingPageNumber = Math.max(1, pageNumber - (Number(startPage) || 1) + 1);
 
   useEffect(() => {
     let alive = true;
@@ -379,8 +465,14 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
 
         const baseViewport = page.getViewport({ scale: 1 });
         const horizontalPadding = 32;
-        const cssWidth = Math.max(280, containerWidth - horizontalPadding);
-        const scale = cssWidth / baseViewport.width;
+        const availableWidth = containerWidth - horizontalPadding;
+        const cssWidth = pageMode
+          ? Math.max(280, availableWidth)
+          : Math.max(640, availableWidth);
+        const widthScale = cssWidth / baseViewport.width;
+        const availableHeight = Math.max(220, containerHeight - 44);
+        const heightScale = pageMode ? availableHeight / baseViewport.height : Number.POSITIVE_INFINITY;
+        const scale = Math.min(widthScale, heightScale);
         const viewport = page.getViewport({ scale });
         const outputScale = Math.min(window.devicePixelRatio || 1, 2);
         const canvas = canvasRef.current;
@@ -435,7 +527,7 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
       renderTask?.cancel?.();
       textLayer?.cancel?.();
     };
-  }, [pdf, pageNumber, containerWidth]);
+  }, [pdf, pageNumber, containerHeight, containerWidth, pageMode]);
 
   useEffect(() => {
     if (!textLayerRef.current || status !== "ready") return;
@@ -446,11 +538,43 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
     <section
       id={`pdf-page-${pageNumber}`}
       data-page-number={pageNumber}
-      aria-label={`第 ${pageNumber} 页`}
-      className="pdf-reader-page scroll-mt-6"
+      aria-label={`本节第 ${readingPageNumber} 页，原书第 ${pageNumber} 页`}
+      className={`pdf-reader-page scroll-mt-6 ${
+        pageMode && pageAnimationEnabled && pageTurnDirection !== "none"
+          ? `is-turning-${pageTurnDirection}`
+          : ""
+      }`}
     >
-      <div className="pdf-reader-page-label">第 {pageNumber} 页</div>
-      <div className="pdf-reader-page-paper relative min-h-60 overflow-x-auto rounded-lg bg-white p-3 shadow-sm ring-1 ring-line">
+      <div className="pdf-reader-page-label">
+        <span>本节第 {readingPageNumber} 页</span>
+        {readingPageNumber === 1 && <small>源自原书第 {pageNumber} 页</small>}
+      </div>
+      <div
+        className="pdf-reader-page-paper relative min-h-60 overflow-x-auto rounded-lg bg-white p-3 shadow-sm ring-1 ring-line"
+        style={pageMode && pageSize ? { width: `${pageSize.width + 26}px` } : undefined}
+      >
+        {pageMode && canGoPrevious && (
+          <button
+            type="button"
+            aria-label="点击书页左侧翻到上一页"
+            className="pdf-page-edge-button is-previous"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onPreviousPage}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+        )}
+        {pageMode && canGoNext && (
+          <button
+            type="button"
+            aria-label="点击书页右侧翻到下一页"
+            className="pdf-page-edge-button is-next"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onNextPage}
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+        )}
         <div
           className="relative mx-auto"
           style={{
@@ -463,7 +587,7 @@ function PdfPage({ pdf, pageNumber, containerWidth, highlights }) {
         </div>
         {status === "loading" && (
           <div className="pdf-reader-page-loading absolute inset-3 flex min-h-40 items-center justify-center rounded bg-white/80">
-            <p className="text-sm text-ink-soft">正在渲染第 {pageNumber} 页…</p>
+            <p className="text-sm text-ink-soft">正在渲染本节第 {readingPageNumber} 页…</p>
           </div>
         )}
         {status === "error" && (

@@ -161,7 +161,7 @@ book_id -> books.id ON DELETE CASCADE
 说明：
 
 - `duban_storage_get_item("book:{id}:file")` 会从该表读取文件索引。
-- 桌面端读取文件时返回 `localPath` 和 `relativePath` 文件引用，前端通过 Tauri asset protocol 加载，不再在阅读时通过 IPC 返回整本书的 base64。
+- 桌面端读取文件时返回 `localPath` 和 `relativePath` 文件引用，前端通过受限 Tauri fs 插件读取二进制/文本，不再依赖 `asset://` 状态码，也不在阅读时通过自定义 storage command 返回整本书的 base64。
 - 现阶段首次上传仍由前端浏览器 File API 解析文件，再通过现有 command 保存到 App 数据目录；后续若接入原生文件选择器，可进一步减少首次导入时的 base64 IPC。
 
 ### `book_pages`

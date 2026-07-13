@@ -21,5 +21,13 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCMkI3MTMzOUY5RDU1ODkKUldTSlZaMmZNM0VyeXhTQWd3K2pQcFFzN0VXVGl6dTJGUDJudzEzd0FJcG9ETXl5NzF5dVo1TVIK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.json"
+      ]
+    }
   }
 }

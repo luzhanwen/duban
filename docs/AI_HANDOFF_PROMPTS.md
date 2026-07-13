@@ -324,9 +324,9 @@
 - P6.4 已完成 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
 - P6.5 安全与隐私加固基础版已完成：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步都已落地。
 - P6.6 基础版已完成：诊断字段/隐私过滤规范已落文档，Rust 本地 JSONL 诊断日志会记录 App 启动、SQLite 初始化、AI 请求摘要和备份操作摘要；设置页可运行健康检查、导出诊断包，并复制最近 AI 错误详情。
-- `npm run security:scan` 会检查真实密钥形态、Tauri CSP/headers、asset protocol scope、capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时跑 `npm audit`、Rust 重复依赖树和安全扫描。
+- `npm run security:scan` 会检查真实密钥形态、Tauri CSP/headers、asset protocol 保持关闭、fs 单文件只读 scope、其他 capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时跑 `npm audit`、Rust 重复依赖树和安全扫描。
 - P6.7.1 发布配置收束已完成：正式包使用 `formal` channel、`com.duban.reader`，测试包使用 `test` channel、`com.duban.reader.test`；发布流程见 `docs/RELEASE_PROCESS.md`。
-- P6.7.2 签名/公证链路已跑通，但首个公证候选包在人工回归中发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记作废。修复在 `fileAdapter` 中用 XHR 接收自定义协议有效响应，并让 `PdfReader` 以二进制 `data` 加载；formal build 和安全扫描通过，等待下一轮桌面人工回归。确认旧书可读后必须重新签名、公证、Gatekeeper/checksum 验证，再继续干净环境全量回归。
+- P6.7.2 签名/公证链路已跑通，但首个公证候选包在人工回归中发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记作废。后续真实 Test bundle 证明 XHR 兼容方案仍不稳定，现已由受限 Tauri fs 插件取代：只读 `$APPDATA/files/**`，`PdfReader` 统一以二进制 `data` 加载；旧书原页和文本层回归通过。下一正式候选包必须重新签名、公证、Gatekeeper/checksum 验证，再继续干净环境全量回归。
 - test/formal 环境必须严格隔离：基础 Tauri 配置和 `npm run tauri:dev` 均使用 `com.duban.reader.test`，正式配置显式使用 `com.duban.reader`；Keychain service 分别为 `com.duban.reader.test.keychain.ai` 与 `com.duban.reader.keychain.ai`。不得把开发入口改回生产 identifier，不得让测试版自动迁移正式目录。
 - 本机已同时启动 test/formal 验证隔离：test SQLite 为 2 本书，formal 新库为 0 本书；后续改启动脚本、identifier、数据目录或 Keychain service 时必须重复 QA `REL-007` / `AI-008`。
 - 当前 App 开发版本为 `0.2.0-alpha.2`。`package.json` 是唯一人工版本源；禁止单独修改 Tauri/Cargo/lockfile，必须使用 `npm run version:set -- <semver>` 或 `npm run version:bump -- <kind>`，并执行 `npm run version:check`。`v0.2.0-alpha.1` 是签名前失败且无 Release 的不可变 tag，历史 `v0.1.0` 也不得移动或复用；版本规则见 `docs/VERSIONING.md`。
