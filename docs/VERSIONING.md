@@ -7,9 +7,9 @@
 ## 当前版本
 
 - 当前开发版本：`0.2.0-alpha.5`
-- `v0.2.0-alpha.5`：当前正式候选，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新，并用于 Alpha.4 → Alpha.5 自动更新验收。
+- `v0.2.0-alpha.5`：当前已发布的正式 prerelease，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新，并用于 Alpha.4 → Alpha.5 自动更新验收。
 - `v0.2.0-alpha.3`：首个包含 updater 信任根、签名更新包和 Alpha manifest 的正式 prerelease。
-- `v0.2.0-alpha.4`：已发布的正式 prerelease，包含旧 PDF fs 读取修复和 Alpha updater 资产；工作区仍可能存在同版本号下尚未发布的后续改动，下一次正式候选必须先升版。
+- `v0.2.0-alpha.4`：上一正式 prerelease，包含旧 PDF fs 读取修复和 Alpha updater 资产；现在作为 Alpha.4 → Alpha.5 自动更新验收的旧版起点。
 - `v0.2.0-alpha.1`：首次自动发布失败 tag，签名前停止且没有 GitHub Release；保持不可变。
 - 上一个历史 tag：`v0.1.0`，指向旧提交 `be4fb57`，不得移动、覆盖或删除。
 - 当前阶段：内部 Alpha；不得仅凭版本号宣称可公开稳定发布。

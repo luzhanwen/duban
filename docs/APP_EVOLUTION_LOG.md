@@ -3695,3 +3695,12 @@ npm run release:signing-preflight -- --strict
 - 基于提交 `192d154` 生成 Alpha.5 arm64 本机正式候选：App、DMG、updater archive 和 updater signature 均完成 Developer ID 签名。
 - Apple notarization 返回 `Accepted`，Submission ID 为 `c2c6b7ac-e84d-457e-88a9-f5690fc06319`；DMG 已完成 staple，App 与 DMG 均通过 Gatekeeper，来源显示为 `Notarized Developer ID`。
 - 正式候选 DMG SHA-256 为 `3c525f2d99e9fbd4807ec27cd9d2601661a63f6f80054ace5288f12ebd6d553e`；updater archive SHA-256 为 `c9b092524a253221d0548b970399b39536ba8098cfc88125caa2818afe86c425`。
+
+## 2026-07-23：v0.2.0-alpha.5 正式发布
+
+- 将全部 P7 与 Alpha.4 后续修复合并到 `main@b11f4cb`，基础 CI 的正式构建、P7 合约、Rust 测试、安全扫描和 RustSec Audit 全部通过。
+- 创建并推送 annotated tag `v0.2.0-alpha.5`；GitHub `Release macOS` workflow `29999985142` 的 tagged source 校验与签名发布两个 job 全部成功。
+- GitHub runner 重新完成 Developer ID 签名、Apple notarization/staple、Gatekeeper 校验，并发布非草稿 prerelease：[读伴 0.2.0-alpha.5](https://github.com/luzhanwen/duban/releases/tag/v0.2.0-alpha.5)。
+- 远端 Release 包含 DMG、updater archive、`.sig`、manifest、checksums、notary log、release notes 和 updater candidate 共 8 项资产。
+- GitHub 最终 DMG SHA-256 为 `5f90abd2624ea264697af9dc5d04da32c71b7c1cbc8991a7c86856128da2f42c`；updater archive SHA-256 为 `975dd7caed677aeeb3063b1fa75f8a7e2c13e90321fd8c30ac6ca350ac19762d`。
+- 公开 `updater-index/alpha/latest.json` 已验证返回 `0.2.0-alpha.5`，包含非空签名并指向本次 arm64 updater archive。自动更新发布链已就绪，下一步由用户在已安装 Alpha.4 中执行检查、下载、安装、重启和数据保留验收。

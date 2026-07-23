@@ -74,6 +74,7 @@ https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.jso
 
 - `0.2.0-alpha.3` 已首次内置 updater 公钥和 Alpha manifest 地址；签名、公证、updater archive/signature、GitHub Release 和远端 `alpha/latest.json` 已真实发布并独立核验。
 - `0.2.0-alpha.4` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布。Alpha.3 → Alpha.4 的 App 内检查、下载、签名校验、安装、重启和数据恢复由用户自行验收，不阻塞 P6 工程阶段冻结。
+- `0.2.0-alpha.5` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布；公开清单已核对版本、签名和 arm64 archive URL。Alpha.4 → Alpha.5 的 App 内检查、下载、签名校验、安装、重启和数据恢复由用户执行人工验收。
 - 篡改签名、断网、下载中断、备份失败、manifest 仍指向旧版和手动下载 fallback 继续保留在发布 QA 清单。
 
 ## 密钥状态
