@@ -3692,3 +3692,6 @@ npm run release:signing-preflight -- --strict
 - 正式前端构建、版本一致性、发布流程自测、正式包预检、文档审计、QA fixtures、安全扫描、Rust 格式检查、Rust 编译和 29 个 Rust 测试均通过。
 - RustSec 审计未发现阻断漏洞；Tauri 跨平台依赖链中已登记的 unmaintained/unsound 警告继续由项目审计配置显式允许，并由 CI 固定复核。
 - 最新 `读伴 Test.app` 保持独立 bundle id 和独立数据目录运行；正式 Alpha.4 安装不被覆盖，便于发布 Alpha.5 后执行真实升级验收。
+- 基于提交 `192d154` 生成 Alpha.5 arm64 本机正式候选：App、DMG、updater archive 和 updater signature 均完成 Developer ID 签名。
+- Apple notarization 返回 `Accepted`，Submission ID 为 `c2c6b7ac-e84d-457e-88a9-f5690fc06319`；DMG 已完成 staple，App 与 DMG 均通过 Gatekeeper，来源显示为 `Notarized Developer ID`。
+- 正式候选 DMG SHA-256 为 `3c525f2d99e9fbd4807ec27cd9d2601661a63f6f80054ace5288f12ebd6d553e`；updater archive SHA-256 为 `c9b092524a253221d0548b970399b39536ba8098cfc88125caa2818afe86c425`。
