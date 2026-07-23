@@ -1,0 +1,96 @@
+{
+  "format": "duban.p7-context-cases",
+  "version": 1,
+  "cases": [
+    {
+      "id": "normal-text-pdf",
+      "input": {
+        "format": "pdf",
+        "outline": true,
+        "textLayer": true,
+        "pages": 3
+      },
+      "expected": [
+        "current page and confirmed prior pages can be selected",
+        "unread pages obey spoiler policy"
+      ]
+    },
+    {
+      "id": "pdf-without-outline",
+      "input": {
+        "format": "pdf",
+        "outline": false,
+        "textLayer": true,
+        "pages": 2
+      },
+      "expected": [
+        "page anchors remain usable",
+        "missing outline does not block context selection"
+      ]
+    },
+    {
+      "id": "scanned-page",
+      "input": {
+        "format": "pdf",
+        "outline": false,
+        "textLayer": false,
+        "imageOnly": true
+      },
+      "expected": [
+        "page is reported as having no usable text",
+        "model request does not invent page content"
+      ]
+    },
+    {
+      "id": "long-chapter",
+      "input": {
+        "format": "pdf",
+        "textSeed": "Synthetic policy and evidence paragraph.",
+        "repeatCount": 1200
+      },
+      "expected": [
+        "context stays within budget",
+        "compaction and exclusion counts are recorded"
+      ]
+    },
+    {
+      "id": "legacy-book",
+      "input": {
+        "format": "pdf",
+        "storageShape": "pre-p7",
+        "anchorSchemaVersion": 0
+      },
+      "expected": [
+        "legacy anchors normalize safely",
+        "unresolved anchors are visible instead of silently moved"
+      ]
+    },
+    {
+      "id": "mobi-book",
+      "input": {
+        "format": "mobi",
+        "structuredTextPages": 4,
+        "synthetic": true
+      },
+      "expected": [
+        "structured text participates in context selection",
+        "source references never copy text"
+      ]
+    },
+    {
+      "id": "narrow-window",
+      "input": {
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "deviceScaleFactor": 1
+      },
+      "expected": [
+        "reader and companion remain usable",
+        "diagnostic source rows wrap without global horizontal scroll"
+      ]
+    }
+  ],
+  "privacy": "Synthetic metadata only. No book text, notes, chat, prompts, API keys, or absolute paths."
+}

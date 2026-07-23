@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandName } from "./BrandLogo.jsx";
 import ChineseIcon from "./ChineseIcon.jsx";
 import ReadingCompanionAvatar from "./ReadingCompanionAvatar.jsx";
+import CompanionJourneyTimeline from "./CompanionJourneyTimeline.jsx";
 import { isAiAbortError } from "../lib/aiCancellation.js";
 import {
   BOOK_COMPANION_CHAT_ITEM_KEY,
@@ -13,6 +14,8 @@ import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { getBook, getReadingProgress } from "../lib/books.js";
 import { addReadingNote, getAllReadingNotes } from "../lib/notes.js";
 import { formatUsd } from "../lib/pricing.js";
+import { loadBookCompanionJourney } from "../lib/companionJourneyStore.js";
+import { formatCompanionTimelineQuote } from "../lib/companionTimeline.js";
 import { getPlanItemKey } from "../lib/readingGuides.js";
 import { formatLocalDate } from "../lib/readingSchedule.js";
 import { toText } from "../lib/text.js";
@@ -30,12 +33,21 @@ const COMPANION_COLOR_OPTIONS = [
   { id: "ink", accent: "#64788f", soft: "#eef3f8", ribbon: "#6b7f96" },
 ];
 
-export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBook, onOpenSalon }) {
+export default function BookCompanionChat({
+  bookId,
+  onBack,
+  onReadBook,
+  onReturnToReader,
+  onPlanBook,
+  onOpenSalon,
+}) {
   const [book, setBook] = useState(null);
   const [progress, setProgress] = useState(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [chatMessages, setChatMessages] = useState([]);
+  const [journey, setJourney] = useState([]);
+  const [journeyOpen, setJourneyOpen] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [noteNotice, setNoteNotice] = useState("");
@@ -43,6 +55,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
   const [savedNoteMessageIds, setSavedNoteMessageIds] = useState(() => new Set());
   const chatAbortRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -55,14 +68,17 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
         getBookCompanionChat(bookId),
         getAllReadingNotes(bookId),
       ]);
+      const savedJourney = savedBook ? await loadBookCompanionJourney(savedBook) : [];
       if (!alive) return;
       setBook(savedBook);
       setProgress(savedProgress);
       setChatMessages(savedChat);
+      setJourney(savedJourney);
       setSavedNoteMessageIds(buildSavedBookCompanionNoteLookup(savedNotes));
       setChatError("");
       setNoteNotice("");
       setConfirmClearChat(false);
+      setJourneyOpen(false);
       setLoading(false);
     }
 
@@ -93,6 +109,12 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
     ],
     [book, context, chatMessages]
   );
+
+  async function refreshJourney(targetBook = book) {
+    if (!targetBook?.id) return;
+    const nextJourney = await loadBookCompanionJourney(targetBook);
+    setJourney(nextJourney);
+  }
 
   async function sendMessage(text) {
     const content = toText(text).trim();
@@ -142,6 +164,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
         },
       });
       setChatMessages(result.messages);
+      refreshJourney();
     } catch (error) {
       setChatMessages(previousMessages);
       if (!isAiAbortError(error)) {
@@ -172,6 +195,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
     });
 
     setSavedNoteMessageIds((current) => new Set([...current, message.id]));
+    refreshJourney();
     setNoteNotice(
       context.currentKey
         ? "已记到当前阅读项笔记。"
@@ -190,6 +214,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
 
     await saveBookCompanionChat(book.id, []);
     setChatMessages([]);
+    refreshJourney();
     setChatError("");
     setConfirmClearChat(false);
     setNoteNotice("已清空本书聊天记录；已经记到笔记的内容会继续保留。");
@@ -204,6 +229,14 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     sendMessage(draft);
+  }
+
+  function quoteJourneyCard(card) {
+    const quote = formatCompanionTimelineQuote(card);
+    if (!quote) return;
+    setDraft((current) => `${quote}${current}`);
+    setJourneyOpen(false);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
   if (loading) {
@@ -234,13 +267,13 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
       style={companion.style}
     >
       <button type="button" onClick={onBack} className="book-companion-back">
-        返回藏书
+        {onReturnToReader ? "返回阅读" : "返回藏书"}
       </button>
 
       <section className="book-companion-layout">
         <aside className="book-companion-aside">
           <div className="book-companion-card">
-            <div className="book-companion-avatar">
+            <div className="book-companion-avatar" data-companion-shared="presence">
               <ReadingCompanionAvatar stage={4} expression={companion.expression} />
             </div>
             <p className="book-companion-kicker">本书读伴</p>
@@ -272,7 +305,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
 
           <div className="book-companion-context-card">
             <div className="book-companion-section-title">
-              <ChineseIcon name="seal" className="h-4 w-4" decorative />
+              <ChineseIcon name="companion" className="h-4 w-4" decorative />
               <span>读伴会参考</span>
             </div>
             <ul className="book-companion-context-list">
@@ -290,11 +323,23 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
               <h2>和本书读伴聊聊</h2>
             </div>
             <div className="book-companion-header-actions">
+              <button
+                type="button"
+                onClick={() => setJourneyOpen((open) => !open)}
+                className="book-companion-secondary"
+                aria-expanded={journeyOpen}
+              >
+                陪读脉络 {journey.length}
+              </button>
               <button type="button" onClick={() => onOpenSalon?.(book.id)} className="book-companion-secondary">
                 整理这本书
               </button>
               {context.canRead ? (
-                <button type="button" onClick={() => onReadBook(book.id)} className="book-companion-secondary">
+                <button
+                  type="button"
+                  onClick={() => (onReturnToReader ? onReturnToReader() : onReadBook(book.id))}
+                  className="book-companion-secondary"
+                >
                   继续阅读
                 </button>
               ) : (
@@ -325,6 +370,28 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
               )}
             </div>
           </header>
+
+          {journeyOpen && (
+            <section className="book-companion-journey" aria-label="陪读脉络">
+              <div className="book-companion-journey-heading">
+                <div>
+                  <p>这本书里的同一条记录</p>
+                  <strong>选择一张卡片，可引用到随书闲聊</strong>
+                </div>
+                <button type="button" onClick={() => setJourneyOpen(false)} aria-label="收起陪读脉络">
+                  ×
+                </button>
+              </div>
+              <CompanionJourneyTimeline
+                entries={journey}
+                itemKey={null}
+                includeBook
+                onQuote={quoteJourneyCard}
+                compact
+                emptyMessage="开始导读或阅读后，线索、问题和笔记会出现在这里。"
+              />
+            </section>
+          )}
 
           <div className="book-companion-messages" aria-live="polite">
             {messages.map((message, index) => (
@@ -363,6 +430,7 @@ export default function BookCompanionChat({ bookId, onBack, onReadBook, onPlanBo
 
           <form className="book-companion-composer" onSubmit={handleSubmit}>
             <textarea
+              ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleTextareaKeyDown}

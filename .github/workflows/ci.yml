@@ -12,6 +12,25 @@ permissions:
   contents: read
 
 jobs:
+  rustsec:
+    name: RustSec Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Rust dependencies
+        working-directory: src-tauri
+        run: cargo audit
+
   build-rust-security-release:
     name: Build, Rust, Security, Release Preflight
     runs-on: macos-14
@@ -38,8 +57,14 @@ jobs:
       - name: Check version consistency
         run: npm run version:check
 
+      - name: Audit documentation
+        run: npm run docs:audit
+
       - name: Test release state machine
         run: npm run release:self-test
+
+      - name: Test P7 companion contracts
+        run: npm run test:p7
 
       - name: Build formal frontend
         run: npm run build

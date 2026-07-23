@@ -11,6 +11,25 @@ const ICON_PATHS = {
       <path d="M5.6 16.8h12.8v2H5.6v-2Z" />
     </>
   ),
+  complete: (
+    <>
+      <circle cx="12" cy="12" r="7.2" />
+      <path d="m8.6 12.1 2.2 2.3 4.8-5" />
+    </>
+  ),
+  tea: (
+    <>
+      <path d="M6.2 9.3h9.5v4.2a4.2 4.2 0 0 1-4.2 4.2h-1.1a4.2 4.2 0 0 1-4.2-4.2V9.3Z" />
+      <path d="M15.7 10.4h1.1a2.2 2.2 0 0 1 0 4.4h-1.5M5 19.2h12.8" />
+      <path d="M9 7c-1.1-1 .8-1.7-.1-2.7M12.8 7c-1.1-1 .8-1.7-.1-2.7" />
+    </>
+  ),
+  companion: (
+    <>
+      <path d="M5.2 6.3h13.6v9.1H11l-4.2 3v-3H5.2V6.3Z" />
+      <path d="M9.1 10.8h.1M12 10.8h.1M14.9 10.8h.1" />
+    </>
+  ),
   upload: (
     <>
       <path d="M12 15.2v-10" />
@@ -136,7 +155,8 @@ export default function ChineseIcon({
   title = "",
   decorative = true,
 }) {
-  const paths = ICON_PATHS[name] || ICON_PATHS.seal;
+  const paths = ICON_PATHS[name];
+  if (!paths) return null;
   const accessibilityProps = decorative
     ? { "aria-hidden": "true" }
     : { role: "img", "aria-label": title || name };

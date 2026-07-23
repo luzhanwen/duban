@@ -8,14 +8,21 @@ export async function callModelDetailed({
   system,
   messages,
   maxTokens,
+  hardMaxTokens = null,
   signal,
   taskType,
+  diagnosticContext = null,
 }) {
   const startedAt = new Date();
   let profileRequest = null;
   let budgetCheck = null;
   try {
-    profileRequest = resolveAiProfileRequest({ settings, taskType, maxTokens });
+    profileRequest = resolveAiProfileRequest({
+      settings,
+      taskType,
+      maxTokens,
+      hardMaxTokens,
+    });
     budgetCheck = await enforceAiBudgetBeforeRequest({
       settings: profileRequest.settings,
       system,
@@ -45,6 +52,7 @@ export async function callModelDetailed({
       profile: profileRequest.profile,
       budgetCheck,
       result: detailed,
+      diagnosticContext,
     }).catch(() => null);
     await recordAiBudgetUsage({
       settings: profileRequest.settings,
@@ -62,6 +70,7 @@ export async function callModelDetailed({
       profile: profileRequest?.profile || null,
       budgetCheck,
       error,
+      diagnosticContext,
     }).catch(() => null);
     throw error;
   }
@@ -72,15 +81,22 @@ export async function streamModelDetailed({
   system,
   messages,
   maxTokens,
+  hardMaxTokens = null,
   onText,
   signal,
   taskType,
+  diagnosticContext = null,
 }) {
   const startedAt = new Date();
   let profileRequest = null;
   let budgetCheck = null;
   try {
-    profileRequest = resolveAiProfileRequest({ settings, taskType, maxTokens });
+    profileRequest = resolveAiProfileRequest({
+      settings,
+      taskType,
+      maxTokens,
+      hardMaxTokens,
+    });
     budgetCheck = await enforceAiBudgetBeforeRequest({
       settings: profileRequest.settings,
       system,
@@ -111,6 +127,7 @@ export async function streamModelDetailed({
       profile: profileRequest.profile,
       budgetCheck,
       result: detailed,
+      diagnosticContext,
     }).catch(() => null);
     await recordAiBudgetUsage({
       settings: profileRequest.settings,
@@ -128,6 +145,7 @@ export async function streamModelDetailed({
       profile: profileRequest?.profile || null,
       budgetCheck,
       error,
+      diagnosticContext,
     }).catch(() => null);
     throw error;
   }

@@ -1,6 +1,8 @@
 # GitHub Release 自动发布配置
 
 > 最后更新：2026-07-11
+>
+> 最后复核：2026-07-22，tag、Environment、签名、公证和 updater 发布链路仍为现行流程。
 
 本文档说明如何把不可变 Git tag、GitHub Actions、Developer ID 签名、Apple 公证和 GitHub Release 连接起来。版本规范见 [VERSIONING.md](./VERSIONING.md)，人工验收项见 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 

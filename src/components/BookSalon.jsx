@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { BrandName } from "./BrandLogo.jsx";
+import BookMemoryManager from "./BookMemoryManager.jsx";
 import ChineseIcon from "./ChineseIcon.jsx";
 import ReadingCompanionAvatar from "./ReadingCompanionAvatar.jsx";
 import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { BOOK_COMPANION_CHAT_ITEM_KEY, getBookCompanionChat } from "../lib/bookCompanionChat.js";
-import { getBook, getReadingProgress } from "../lib/books.js";
+import { getBook, getReadingProgress, updateBookCompanionSettings } from "../lib/books.js";
+import {
+  getCompanionEvents,
+  recordCompanionPolicyChange,
+} from "../lib/companionEventStore.js";
+import {
+  memorySourcesChanged,
+  reconcileCompanionMemorySources,
+} from "../lib/companionMemoryLedger.js";
+import { getCompanionSettings } from "../lib/companionPolicy.js";
 import { getAllReadingNotes, updateReadingNote, deleteReadingNote } from "../lib/notes.js";
 import { getPlanItemKey } from "../lib/readingGuides.js";
 import { getItem, KEYS } from "../lib/storage.js";
@@ -30,6 +40,11 @@ const SALON_PANELS = [
     title: "重点线索",
   },
   {
+    id: "memories",
+    label: "记忆",
+    title: "读伴记住的内容",
+  },
+  {
     id: "review",
     label: "复盘",
     title: "阶段复盘",
@@ -41,13 +56,13 @@ export default function BookSalon({
   onBack,
   onReadBook,
   onPlanBook,
-  onChatBook,
 }) {
   const [book, setBook] = useState(null);
   const [progress, setProgress] = useState(null);
   const [notes, setNotes] = useState([]);
   const [bookChat, setBookChat] = useState([]);
   const [reflections, setReflections] = useState([]);
+  const [companionEvents, setCompanionEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
   const [selectedNoteId, setSelectedNoteId] = useState("");
@@ -61,21 +76,48 @@ export default function BookSalon({
 
     async function load() {
       setLoading(true);
-      const [savedBook, savedProgress, savedNotes, savedChat, reflectionStore] =
+      const [savedBook, savedProgress, savedNotes, savedChat, reflectionStore, savedEvents] =
         await Promise.all([
           getBook(bookId),
           getReadingProgress(bookId),
           getAllReadingNotes(bookId),
           getBookCompanionChat(bookId),
           getItem(KEYS.bookReflection(bookId), {}).catch(() => ({})),
+          getCompanionEvents(bookId),
         ]);
+      let resolvedBook = savedBook;
+      let resolvedEvents = savedEvents;
+      if (savedBook) {
+        const settings = getCompanionSettings(savedBook.readingProfile);
+        const reconciledMemory = reconcileCompanionMemorySources(settings.memory, savedEvents);
+        if (memorySourcesChanged(settings.memory, reconciledMemory)) {
+          const migratedBook = await updateBookCompanionSettings(savedBook.id, {
+            policy: settings.policy,
+            memory: reconciledMemory,
+          });
+          if (migratedBook) {
+            resolvedBook = migratedBook;
+            const migratedSettings = getCompanionSettings(migratedBook.readingProfile);
+            resolvedEvents = await recordCompanionPolicyChange({
+              bookId: migratedBook.id,
+              itemKey: null,
+              policy: migratedSettings.policy,
+              memory: migratedSettings.memory,
+              identity: `snapshot:${migratedBook.readingProfile?.updatedAt || migratedBook.updatedAt}`,
+              timestamp: migratedBook.readingProfile?.updatedAt || migratedBook.updatedAt,
+              source: "memory_source_migration",
+            });
+          }
+        }
+      }
       if (!alive) return;
-      setBook(savedBook);
+      setBook(resolvedBook);
       setProgress(savedProgress);
       const orderedNotes = sortByTime(savedNotes);
       setNotes(orderedNotes);
       setBookChat(savedChat);
       setReflections(sortByTime(flattenGroupedMessages(reflectionStore)));
+      setCompanionEvents(resolvedEvents);
       setSelectedNoteId((current) => current || orderedNotes[0]?.id || "");
       setNotice("");
       setConfirmDeleteNote(false);
@@ -190,7 +232,7 @@ export default function BookSalon({
         </div>
         <div className="book-salon-title-block">
           <p className="book-salon-kicker">
-            <ChineseIcon name="seal" className="h-4 w-4" decorative />
+            <ChineseIcon name="tea" className="h-4 w-4" decorative />
             <span>本书会客厅</span>
           </p>
           <h1>{toText(book.title) || "未命名书籍"}</h1>
@@ -201,10 +243,6 @@ export default function BookSalon({
           <strong>{salonStamp.main}</strong>
         </div>
         <div className="book-salon-heading-actions">
-          <button type="button" onClick={() => onChatBook(book.id)}>
-            <ChineseIcon name="ink" className="h-4 w-4" decorative />
-            和读伴聊聊
-          </button>
           {context.canRead ? (
             <button type="button" onClick={() => onReadBook(book.id)} className="is-primary">
               <ChineseIcon name="bookmark" className="h-4 w-4" decorative />
@@ -223,7 +261,7 @@ export default function BookSalon({
         <aside className="book-salon-rail" aria-label="本书概览">
           <section className="book-salon-ledger">
             <div className="book-salon-section-title">
-              <ChineseIcon name="seal" className="h-4 w-4" decorative />
+              <ChineseIcon name="pulse" className="h-4 w-4" decorative />
               <span>本书状态</span>
             </div>
             <dl>
@@ -242,6 +280,10 @@ export default function BookSalon({
               <div>
                 <dt>读后交流</dt>
                 <dd>{context.reflectionCount}</dd>
+              </div>
+              <div>
+                <dt>读伴记忆</dt>
+                <dd>{getCompanionSettings(book.readingProfile).memory.items.length}</dd>
               </div>
             </dl>
             <div className="book-salon-progress">
@@ -398,6 +440,17 @@ export default function BookSalon({
                   </article>
                 ))}
               </div>
+            </section>
+          )}
+
+          {activePanel === "memories" && (
+            <section className="book-salon-panel" aria-label="本书记忆">
+              <BookMemoryManager
+                book={book}
+                events={companionEvents}
+                onBookUpdated={setBook}
+                onEventsUpdated={setCompanionEvents}
+              />
             </section>
           )}
 

@@ -1,6 +1,6 @@
 # 读伴发布流程
 
-> 最后更新：2026-07-10
+> 最后更新：2026-07-22
 
 本文档承接 P6.7「正式 macOS 发布包」。它记录发布配置、构建通道、artifact 命名、校验和、Developer ID 签名、公证、staple 和 release notes 约定。发布当天的逐项操作清单维护在 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
@@ -8,7 +8,7 @@ P6.7.6 已新增 tag 驱动的 GitHub Release 自动化；GitHub Environment、S
 
 ## P6.7.1 当前结论
 
-- 当前开发版本为 `0.2.0-alpha.2`；`package.json` 是单一版本源，完整规则见 [VERSIONING.md](./VERSIONING.md)。
+- 当前工作版本必须实时读取 `package.json`，不要在操作时沿用文档快照；本次正式候选为 `0.2.0-alpha.5`。完整规则见 [VERSIONING.md](./VERSIONING.md)。
 - 正式 macOS bundle identifier：`com.duban.reader`。
 - 测试 macOS bundle identifier：`com.duban.reader.test`。
 - 正式 App 名称：`读伴`。
@@ -115,12 +115,35 @@ release-artifacts/duban-v<version>-formal-<arch>-signed-manifest.json
 
 ## P6.7.2 Developer ID 签名/公证准备
 
-当前状态，2026-07-10：
+当前状态，2026-07-23：
 
 - Apple Developer Program 审核已通过。
-- 当前机器已安装并验证 `Developer ID Application: Zhanwen Lu (FBMN9293RM)`，系统显示 `1 valid identities found`，证书与私钥配对正常。
-- `duban-notarytool` Keychain profile 已通过 Apple 凭据验证并保存；带真实签名身份和公证 profile 的严格发布预检已通过。
+- 当前机器已安装并验证 `Developer ID Application: Zhanwen Lu (FBMN9293RM)`，证书与 `Duban Developer ID` 私钥配对正常；系统权限下显示 `1 valid identities found`。
+- `duban-notarytool` Keychain profile 可被发布预检识别；明确设置签名身份和 profile 后，严格发布预检通过。
+- Codex/CI 等受限进程可能因无权读取登录钥匙串而误报 `0 valid identities found`；先在系统权限下复查，不得仅凭受限进程结果要求用户重新导入或创建证书。
 - 首个真实 signed + notarized DMG 已通过机器验证，但人工回归发现 macOS `asset://` 下旧 PDF 会被 PDF.js 误判为状态 `0`；该候选包已标记为不可分发。兼容修复已进入桌面回归，确认后需重新构建并公证。
+
+### 签名身份异常时的恢复方法
+
+只有系统权限下执行 `security find-identity -v -p codesigning` 仍显示 `0 valid identities found` 时，才需要恢复签名身份。不要把 `.p12`、导出密码或私钥上传到仓库、聊天或公开网盘：
+
+1. 如果保留了原来的密码保护 `.p12`，打开“钥匙串访问”，选择“登录”钥匙串和“我的证书”，再通过“文件 -> 导入项目”导入 `.p12`。
+2. 输入当时设置的 `.p12` 导出密码。导入后展开 `Developer ID Application: Zhanwen Lu (FBMN9293RM)`，必须能看到其下方配对的私钥。
+3. 不要把证书信任设置为“始终信任”，保持“使用系统默认设置”。
+4. 在终端验证：
+
+```bash
+security find-identity -v -p codesigning
+```
+
+预期至少出现：
+
+```text
+Developer ID Application: Zhanwen Lu (FBMN9293RM)
+1 valid identities found
+```
+
+如果只有 Apple 后台下载的 `.cer`，它必须与本机原 CSR 生成的私钥配对；当前钥匙串找不到原 `Duban Developer ID` 私钥时，单独导入 `.cer` 仍不能签名。此时应在“钥匙串访问 -> 证书助理 -> 从证书颁发机构请求证书”新建 CSR，再到 Apple Developer 的 Certificates 页面新建 `Developer ID Application`、上传 CSR、下载并双击安装 `.cer`。无需仅因私钥丢失而撤销旧证书；只有怀疑旧私钥泄露时才申请撤销。
 
 ### 概念边界
 
@@ -183,6 +206,19 @@ export APPLE_ID="你的 Apple ID 邮箱"
 export APPLE_TEAM_ID="你的 Team ID"
 export APPLE_APP_SPECIFIC_PASSWORD="App-specific password"
 ```
+
+7. 本地正式打包还需要 updater 私钥。私钥默认从 `~/.tauri/duban-updater.key` 读取；密码推荐只存入登录钥匙串，不写入 shell 历史、项目文件或日志：
+
+```bash
+security add-generic-password \
+  -U \
+  -a "$USER" \
+  -s "com.duban.reader.updater-signing" \
+  -l "读伴 Updater 签名密码" \
+  -w
+```
+
+务必把 `-w` 放在最后且不跟密码，`security` 会在终端安全询问。`package:mac-signed` 会自动读取这个 Keychain 项；GitHub Actions 仍使用 Environment Secrets，不受本机配置影响。
 
 ### 正式验证流程
 

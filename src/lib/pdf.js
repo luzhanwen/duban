@@ -10,6 +10,7 @@ import {
   validateExtractedTextPresence,
   validatePdfPageCount,
 } from "./bookImportGuards.js";
+import { defaultChapterIncluded, guessChapterRole } from "./chapterRoles.js";
 import { readFileAsArrayBuffer } from "./fileAdapter.js";
 import { cleanText } from "./text.js";
 
@@ -491,45 +492,20 @@ function buildChapterRanges(chapters, totalPages) {
   return sorted.map((chapter, index) => {
     const next = sorted[index + 1];
     const endPage = chapter.endPage || (next ? next.startPage - 1 : totalPages);
+    const role = chapter.role || guessChapterRole(chapter.title);
     return {
       id: makeId("chapter"),
       title: chapter.title || `章节 ${index + 1}`,
       startPage: chapter.startPage,
       endPage: Math.max(chapter.startPage, Math.min(endPage, totalPages)),
       source: chapter.source || "text",
-      role: chapter.role || guessChapterRole(chapter.title),
+      role,
+      includeInReading:
+        typeof chapter.includeInReading === "boolean"
+          ? chapter.includeInReading
+          : defaultChapterIncluded(role),
     };
   });
-}
-
-export function guessChapterRole(title) {
-  const normalized = normalizeLine(title).toLowerCase();
-
-  if (
-    /^(copyright|copyright page|contents|table of contents|目录|版权|版权页)$/.test(
-      normalized
-    )
-  ) {
-    return "ignore";
-  }
-
-  if (
-    /^(preface|foreword|prologue|welcome|about this publication|about this book|introduction to|导读|前言|序言|序|引言|出版说明|内容简介)/.test(
-      normalized
-    )
-  ) {
-    return "guide";
-  }
-
-  if (
-    /^(appendix|appendices|glossary|references|bibliography|index|acknowledg(e)?ments|附录|术语表|参考文献|索引|致谢)/.test(
-      normalized
-    )
-  ) {
-    return "appendix";
-  }
-
-  return "main";
 }
 
 function dedupeChapters(chapters) {

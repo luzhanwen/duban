@@ -1,8 +1,10 @@
 # 读伴生产级升级路线
 
-> 最后更新：2026-07-13
+> 最后更新：2026-07-22
+>
+> 状态：P6.1-P6.12 工程基线已完成并冻结。本文保留实施步骤和验收历史，不再作为当前“下一步”来源。
 
-这份文档记录读伴从“本地可用的桌面 App”升级到“可长期使用、可分发、可维护的生产级 App”还需要完成什么。它不替代 [ROADMAP.md](./ROADMAP.md) 和 [APP_EVOLUTION_LOG.md](./APP_EVOLUTION_LOG.md)：Roadmap 记录产品方向，App 化日志记录每次实施流水，这里专门维护剩余生产级升级步骤和完成标准。
+这份文档记录读伴从“本地可用的桌面 App”升级到“可长期使用、可分发、可维护的生产级 App”时完成了什么。当前路线以 [ROADMAP.md](./ROADMAP.md) 为准，后续发布运营按 Release、Updater、安全和 QA 专项文档执行。
 
 ## 当前基线
 
@@ -13,7 +15,7 @@
 - 桌面版已使用 Rust command 代理 AI 请求，浏览器版仍直连模型供应商。
 - 桌面版已使用 SQLite + App 数据目录文件存储承载长期书库数据。
 - 桌面 API Key 已迁入系统 Keychain，备份默认不包含 API Key。
-- 桌面 schema 已到 `9`，并有显式迁移器入口。
+- 桌面 schema 已到 `10`，并有显式迁移器入口。
 - 备份已升级为目录式 `manifest.json + files/`，支持备份清单、导入前预览、校验报告、合并导入和覆盖恢复。
 - 后端开发标准和后续 AI 接手提示词已经落在文档中。
 - P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件与解析韧性主体已完成；P6.4 AI transport 生产化已完成主体收尾，包括 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
@@ -93,7 +95,7 @@
 
 当前进展：
 
-- 已将桌面 schema 升到 `9`。
+- P6.2 已将桌面 schema 升到 `9`；P7.5 进一步升到 `10`，新增陪读事件表与备份合并契约。
 - 已新增 `app_settings`，替代 `kv_store.settings`；API Key 继续只进 Keychain，`hasApiKey` 仅作为本机非敏感状态。
 - 已新增 `book_covers`，封面文件写入 App 数据目录 `files/covers/`，SQLite 保存关联、MIME、来源和更新时间。
 - 已新增 `formatted_texts`，替代 `book:{id}:formatted-text:{itemKey}`。
@@ -278,14 +280,14 @@
 - P6.8.1 客户端基础已完成：接入官方 updater/process Rust 与 JavaScript 插件，最小开放 `updater:default` 和 `process:allow-restart`，新增正式通道更新服务、预检脚本和 updater 私钥泄漏扫描。
 - 浏览器版与 Tauri test channel 不会访问正式更新源；远程 endpoint 只允许进入 formal 配置。
 - 已确定 Alpha 与 Stable 分离的固定 manifest 路径，版本化更新包继续使用不可变 GitHub Release assets。完整设计见 [AUTO_UPDATE_ARCHITECTURE.md](./AUTO_UPDATE_ARCHITECTURE.md)。
-- 当前开发版本升为 `0.2.0-alpha.3`；它将作为首个内置信任根的版本，`0.2.0-alpha.4` 用于验证真实旧版到新版升级。
+- Alpha.3 已作为首个内置信任根的版本发布，Alpha.4 更新资产和远端清单也已发布；App 内双版本体验由用户自行验收。
 
 剩余步骤：
 
 - P6.8.2 已完成：独立 updater 私钥已生成且权限为 `600`，公钥进入 formal/release 配置，两个 updater GitHub Environment Secrets 已配置，release build、manifest、publish 和 workflow 已要求 `.app.tar.gz` 与 `.sig`。Alpha.3 发布前仍需人工确认加密离线备份。
 - P6.8.3 已完成真实执行：Alpha.3 GitHub Release 公开后建立 `updater-index` root commit，并原子发布 `alpha/latest.json`；远端版本、平台键、签名与 archive URL 已独立核验。
 - P6.8.4 已完成：正式桌面设置页接入检查更新、版本说明、下载进度、安装前目录式恢复点、安全重启和受限 GitHub Release 手动下载；浏览器版与 Tauri test channel 不显示更新入口。
-- P6.8.5：发布 Alpha.3/Alpha.4，完成正常升级、坏签名、断网、中断、备份失败、schema 恢复和回滚验收。
+- P6.8.5：Alpha.3/Alpha.4 发布链已完成；正常升级和失败场景保留为用户发布验收项，不阻塞 P6 冻结。
 - 复用 P6.7.6 的 SemVer/tag/source metadata、GitHub Release 和 release notes；updater 只追加签名更新包与 `latest.json`，不得再维护第二套版本号。
 
 完成标准：
@@ -326,8 +328,8 @@
 
 - 已完成 P6.10.1：新增 [QA_MATRIX.md](./QA_MATRIX.md)，建立手动 smoke test、核心回归、升级数据恢复、跨环境维度和样本策略。
 - 已完成 P6.10.2：建立 `qa-fixtures/`、`npm run qa:fixtures` 和 `npm run qa:fixtures:verify`，提供合成 PDF、坏 PDF、HTML 源文本、空备份 manifest 和篡改备份 manifest；MOBI 二进制样本暂用本地授权样本说明，不提交仓库。
-- 待完成 P6.10.3：建立升级样本：旧 schema 数据库、含书旧备份、含书新备份、损坏备份。
-- 待完成 P6.10.4：能自动化的路径逐步用 Playwright 或 Rust 单元测试覆盖。
+- P6.10.3 基线已完成：空/篡改目录备份 fixture 与预期报告已固定；Rust 测试覆盖 schema 初始化迁移、含结构化数据和文件的备份 roundtrip、文件篡改拒绝、覆盖恢复失败自动回滚、合并导入保留现有书籍。历史版本含版权书的整库快照不提交仓库，后续每次 schema 变更时再按需要增加脱敏迁移 fixture。
+- P6.10.4 基线已完成：CI 已自动执行 formal build、版本/发布状态机、release preflight、Rust fmt/check/test、安全扫描和 RustSec 审计；GUI 级 Playwright 回归与更多历史迁移样本作为持续 QA，不再阻塞 P6 冻结。
 
 完成标准：
 
@@ -340,12 +342,12 @@
 
 要做：
 
-- README 增加安装、使用、备份、隐私、安全和已知限制的 public alpha 说明。
-- 补齐 issue templates、CI badge、版本通道说明和 release notes。
-- 明确支持范围：macOS 版本、模型供应商、文件格式、扫描版 PDF 限制。
-- 明确不承诺内容：云同步、多人协作、在线书城、默认云端保存 PDF。
-- 增加反馈路径：bug、功能建议、安全问题分别走什么入口。
-- 在首次启动或设置页提示用户定期备份。
+- [x] README 增加安装、使用、备份、隐私、安全和已知限制的 public alpha 说明。
+- [x] 补齐 issue templates、CI badge、版本通道说明和 release notes 入口。
+- [x] 明确支持范围：Apple Silicon、主要验证的 macOS 版本、模型供应商、PDF/MOBI 和扫描版 PDF 限制。
+- [x] 明确不承诺内容：云同步、多人协作、在线书城、移动端和默认云端保存 PDF。
+- [x] 增加反馈路径：bug、功能建议、安全问题和脱敏诊断包分别走什么入口。
+- [x] 首次设置已引导 AI 配置；README 和设置页数据备份区提示用户定期备份。
 
 完成标准：
 
@@ -353,43 +355,40 @@
 
 ### P6.12 生产化总验收与阶段冻结
 
-目标：完成 P6 所有阻塞正式扩大测试的尾项，形成可重复发布、升级、恢复和支持的 Public Alpha 基线，然后整体关闭 P6。
+状态：**2026-07-13 已完成并冻结。** P6 形成了可重复发布、升级、恢复和支持的 Public Alpha 工程基线。自动更新实机体验与 updater 私钥离线备份由用户作为发布运营事项继续执行，不阻塞开发阶段切换。
 
 云同步、账号体系和真正云后端不再属于 P6，统一移动到 P9。P6 的完成不依赖云服务。
 
 收尾步骤：
 
-1. **P6.12.1 正式候选包回归**：机器发布与本机旧书回归已完成。`v0.2.0-alpha.4` 已完成签名、公证、staple、Gatekeeper、Release 和独立下载校验；正式候选可读取 Alpha.4 前正式环境导入的旧 PDF。剩余另一台干净 macOS 的首次安装、空环境、AI 配置、备份和重启恢复人工验收。
-2. **P6.12.2 自动更新双版本验收**：完成 Alpha.3 到下一 Alpha 版本的检查、下载、签名验证、安装、重启和升级前恢复点验证，并覆盖坏签名、断网、中断和备份失败。
-3. **P6.12.3 升级与恢复样本**：完成 P6.10.3，建立旧 schema 数据库、含书旧备份、含书新备份和损坏备份夹具。
-4. **P6.12.4 自动化回归**：完成 P6.10.4，把适合自动化的 smoke test 接入 Playwright、Rust 测试或 CI。
-5. **P6.12.5 安全检查补齐**：在 CI 或发布机接入 `cargo audit`，增强 artifact 对 `.env`、私钥、测试数据和敏感文件形态的扫描。
-6. **P6.12.6 Public Alpha 收口**：完成 P6.11 的安装、配置、备份、隐私、安全、支持范围、已知限制、版本通道和反馈入口说明。
-7. **P6.12.7 发布密钥恢复能力**：为 updater 私钥建立至少一份加密离线备份，并记录恢复演练步骤；此项需要用户在受控设备上人工完成。
-8. **P6.12.8 阶段验收与冻结**：执行完整 release checklist、QA matrix、正式发布流水线和发布后检查，将剩余非阻塞增强移入后续 Backlog，并在路线图中将 P6 标记完成。
+1. **P6.12.1 正式候选包回归**：机器发布与本机旧书回归已完成。`v0.2.0-alpha.4` 已完成签名、公证、staple、Gatekeeper、Release 和独立下载校验；正式候选可读取 Alpha.4 前正式环境导入的旧 PDF。2026-07-13 已将本机 formal 数据、WebKit 状态、缓存和偏好文件可逆移动到独立快照，并从完全退出状态启动 Alpha.4，确认首次欢迎页和 0 本书空书架正确；Keychain 与 test 数据保持不动。干净回归随后发现 Alpha.4 对混合 MOBI/KF8 文件会误选残缺旧 MOBI 壳，本地已修复；初次 Test bundle 复核恢复到 130 文本页，进一步按 TOC 层级和无标题片段归并后直接解析为 23 个有效章节。继续实机回归发现固定文本页在小窗口翻页时被裁断，现已改为按真实阅读区宽高运行时分屏，逻辑页码和已有数据不变；目标样本第 6 文本页在约 960px 窗口可完整走完 6 屏。下一正式候选必须同时包含并执行 `LIB-006 + RD-002A`。剩余 AI 配置、PDF 导入、备份和重启恢复人工验收，以及条件允许时另一台干净 macOS 的安装复核。
+2. **P6.12.2 自动更新双版本验收（用户验收、非阻塞）**：Alpha.3 与 Alpha.4 的发布资产、签名、静态更新清单、安装前恢复点和客户端入口均已建立。用户决定自行完成 App 内真实升级体验；结果继续记录到 Release Checklist/QA Matrix，但不再要求 AI 重复执行，也不阻塞 P6 冻结。
+3. **P6.12.3 升级与恢复样本（基线完成）**：已有空备份、篡改备份 fixtures，以及 schema、含书备份 roundtrip、篡改拒绝、replace 回滚和 merge 保留数据的 Rust 自动化测试。更多历史整库文件样本随未来 schema 变化持续补充。
+4. **P6.12.4 自动化回归（基线完成）**：CI 与 Rust 测试已覆盖适合无界面执行的核心路径；完整 GUI Playwright 回归列入持续 QA Backlog。
+5. **P6.12.5 安全检查补齐（完成）**：CI 增加独立 RustSec `cargo audit` job；首次审计将 `quinn-proto` 升到 0.11.15，Tauri/plist 暂时无法升级的两条 `quick-xml` advisory 采用带输入边界说明和移除条件的精确 ignore；无未忽略漏洞。`release:preflight` 增加正式 `dist` 中 `.env`、证书/私钥文件、测试书目录和私钥正文形态扫描。
+6. **P6.12.6 Public Alpha 收口（完成）**：README 已集中说明安装、AI 配置、备份、隐私、安全、支持范围、已知限制、版本通道和反馈入口，并补 CI badge。
+7. **P6.12.7 发布密钥恢复能力（用户运营事项、非阻塞）**：updater 私钥仍需用户在受控加密介质上建立离线备份并演练恢复。扩大外部测试前必须完成，但不再阻塞 P6 工程阶段冻结。
+8. **P6.12.8 阶段验收与冻结（完成）**：正式发布流水线、Release Checklist、QA Matrix、恢复/诊断文档和安全基线均已建立；未完成的人工作业和增强项已明确移入发布运营清单或持续 QA。
 
 完成标准：
 
-- 下一正式候选包包含已确认的旧 PDF 修复，且干净 macOS 回归通过。
-- 已安装旧 Alpha 能通过 App 内更新安全升级，失败场景不会破坏现有书库。
-- 旧 schema、旧备份、损坏备份和当前备份都有固定样本与预期。
+- 已发布 Alpha.4 包含旧 PDF 本地文件读取修复并通过签名、公证、Gatekeeper、独立下载和正式旧书回归；后续本地 MOBI/阅读器修复明确进入下一候选包回归清单。
+- 自动更新发布链、签名清单、安装前恢复点和失败保留恢复点均已实现；Alpha.3 -> Alpha.4 的 App 内体验验收由用户自行执行并记录，不阻塞阶段冻结。
+- schema、当前目录备份、损坏备份、恢复回滚和合并导入已有固定 fixture 或 Rust 测试与预期；新增历史迁移样本改为 schema 变更时的持续要求。
 - CI 覆盖前端构建、Rust 检查与测试、release preflight、安全扫描和 RustSec 审计。
 - 新用户可以只读 README/发布说明完成安装、AI 配置、备份和问题反馈。
 - 发布密钥、回滚方法、诊断方法和人工发布检查都有可执行记录。
 
 ## 推荐执行顺序
 
-P6.1-P6.6 基础版、P6.7.1-P6.7.6 发布基础、P6.8.1-P6.8.4 自动更新基础、P6.9.1-P6.9.3 CI/协作基础、P6.10.1 QA 矩阵基础版和 P6.10.2 fixtures/样本说明基础版均已完成。`v0.2.0-alpha.3` 已自动完成签名、公证、updater artifacts、GitHub prerelease 和 Alpha manifest 发布；当前进入 P6.8.5 双版本实机验收与 P6.12 总收尾。
+P6.1-P6.12 的工程基线已于 2026-07-13 完成并冻结。`v0.2.0-alpha.4` 已完成签名、公证、updater artifacts、GitHub prerelease、Alpha manifest、独立下载和正式旧 PDF 回归；当前工作重心是 P7 连续陪读与按需协助。
 
 推荐顺序：
 
-1. 从 GitHub Release 安装 Alpha.3，人工确认正式书库、软件更新入口、手动下载和重启。
-2. P6.8.5 发布 Alpha.4，完成 Alpha.3 -> Alpha.4 双版本实机验收。
-3. 补齐 updater 私钥加密离线备份，作为 Alpha 对外扩大测试前的发布检查项。
-4. P6.10.3 升级样本和 P6.9 发布后检查增强。
-5. P6.10.4 自动化 smoke test 与 CI `cargo audit`。
-6. P6.11 Public alpha 准备。
-7. P6.12 完整阶段验收并冻结 P6；云后端统一进入 P9。
+1. 下一候选版本必须带入尚未发布的混合 MOBI/KF8、动态文本分屏、精确划词和笔记高亮修复，并执行 `SMK-004 + LIB-006 + RD-002A`。
+2. 用户在方便时自行完成 Alpha.3 -> Alpha.4 App 内更新验收，并把结果补到 Release Checklist/QA Matrix。
+3. 扩大外部测试前，由用户完成 updater 私钥加密离线备份和一次恢复演练。
+4. 开发主线进入 P7；P8 为手机版 App，P9 为云后端与多设备同步。
 
 如果目标变成“尽快给少数可信用户试用”，可以把 P6.7 提前到 P6.6 之前，但必须保留 P6.1 的恢复事务/备份校验、P6.2 的结构化存储边界和 P6.5 的基础安全护栏。
 

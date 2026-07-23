@@ -8,16 +8,19 @@ export const tauriAiTransport = {
   async callModelDetailed({ settings, system, messages, maxTokens, signal, temperature }) {
     const { invoke } = await import("@tauri-apps/api/core");
     const requestId = makeRequestId();
-    const unbindAbort = bindAbortSignal({ signal, requestId, invoke });
     try {
-      return await invoke("duban_ai_call_model", {
+      return await invokeCancellableAiCommand({
+        invoke,
+        command: "duban_ai_call_model",
         requestId,
-        request: buildTauriAiRequest({ settings, system, messages, maxTokens, temperature }),
+        signal,
+        args: {
+          requestId,
+          request: buildTauriAiRequest({ settings, system, messages, maxTokens, temperature }),
+        },
       });
     } catch (error) {
       throw normalizeTauriError(error);
-    } finally {
-      unbindAbort();
     }
   },
 
@@ -25,7 +28,6 @@ export const tauriAiTransport = {
     const { invoke } = await import("@tauri-apps/api/core");
     const { listen } = await import("@tauri-apps/api/event");
     const requestId = makeRequestId();
-    const unbindAbort = bindAbortSignal({ signal, requestId, invoke });
     const unlistenChunk = await listen(STREAM_CHUNK_EVENT, (event) => {
       const payload = event.payload || {};
       if (payload.requestId !== requestId) return;
@@ -33,14 +35,19 @@ export const tauriAiTransport = {
     });
 
     try {
-      return await invoke("duban_ai_stream_model", {
+      return await invokeCancellableAiCommand({
+        invoke,
+        command: "duban_ai_stream_model",
         requestId,
-        request: buildTauriAiRequest({ settings, system, messages, maxTokens, temperature }),
+        signal,
+        args: {
+          requestId,
+          request: buildTauriAiRequest({ settings, system, messages, maxTokens, temperature }),
+        },
       });
     } catch (error) {
       throw normalizeTauriError(error);
     } finally {
-      unbindAbort();
       unlistenChunk();
     }
   },
@@ -81,15 +88,30 @@ function normalizeTauriError(error) {
   return normalized;
 }
 
-function bindAbortSignal({ signal, requestId, invoke }) {
-  if (!signal) return () => {};
+export async function invokeCancellableAiCommand({
+  invoke,
+  command,
+  args,
+  requestId,
+  signal,
+}) {
+  if (!signal) return invoke(command, args);
   if (signal.aborted) throw makeAbortError();
 
+  let rejectAbort;
+  const abortPromise = new Promise((_, reject) => {
+    rejectAbort = reject;
+  });
   const cancel = () => {
     invoke("duban_ai_cancel_request", { requestId }).catch(() => {});
+    rejectAbort(makeAbortError());
   };
   signal.addEventListener("abort", cancel, { once: true });
-  return () => signal.removeEventListener("abort", cancel);
+  try {
+    return await Promise.race([invoke(command, args), abortPromise]);
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
 }
 
 function makeAbortError(message = "已取消生成。") {

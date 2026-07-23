@@ -8,7 +8,7 @@ import {
   validateExtractedTextPresence,
   validateMobiSpineCount,
 } from "./bookImportGuards.js";
-import { guessChapterRole } from "./pdf.js";
+import { defaultChapterIncluded, guessChapterRole } from "./chapterRoles.js";
 import { cleanText, toText } from "./text.js";
 
 const TEXT_PAGE_CHAR_LIMIT = 2200;
@@ -35,7 +35,7 @@ export async function parseMobi(file, optionsOrProgress) {
     }
     validateMobiSpineCount(spine.length);
 
-    const tocTitleByChapterId = buildTocTitleByChapterId(reader);
+    const tocInfoByChapterId = buildTocInfoByChapterId(reader);
     const pages = [];
     const chapters = [];
     let pageNumber = 1;
@@ -47,7 +47,7 @@ export async function parseMobi(file, optionsOrProgress) {
       const spineId = String(spineItem.id ?? index);
       const loaded = safeCall(() => reader.loadChapter(spineId));
       assertImportNotCancelled(signal);
-      const html = toText(loaded?.html || spineItem.text);
+      const html = selectChapterHtml(loaded?.html, spineItem.text);
       const text = htmlToReadableText(html);
 
       if (text) {
@@ -68,18 +68,26 @@ export async function parseMobi(file, optionsOrProgress) {
           textPages: pages.length,
         });
 
-        const tocTitle = tocTitleByChapterId.get(spineId);
-        const title =
-          tocTitle || extractHeadingTitle(html) || `章节 ${chapters.length + 1}`;
+        const tocInfo = tocInfoByChapterId.get(spineId);
+        const headingTitle = extractHeadingTitle(html);
+        const detectedTitle = tocInfo?.title || headingTitle;
+        const previousChapter = chapters[chapters.length - 1];
 
-        chapters.push({
-          id: makeId("chapter"),
-          title,
-          startPage,
-          endPage: pageNumber - 1,
-          source: tocTitle ? "toc" : "spine",
-          role: guessChapterRole(title),
-        });
+        if (!detectedTitle && previousChapter && previousChapter.role !== "ignore") {
+          previousChapter.endPage = pageNumber - 1;
+        } else {
+          const title = detectedTitle || `章节 ${chapters.length + 1}`;
+          const role = tocInfo?.hasChildren ? "ignore" : guessChapterRole(title);
+          chapters.push({
+            id: makeId("chapter"),
+            title,
+            startPage,
+            endPage: pageNumber - 1,
+            source: tocInfo ? "toc" : "spine",
+            role,
+            includeInReading: defaultChapterIncluded(role),
+          });
+        }
       }
 
       reportImportProgress(onProgress, {
@@ -101,7 +109,7 @@ export async function parseMobi(file, optionsOrProgress) {
       totalPages: pages.length,
       pages,
       chapters: chapters.length > 0 ? chapters : buildFallbackChapter(pages.length),
-      detectionSource: tocTitleByChapterId.size > 0 ? "toc" : "spine",
+      detectionSource: tocInfoByChapterId.size > 0 ? "toc" : "spine",
       format: BOOK_FORMATS.mobi,
       parser,
       language: toText(metadata.language),
@@ -114,40 +122,98 @@ export async function parseMobi(file, optionsOrProgress) {
 async function initMobiReader(file) {
   const { initKf8File, initMobiFile } = await import("@lingo-reader/mobi-parser");
 
-  try {
-    return {
-      reader: await initMobiFile(file),
-      parser: "mobi",
-    };
-  } catch (mobiError) {
+  const candidates = [];
+  const errors = [];
+  const initializers = [
+    { parser: "mobi", initialize: initMobiFile },
+    { parser: "kf8", initialize: initKf8File },
+  ];
+
+  for (const { parser, initialize } of initializers) {
     try {
-      return {
-        reader: await initKf8File(file),
-        parser: "kf8",
-      };
-    } catch (kf8Error) {
-      throw new Error(
-        mobiError?.message || kf8Error?.message || "MOBI 解析失败，请换一本书重试。"
-      );
+      const reader = await initialize(file);
+      candidates.push({ reader, parser, score: scoreMobiReader(reader) });
+    } catch (error) {
+      errors.push(error);
     }
   }
+
+  if (candidates.length === 0) {
+    throw new Error(
+      errors.find((error) => error?.message)?.message || "MOBI 解析失败，请换一本书重试。"
+    );
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  const selected = candidates[0];
+  candidates.slice(1).forEach(({ reader }) => reader?.destroy?.());
+
+  return { reader: selected.reader, parser: selected.parser };
 }
 
-function buildTocTitleByChapterId(reader) {
-  const toc = safeCall(() => reader.getToc()) || [];
-  const items = flattenToc(toc);
-  const titleById = new Map();
+function scoreMobiReader(reader) {
+  const spine = safeCall(() => reader.getSpine()) || [];
+  if (spine.length === 0) return -1;
 
-  items.forEach((item) => {
+  const tocItems = flattenToc(safeCall(() => reader.getToc()) || []);
+  const sampleIndexes = new Set([0, Math.floor(spine.length / 2), spine.length - 1]);
+  let sampleChars = 0;
+
+  sampleIndexes.forEach((index) => {
+    const spineItem = spine[index];
+    if (!spineItem) return;
+    const spineId = String(spineItem.id ?? index);
+    const loaded = safeCall(() => reader.loadChapter(spineId));
+    sampleChars += selectChapterHtml(loaded?.html, spineItem.text).length;
+  });
+
+  return (
+    Math.min(spine.length, 1200) * 100_000 +
+    Math.min(tocItems.length, 1200) * 10_000 +
+    Math.min(sampleChars, 1_000_000)
+  );
+}
+
+function selectChapterHtml(loadedHtml, sourceText) {
+  const loaded = toText(loadedHtml);
+  const source = toText(sourceText);
+
+  if (!loaded) return source;
+  if (!source) return loaded;
+
+  // Some hybrid MOBI/KF8 files return a tiny legacy shell instead of the full source text.
+  return source.length > loaded.length * 4 && source.length - loaded.length > 1000
+    ? source
+    : loaded;
+}
+
+function buildTocInfoByChapterId(reader) {
+  const toc = safeCall(() => reader.getToc()) || [];
+  const infoById = new Map();
+
+  visitTocItems(toc, (item) => {
     const title = cleanTitle(item.label);
     if (!title || !item.href) return;
 
     const resolved = safeCall(() => reader.resolveHref(item.href));
     const id = resolved?.id === undefined || resolved?.id === null ? "" : String(resolved.id);
-    if (id && !titleById.has(id)) titleById.set(id, title);
+    if (!id || infoById.has(id)) return;
+
+    infoById.set(id, {
+      title,
+      hasChildren: Array.isArray(item.children) && item.children.length > 0,
+    });
   });
 
-  return titleById;
+  return infoById;
+}
+
+function visitTocItems(items, callback) {
+  if (!Array.isArray(items)) return;
+  items.forEach((item) => {
+    callback(item);
+    visitTocItems(item.children, callback);
+  });
 }
 
 function flattenToc(items) {
@@ -289,6 +355,7 @@ function buildFallbackChapter(totalPages) {
       endPage: totalPages,
       source: "fallback",
       role: "main",
+      includeInReading: true,
     },
   ];
 }

@@ -15,7 +15,7 @@ try {
   write(".gitignore", "src-tauri/target/\nrelease-artifacts/\n");
   write(
     "src-tauri/src/storage.rs",
-    'const CURRENT_SCHEMA_VERSION: &str = "9";\nconst BACKUP_VERSION: u32 = 3;\n'
+    'const CURRENT_SCHEMA_VERSION: &str = "10";\nconst BACKUP_VERSION: u32 = 3;\n'
   );
   write(
     "CHANGELOG.md",

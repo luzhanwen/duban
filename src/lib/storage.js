@@ -22,6 +22,7 @@ export const KEYS = {
   bookNotes: (id) => `book:${id}:notes`, // 某本书的高亮和笔记，内部按阅读项分组
   bookQuestions: (id, chapterId) => `book:${id}:questions:${chapterId}`, // 某章导读问题
   bookFormattedText: (id, itemKey) => `book:${id}:formatted-text:${itemKey}`, // 某阅读项的 AI 排版文本
+  bookCompanionEvents: (id) => `book:${id}:companion-events`, // P7 统一陪读事件索引（只保存引用与锚点）
   bookQuiz: (id, chapterId) => `book:${id}:quiz:${chapterId}`, // 某章小测题目与作答
   progress: (id) => `progress:${id}`, // 某本书的每日阅读进度
   aiBudgetUsage: (date) => `__duban:ai-budget:${date}`, // AI 预算日用量，仅保存脱敏统计

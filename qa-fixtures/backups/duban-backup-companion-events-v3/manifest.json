@@ -1,0 +1,191 @@
+{
+  "format": "duban.local-backup",
+  "backupVersion": 3,
+  "schemaVersion": "10",
+  "exportedAt": "2026-07-09T00:00:00.000Z",
+  "app": "Duban QA Fixture",
+  "label": "QA Companion Events Backup Fixture",
+  "notes": "Synthetic P7 fixture for event anchors, cross-section memories, tombstones, backup restore, and schema migration.",
+  "manifestSha256": "24e221af6e1212efdb2aa649c7cfd240304e6d27d6e5b39424a00181d246ce00",
+  "includesApiKeys": false,
+  "items": [
+    {
+      "key": "books",
+      "value": [
+        {
+          "id": "qa-companion-book",
+          "title": "Synthetic Companion Event Book",
+          "author": "Duban QA",
+          "format": "pdf",
+          "chapters": [],
+          "readingPlan": {
+            "items": [
+              {
+                "id": "item-1",
+                "title": "Synthetic Section One"
+              },
+              {
+                "id": "item-2",
+                "title": "Synthetic Section Two"
+              }
+            ]
+          },
+          "readingProfile": {
+            "schemaVersion": 3,
+            "companionMemory": {
+              "schemaVersion": 1,
+              "initialized": true,
+              "items": [
+                {
+                  "id": "memory-fixture-1",
+                  "text": "本节理解：制度变化需要结合具体利益结构理解。",
+                  "source": "session_record",
+                  "sourceItemKey": "item-1",
+                  "sourceEventId": "event:session_record:fixture-item-1",
+                  "createdAt": "2026-07-16T00:10:00.000Z",
+                  "updatedAt": "2026-07-16T00:10:00.000Z"
+                },
+                {
+                  "id": "memory-fixture-2",
+                  "text": "仍在思考：第二节的证据能否支持作者的判断？",
+                  "source": "session_record",
+                  "sourceItemKey": "item-2",
+                  "sourceEventId": "event:session_record:fixture-item-2",
+                  "createdAt": "2026-07-16T00:20:00.000Z",
+                  "updatedAt": "2026-07-16T00:20:00.000Z"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "book:qa-companion-book:companion-events",
+      "value": [
+        {
+          "schemaVersion": 1,
+          "id": "event:selection_question:fixture",
+          "bookId": "qa-companion-book",
+          "readingItemId": "item-1",
+          "itemKey": "item-1",
+          "scene": "reading",
+          "type": "selection_question",
+          "status": "active",
+          "sourceAnchor": {
+            "schemaVersion": 1,
+            "kind": "selection",
+            "pageNumber": 1,
+            "contentFingerprint": "fnv1a:fixture",
+            "rects": [
+              {
+                "x": 0.1,
+                "y": 0.2,
+                "width": 0.2,
+                "height": 0.04
+              }
+            ]
+          },
+          "payloadRef": {
+            "store": "bookChat",
+            "itemKey": "item-1",
+            "sourceId": "message-1"
+          },
+          "relatedEventIds": [],
+          "policyRef": null,
+          "metadata": {
+            "migratedFrom": "synthetic-fixture"
+          },
+          "createdAt": "2026-07-16T00:00:00.000Z",
+          "updatedAt": "2026-07-16T00:00:00.000Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "event:session_record:fixture-item-1",
+          "bookId": "qa-companion-book",
+          "readingItemId": "item-1",
+          "itemKey": "item-1",
+          "scene": "reflection",
+          "type": "session_record",
+          "status": "completed",
+          "sourceAnchor": null,
+          "payloadRef": null,
+          "relatedEventIds": [],
+          "policyRef": null,
+          "metadata": {
+            "record": {
+              "schemaVersion": 1,
+              "itemKey": "item-1",
+              "understanding": "制度变化需要结合具体利益结构理解。",
+              "openQuestions": [],
+              "sourceEventIds": [],
+              "memoryLink": {
+                "itemId": "memory-fixture-1",
+                "text": "本节理解：制度变化需要结合具体利益结构理解。",
+                "confirmedAt": "2026-07-16T00:10:00.000Z"
+              },
+              "createdAt": "2026-07-16T00:10:00.000Z",
+              "updatedAt": "2026-07-16T00:10:00.000Z"
+            }
+          },
+          "createdAt": "2026-07-16T00:10:00.000Z",
+          "updatedAt": "2026-07-16T00:10:00.000Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "event:session_record:fixture-item-2",
+          "bookId": "qa-companion-book",
+          "readingItemId": "item-2",
+          "itemKey": "item-2",
+          "scene": "reflection",
+          "type": "session_record",
+          "status": "completed",
+          "sourceAnchor": null,
+          "payloadRef": null,
+          "relatedEventIds": [],
+          "policyRef": null,
+          "metadata": {
+            "record": {
+              "schemaVersion": 1,
+              "itemKey": "item-2",
+              "understanding": "",
+              "openQuestions": [
+                "第二节的证据能否支持作者的判断？"
+              ],
+              "sourceEventIds": [],
+              "memoryLink": {
+                "itemId": "memory-fixture-2",
+                "text": "仍在思考：第二节的证据能否支持作者的判断？",
+                "confirmedAt": "2026-07-16T00:20:00.000Z"
+              },
+              "createdAt": "2026-07-16T00:20:00.000Z",
+              "updatedAt": "2026-07-16T00:20:00.000Z"
+            }
+          },
+          "createdAt": "2026-07-16T00:20:00.000Z",
+          "updatedAt": "2026-07-16T00:20:00.000Z"
+        },
+        {
+          "schemaVersion": 1,
+          "id": "event:session_record:fixture-deleted",
+          "bookId": "qa-companion-book",
+          "readingItemId": "item-old",
+          "itemKey": "item-old",
+          "scene": "reflection",
+          "type": "session_record",
+          "status": "deleted",
+          "sourceAnchor": null,
+          "payloadRef": null,
+          "relatedEventIds": [],
+          "policyRef": null,
+          "metadata": {
+            "deletedAt": "2026-07-16T00:30:00.000Z"
+          },
+          "createdAt": "2026-07-15T00:00:00.000Z",
+          "updatedAt": "2026-07-16T00:30:00.000Z"
+        }
+      ]
+    }
+  ],
+  "files": []
+}

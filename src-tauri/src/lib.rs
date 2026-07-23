@@ -160,13 +160,17 @@ async fn duban_ai_call_model(
     let result = async {
         let client = build_client()?;
         let cancel_token = register_ai_request(request_id.as_deref())?;
-        let result = match request.settings.provider.as_str() {
-            "openai-compatible" => {
-                call_openai_compatible(&client, &request, false, cancel_token).await
+        let provider_cancel_token = cancel_token.clone();
+        let request_future = async {
+            match request.settings.provider.as_str() {
+                "openai-compatible" => {
+                    call_openai_compatible(&client, &request, false, provider_cancel_token.clone())
+                        .await
+                }
+                _ => call_anthropic(&client, &request, false, provider_cancel_token.clone()).await,
             }
-            _ => call_anthropic(&client, &request, false, cancel_token).await,
         };
-        result
+        run_ai_request_with_cancel(request_future, cancel_token).await
     }
     .await;
     unregister_ai_request(request_id.as_deref());
@@ -184,13 +188,32 @@ async fn duban_ai_stream_model(
     let result = async {
         let client = build_client()?;
         let cancel_token = register_ai_request(Some(&request_id))?;
-        let result = match request.settings.provider.as_str() {
-            "openai-compatible" => {
-                stream_openai_compatible(&client, &app, &request_id, &request, cancel_token).await
+        let provider_cancel_token = cancel_token.clone();
+        let request_future = async {
+            match request.settings.provider.as_str() {
+                "openai-compatible" => {
+                    stream_openai_compatible(
+                        &client,
+                        &app,
+                        &request_id,
+                        &request,
+                        provider_cancel_token.clone(),
+                    )
+                    .await
+                }
+                _ => {
+                    stream_anthropic(
+                        &client,
+                        &app,
+                        &request_id,
+                        &request,
+                        provider_cancel_token.clone(),
+                    )
+                    .await
+                }
             }
-            _ => stream_anthropic(&client, &app, &request_id, &request, cancel_token).await,
         };
-        result
+        run_ai_request_with_cancel(request_future, cancel_token).await
     }
     .await;
     unregister_ai_request(Some(&request_id));
@@ -590,6 +613,23 @@ async fn wait_for_cancel(token: AiCancelToken) {
     }
 }
 
+async fn run_ai_request_with_cancel<F>(
+    request_future: F,
+    cancel_token: Option<AiCancelToken>,
+) -> AiResult<AiResponse>
+where
+    F: std::future::Future<Output = AiResult<AiResponse>>,
+{
+    if let Some(token) = cancel_token {
+        return match select(Box::pin(request_future), Box::pin(wait_for_cancel(token))).await {
+            Either::Left((result, _)) => result,
+            Either::Right((_, _)) => Err(AiError::cancelled()),
+        };
+    }
+
+    request_future.await
+}
+
 fn is_truncated_finish_reason(reason: &str) -> bool {
     let normalized = reason.trim().to_ascii_lowercase().replace('-', "_");
     matches!(
@@ -608,19 +648,17 @@ async fn call_anthropic(
     let api_key = resolve_api_key(&config.api_key, "anthropic")?;
 
     let body = build_anthropic_body(request, stream);
-    let (response, attempts) = send_ai_request_with_retry("anthropic", cancel_token, || {
-        client
-            .post(ANTHROPIC_API_URL)
-            .header("x-api-key", api_key.as_str())
-            .header("anthropic-version", "2023-06-01")
-            .json(&body)
-    })
-    .await?;
+    let (response, attempts) =
+        send_ai_request_with_retry("anthropic", cancel_token.clone(), || {
+            client
+                .post(ANTHROPIC_API_URL)
+                .header("x-api-key", api_key.as_str())
+                .header("anthropic-version", "2023-06-01")
+                .json(&body)
+        })
+        .await?;
 
-    let data: Value = response
-        .json()
-        .await
-        .map_err(classify_response_decode_error)?;
+    let data = read_json_response_with_cancel(response, cancel_token).await?;
 
     let text = data
         .get("content")
@@ -800,7 +838,7 @@ async fn call_openai_compatible(
     );
     let body = build_openai_body(request, stream);
     let (response, attempts) =
-        send_ai_request_with_retry("openai-compatible", cancel_token, || {
+        send_ai_request_with_retry("openai-compatible", cancel_token.clone(), || {
             client
                 .post(endpoint.as_str())
                 .bearer_auth(api_key.as_str())
@@ -808,10 +846,7 @@ async fn call_openai_compatible(
         })
         .await?;
 
-    let data: Value = response
-        .json()
-        .await
-        .map_err(classify_response_decode_error)?;
+    let data = read_json_response_with_cancel(response, cancel_token).await?;
     let text = data
         .get("choices")
         .and_then(Value::as_array)
@@ -1063,6 +1098,21 @@ async fn send_ai_request_once(
     }
 
     request.send().await.map_err(classify_transport_error)
+}
+
+async fn read_json_response_with_cancel(
+    response: Response,
+    cancel_token: Option<AiCancelToken>,
+) -> AiResult<Value> {
+    let read_json = response.json::<Value>();
+    if let Some(token) = cancel_token {
+        return match select(Box::pin(read_json), Box::pin(wait_for_cancel(token))).await {
+            Either::Left((result, _)) => result.map_err(classify_response_decode_error),
+            Either::Right((_, _)) => Err(AiError::cancelled()),
+        };
+    }
+
+    read_json.await.map_err(classify_response_decode_error)
 }
 
 async fn sleep_with_cancel(
@@ -1399,7 +1449,7 @@ impl AiError {
         Self::new(
             "AI_KEYCHAIN_READ_FAILED",
             "auth",
-            "读取系统 Keychain 失败。",
+            "无法读取已保存的 API Key。请打开「设置」，重新填写并保存当前模型的 Key。",
             false,
             None,
         )
@@ -1484,6 +1534,17 @@ mod tests {
 
         clear_ai_key_cache();
         assert!(read_cached_ai_key("anthropic").is_none());
+    }
+
+    #[test]
+    fn keychain_read_error_keeps_a_stable_code_and_actionable_message() {
+        let error = AiError::keychain_read();
+
+        assert_eq!(error.code, "AI_KEYCHAIN_READ_FAILED");
+        assert_eq!(error.kind, "auth");
+        assert!(error.message.contains("设置"));
+        assert!(error.message.contains("重新填写"));
+        assert!(!error.retryable);
     }
 
     #[test]
@@ -1575,5 +1636,19 @@ mod tests {
 
         unregister_ai_request(Some(request_id));
         assert!(!cancel_ai_request(request_id));
+    }
+
+    #[test]
+    fn outer_ai_request_guard_stops_a_pending_provider_future() {
+        let token = Arc::new(AtomicBool::new(true));
+        let pending_request = std::future::pending::<AiResult<AiResponse>>();
+        let error = tauri::async_runtime::block_on(run_ai_request_with_cancel(
+            pending_request,
+            Some(token),
+        ))
+        .expect_err("cancelled request");
+
+        assert_eq!(error.code, "AI_REQUEST_CANCELLED");
+        assert_eq!(error.kind, "cancelled");
     }
 }

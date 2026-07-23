@@ -2,14 +2,15 @@ import { streamModelDetailed } from "./ai.js";
 import { isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingChatPrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
-import { buildReadingContractContext } from "./readingContract.js";
+import { buildCompanionContext } from "./companionContext.js";
+import {
+  sanitizeCompanionAnswerForPolicy,
+  shouldStreamCompanionAnswer,
+} from "./companionPolicy.js";
 import { getItem, getSettings, KEYS, PROVIDERS, setItem } from "./storage.js";
 import { toText } from "./text.js";
 
-const MAX_CONTEXT_CHARS = 10000;
-const MAX_PAGE_CONTEXT_CHARS = 3500;
 const MAX_HISTORY_MESSAGES = 8;
-const CHAT_MAX_OUTPUT_TOKENS = 2600;
 
 export async function getReadingChat(bookId, itemKey) {
   if (!bookId || !itemKey) return [];
@@ -32,10 +33,12 @@ export async function sendReadingChatMessage({
   itemKey,
   chapterSections,
   currentPageContext,
+  readingContext,
   guide,
   messages,
   content,
   quote,
+  sessionOverride,
   onDelta,
   signal,
 }) {
@@ -53,18 +56,27 @@ export async function sendReadingChatMessage({
 
   const existingMessages = normalizeMessages(messages);
   const history = existingMessages.slice(-MAX_HISTORY_MESSAGES);
-  const prompts = buildPrompt({
+  const context = buildCompanionContext({
+    scene: "readingChat",
     book,
     item,
+    itemKey,
     chapterSections,
     currentPageContext,
+    readingContext,
     guide,
     history,
     userMessage: text,
+    quote,
+    sessionOverride,
+    settings,
   });
+  const prompts = buildPrompt({ book, item, context, userMessage: text });
+  const streamAnswer = shouldStreamCompanionAnswer(context.policy);
   const result = await streamModelDetailed({
     settings,
-    maxTokens: CHAT_MAX_OUTPUT_TOKENS,
+    maxTokens: context.maxOutputTokens,
+    hardMaxTokens: context.maxOutputTokens,
     system: prompts.system,
     messages: [
       {
@@ -72,21 +84,33 @@ export async function sendReadingChatMessage({
         content: prompts.user,
       },
     ],
-    onText: onDelta,
+    onText: streamAnswer ? onDelta : undefined,
     signal,
     taskType: "readingChat",
+    diagnosticContext: {
+      scene: context.scene,
+      policy: context.policy,
+      trace: context.trace,
+    },
   });
+
+  const assistantContent = sanitizeCompanionAnswerForPolicy(
+    toText(result.text).trim(),
+    context.policy
+  ) || "这次回答生成失败。可以换个问法再试一次。";
+  if (!streamAnswer) onDelta?.(assistantContent);
 
   const assistantMessage = {
     id: makeId("chat-assistant"),
     role: "assistant",
-    content: toText(result.text).trim() || "这次回答生成失败。可以换个问法再试一次。",
+    content: assistantContent,
     model: result.model || getActiveModel(settings),
     usage: result.usage,
     cost: estimateChatCost(settings, result),
     finishReason: result.finishReason,
     truncated: isAiOutputTruncated(result),
-    maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: context.maxOutputTokens,
+    contextTrace: context.trace,
     createdAt: new Date().toISOString(),
   };
 
@@ -95,134 +119,24 @@ export async function sendReadingChatMessage({
   return { messages: nextMessages, user: userMessage, assistant: assistantMessage };
 }
 
-function buildPrompt({
-  book,
-  item,
-  chapterSections,
-  currentPageContext,
-  guide,
-  history,
-  userMessage,
-}) {
-  const contractContext = buildReadingContractContext({ book, item });
-  const contractPromptValues = buildContractPromptValues(contractContext);
-  const chapterText = chapterSections
-    .map(
-      (section) =>
-        `【${section.chapter.title}】\n页码：${section.chapter.startPage}-${section.chapter.endPage}\n${section.text}`
-    )
-    .join("\n\n---\n\n")
-    .slice(0, MAX_CONTEXT_CHARS);
-
-  const guideText = guide
-    ? [
-        guide.overview ? `导读开场：${guide.overview}` : "",
-        guide.goals?.length ? `阅读目标：${guide.goals.join("；")}` : "",
-        guide.questions?.length ? `读前问题：${guide.questions.join("；")}` : "",
-        guide.focus?.length ? `阅读提醒：${guide.focus.join("；")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "暂无导读。";
-
-  const pageNumber = Number(currentPageContext?.pageNumber) || "";
-  const currentPageText = toText(currentPageContext?.text).trim().slice(0, MAX_PAGE_CONTEXT_CHARS);
-  const pageText = pageNumber
-    ? currentPageText || "这一页暂时没有提取到可用文本。"
-    : "当前还没有识别到用户正在看的页码。";
-
-  const historyText =
-    history.length > 0
-      ? history
-          .map((message) => `${message.role === "user" ? "用户" : "读伴"}：${message.content}`)
-          .join("\n")
-      : "暂无历史对话。";
-
-  return buildReadingChatPrompts({
+function buildPrompt({ book, item, context, userMessage }) {
+  return {
+    ...buildReadingChatPrompts({
     bookTitle: toText(book.title),
     bookAuthor: toText(book.author) || "未知",
     day: item.day,
     itemTitle: item.title,
     startPage: item.startPage,
     endPage: item.endPage,
-    currentPage: pageNumber || "未知",
-    currentPageText: pageText,
-    guideText,
-    chapterText,
-    historyText,
-    ...contractPromptValues,
+    currentPage:
+      context.trace.sourceRefs.find((source) => source.pageNumber)?.pageNumber || "未知",
+    ...context.sections,
+    ...context.contractPromptValues,
+    contextBudgetInstruction: context.contextBudgetInstruction,
     userMessage,
-  });
-}
-
-function buildContractPromptValues(context) {
-  const hasCompanionFocus = Boolean(context.available?.companionFocus);
-  return {
-    contractBookProblem: toText(context.bookProblem).trim(),
-    contractCoreQuestion: toText(context.coreQuestion).trim(),
-    contractCompanionFocusLabel: hasCompanionFocus
-      ? formatCompanionFocusLabel(context.companionFocus)
-      : "",
-    contractCompanionFocusInstruction: hasCompanionFocus
-      ? toText(context.companionFocus?.promptInstruction).trim()
-      : "",
-    contractCurrentStructureRole: toText(context.currentStructureRole).trim(),
-    contractCurrentDifficultyHints: formatContractDifficultyHints(context.currentDifficultyHints),
-    contractCurrentKeyTurns: formatContractKeyTurns(context.currentKeyTurns),
-    contractSuggestedReadingPath: toText(context.suggestedReadingPath).trim(),
-    contractSourceLimitations: toText(context.sourceLimitations).trim(),
-    contractAvailableSummary: formatContractAvailableSummary(context.available),
+    }),
+    companionPolicy: context.policy,
   };
-}
-
-function formatCompanionFocusLabel(focus) {
-  const label = toText(focus?.label).trim();
-  const userText = toText(focus?.userText).trim();
-  const aiSummary = toText(focus?.aiSummary).trim();
-  return [label, userText || aiSummary].filter(Boolean).join("：");
-}
-
-function formatContractDifficultyHints(items) {
-  return asArray(items)
-    .map((item) => {
-      const topic = toText(item?.topic).trim();
-      const where = toText(item?.where).trim();
-      const whyHard = toText(item?.whyHard).trim();
-      const supportStrategy = toText(item?.supportStrategy).trim();
-      const title = [topic, where ? `位置：${where}` : ""].filter(Boolean).join("，");
-      const detail = [whyHard, supportStrategy ? `读伴可这样帮：${supportStrategy}` : ""]
-        .filter(Boolean)
-        .join("；");
-      return [title, detail].filter(Boolean).join("：");
-    })
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractKeyTurns(items) {
-  return asArray(items)
-    .map((item) =>
-      [toText(item?.title).trim(), toText(item?.whyItMatters).trim()]
-        .filter(Boolean)
-        .join("：")
-    )
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractAvailableSummary(available = {}) {
-  const parts = [];
-  if (available.wholeBookGuide) parts.push("已有整本书导读");
-  if (available.companionFocus) parts.push("已有用户选择的读伴侧重点");
-  if (available.structureMatch) parts.push("当前阅读项匹配到全书结构位置");
-  if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
-  return parts.length > 0
-    ? parts.join("；")
-    : "开书契约上下文为空，按原有伴读问答逻辑回答，并省略上下文状态说明。";
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
 }
 
 function normalizeMessages(value) {
@@ -245,7 +159,20 @@ function normalizeQuote(quote) {
     pageNumber: Number(quote.pageNumber) || null,
     text: toText(quote.text).trim(),
     rects: normalizeRects(quote.rects),
+    anchorSchemaVersion: Number(quote.anchorSchemaVersion) || null,
+    contentBlockId: toText(quote.contentBlockId).trim() || null,
+    blockCharRange: normalizeCharRange(quote.blockCharRange),
+    contentFingerprint: toText(quote.contentFingerprint).trim() || null,
+    anchorStatus: toText(quote.anchorStatus).trim() || null,
   };
+}
+
+function normalizeCharRange(value) {
+  const start = Number(value?.start);
+  const end = Number(value?.end);
+  return Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start
+    ? { start, end }
+    : null;
 }
 
 function normalizeRects(rects) {

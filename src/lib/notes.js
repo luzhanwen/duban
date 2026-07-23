@@ -1,5 +1,7 @@
 import { getItem, KEYS, setItem } from "./storage.js";
 import { toText } from "./text.js";
+import { markCompanionPayloadEventDeleted } from "./companionEventStore.js";
+import { COMPANION_JOURNEY_TYPES } from "./companionJourney.js";
 
 export async function getReadingNotes(bookId, itemKey) {
   if (!bookId || !itemKey) return [];
@@ -72,6 +74,13 @@ export async function deleteReadingNote(bookId, itemKey, noteId) {
 
   next[itemKey] = notes.filter((note) => note.id !== noteId);
   await setItem(KEYS.bookNotes(bookId), next);
+  await markCompanionPayloadEventDeleted({
+    bookId,
+    itemKey,
+    store: "bookNotes",
+    sourceId: noteId,
+    type: COMPANION_JOURNEY_TYPES.note,
+  }).catch(() => {});
   return normalizeNotes(next[itemKey]);
 }
 
@@ -88,6 +97,11 @@ function normalizeNote(note = {}) {
     pageNumber: Number(note.pageNumber) || null,
     text: toText(note.text).trim(),
     rects: normalizeRects(note.rects),
+    anchorSchemaVersion: Number(note.anchorSchemaVersion) || null,
+    contentBlockId: toText(note.contentBlockId).trim() || null,
+    blockCharRange: normalizeCharRange(note.blockCharRange),
+    contentFingerprint: toText(note.contentFingerprint).trim() || null,
+    anchorStatus: toText(note.anchorStatus).trim() || null,
     highlightDisabled: Boolean(note.highlightDisabled),
     note: toText(note.note).trim(),
     assistantContent: toText(note.assistantContent).trim(),
@@ -96,6 +110,14 @@ function normalizeNote(note = {}) {
     createdAt: note.createdAt || new Date().toISOString(),
     updatedAt: note.updatedAt || note.createdAt || new Date().toISOString(),
   };
+}
+
+function normalizeCharRange(value) {
+  const start = Number(value?.start);
+  const end = Number(value?.end);
+  return Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start
+    ? { start, end }
+    : null;
 }
 
 function normalizeRects(rects) {

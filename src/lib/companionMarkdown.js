@@ -1,0 +1,18 @@
+export const COMPANION_MARKDOWN_ALLOWED_ELEMENTS = Object.freeze([
+  "p",
+  "br",
+  "strong",
+  "em",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+  "code",
+  "a",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+]);

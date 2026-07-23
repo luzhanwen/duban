@@ -1,6 +1,8 @@
 # Public Readiness Changes
 
-> Last updated: 2026-07-07
+> Last updated: 2026-07-22
+>
+> 状态：首轮 Public Alpha 准备档案。现行隐私与安全说明以根目录 `PRIVACY.md`、`SECURITY.md` 和发布检查文档为准。
 
 这份文档记录读伴在准备 public alpha 前补上的信任、安全和公开仓库成熟度改动。它不是路线图，也不是完整开发日志；重点是说明最近补了什么、为什么补、这些改动解决了哪些公开前风险。
 
@@ -133,14 +135,14 @@ npm run build:formal
 - 新增 `scripts/security_scan.mjs` 和 `npm run security:scan`，并并入 `npm run security:audit`。
 - `SECURITY.md` 与 `PRIVACY.md` 已同步浏览器版和桌面版边界。
 
-仍需继续：
+后续持续要求：
 
-- 安装并启用 `cargo audit` 或在 CI 中运行 RustSec 漏洞审计。
+- CI 已新增独立 RustSec job，安装并运行 `cargo audit`；正式 `dist` 预检同时拒绝 `.env`、证书/私钥文件、测试书目录和私钥正文形态。
+- 首次 RustSec 审计已修复 `quinn-proto 0.11.14` 漏洞；Tauri/plist 暂时锁定的两条 `quick-xml` advisory 使用带输入边界和移除条件的精确例外，最终无未忽略漏洞。
 - 新增供应商、新增 Tauri command、新增日志/诊断字段时继续复查 CSP、输入校验和敏感信息边界。
 
-## 尚未处理的公开前事项
+## P6 Public Alpha 收口
 
-这些不属于本轮改动，但仍建议在正式 public 前继续处理：
+2026-07-13，README 已补齐 Public Alpha 安装、AI 配置、数据备份、隐私、安全、支持范围、已知限制、版本通道和反馈入口；仓库已有 CI badge、bug/feature issue forms、Release notes 与安全报告流程。P6.1-P6.12 工程基线因此冻结，后续开发进入 P7。
 
-- 继续按 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md) 补生产级能力；P6.1-P6.6 基础版已完成，后续重点转向 P6.7 正式 macOS 发布包、迁移夹具、压缩归档、备份签名、自动更新和 CI。
-- 为 public alpha 增加 issue 模板和基础 CI。
+仍由用户负责的发布运营事项：Alpha.3 → Alpha.4 App 内更新体验验收，以及 updater 私钥的加密离线备份和恢复演练。它们不再阻塞 P6 开发阶段，但扩大外部测试前仍应完成。

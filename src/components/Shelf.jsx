@@ -27,6 +27,10 @@ import {
   saveBookCover,
 } from "../lib/books.js";
 import { renderPdfFirstPageCover } from "../lib/bookCovers.js";
+import {
+  getBookTicketStamp,
+  getBookTicketStatusText,
+} from "../lib/bookTicketStatus.js";
 import { fetchFileFromUrl } from "../lib/fileAdapter.js";
 import { parseMobi } from "../lib/mobi.js";
 import { parsePdf } from "../lib/pdf.js";
@@ -42,9 +46,10 @@ const TEST_BOOK = {
   url: "/test-books/wanli15.pdf",
 };
 
-export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook, onOpenSalon }) {
+export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onOpenSalon }) {
   const inputRef = useRef(null);
   const importAbortControllerRef = useRef(null);
+  const shelfGridFixture = IS_TEST_CHANNEL ? readShelfGridFixtureSettings() : null;
   const [books, setBooks] = useState([]);
   const [loadingBooks, setLoadingBooks] = useState(true);
   const [progressByBookId, setProgressByBookId] = useState({});
@@ -84,6 +89,14 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
   }, [menuBookId]);
 
   async function refreshBooks() {
+    if (shelfGridFixture) {
+      const fixture = buildShelfGridFixture();
+      setBooks(fixture.books);
+      setProgressByBookId(fixture.progressByBookId);
+      setLoadingBooks(false);
+      return;
+    }
+
     try {
       const saved = await listBooks();
       const progressEntries = await Promise.all(
@@ -248,7 +261,7 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
   }
 
   return (
-    <div className="bookshelf-page mx-auto max-w-[1480px] px-6 pb-8 pt-7 sm:px-10 lg:px-16">
+    <div className="app-wide-frame bookshelf-page mx-auto max-w-[1480px] px-6 pb-8 pt-7 sm:px-10 lg:px-16">
       <div className="bookshelf-header flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h2 className="font-sans text-2xl font-semibold leading-tight text-ink">全部</h2>
@@ -318,7 +331,14 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
         <EmptyShelf onUpload={() => inputRef.current?.click()} />
       ) : (
         <section className="bookshelf-section mt-9">
-          <div className="bookshelf-grid">
+          <div
+            className="bookshelf-grid"
+            style={
+              shelfGridFixture?.width
+                ? { width: `min(100%, ${shelfGridFixture.width}px)` }
+                : undefined
+            }
+          >
             {books.map((book, index) => (
               <BookCard
                 key={book.id}
@@ -330,7 +350,6 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
                 onSetupBook={onSetupBook}
                 onPlanBook={onPlanBook}
                 onReadBook={onReadBook}
-                onChatBook={onChatBook}
                 onOpenSalon={onOpenSalon}
                 onOpenDirectory={setDirectoryBookId}
                 onDeleteBook={handleDeleteBook}
@@ -373,6 +392,68 @@ export default function Shelf({ onSetupBook, onPlanBook, onReadBook, onChatBook,
       )}
     </div>
   );
+}
+
+function readShelfGridFixtureSettings() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("shelf-grid-fixture") !== "20") return null;
+
+  const widthParam = params.get("fixture-width");
+  const requestedWidth = widthParam === null ? Number.NaN : Number(widthParam);
+  return {
+    width: Number.isFinite(requestedWidth)
+      ? Math.max(420, Math.min(1320, Math.round(requestedWidth)))
+      : null,
+  };
+}
+
+function buildShelfGridFixture() {
+  const titles = [
+    "书",
+    "显微镜下的大明",
+    "万历十五年（经典版）",
+    "全球通史：从史前到二十一世纪",
+    "一个非常非常长而且必然需要被截断的书名",
+  ];
+  const planItems = Array.from({ length: 4 }, (_, index) => ({
+    id: `fixture-day-${index + 1}`,
+    day: index + 1,
+    title: `测试章节 ${index + 1}`,
+    type: "chapter",
+    startPage: index + 1,
+    endPage: index + 1,
+  }));
+  const books = [];
+  const progressByBookId = {};
+
+  for (let index = 0; index < 20; index += 1) {
+    const id = `shelf-grid-fixture-${index + 1}`;
+    const state = index % 5;
+    const planned = state >= 2;
+    books.push({
+      id,
+      title: titles[index % titles.length],
+      author:
+        index % 4 === 0
+          ? "一位名字同样很长但会单行截断的作者"
+          : `测试作者 ${index + 1}`,
+      status: planned ? "planned" : state === 1 ? "confirmed" : "imported",
+      format: "pdf",
+      totalPages: 4,
+      readingPlan: planned ? { items: planItems } : null,
+    });
+
+    const completedCount = planned ? Math.min(4, state - 2 + (index % 3)) : 0;
+    progressByBookId[id] = {
+      currentItemIndex: Math.min(completedCount, 3),
+      completedItemKeys: planItems.slice(0, completedCount).map((item) => item.id),
+      currentPageByItemKey: {},
+      readingDays: index % 2 === 0 ? [formatLocalDate(new Date())] : [],
+      lastReadAt: planned ? new Date(Date.now() - index * 60_000).toISOString() : null,
+    };
+  }
+
+  return { books, progressByBookId };
 }
 
 function ShelfLoading() {
@@ -583,7 +664,6 @@ function BookCard({
   onSetupBook,
   onPlanBook,
   onReadBook,
-  onChatBook,
   onOpenSalon,
   onOpenDirectory,
   onDeleteBook,
@@ -640,10 +720,6 @@ function BookCard({
     }
 
     await handleReadBook();
-  }
-
-  function handleOpenBookCompanion() {
-    onChatBook?.(book.id);
   }
 
   function handleOpenBookSalon() {
@@ -712,7 +788,11 @@ function BookCard({
         "--book-cover-delay": `${Math.min(coverIndex, 16) * 42}ms`,
       }}
     >
-      <div className="book-ticket-paper">
+      <div
+        className={`book-ticket-paper ${
+          menuOpen && !contextMenuPosition ? "is-menu-open" : ""
+        }`}
+      >
         <div className="book-cover-shell">
           <button
             ref={coverButtonRef}
@@ -766,7 +846,6 @@ function BookCard({
                   canRead={canRead}
                   deleting={deleting}
                   onOpenSalon={handleOpenBookSalon}
-                  onChatBook={handleOpenBookCompanion}
                   onSetupBook={onSetupBook}
                   onPlanBook={onPlanBook}
                   onOpenDirectory={onOpenDirectory}
@@ -800,7 +879,6 @@ function BookCard({
           deleting={deleting}
           position={contextMenuPosition}
           onOpenSalon={handleOpenBookSalon}
-          onChatBook={handleOpenBookCompanion}
           onSetupBook={onSetupBook}
           onPlanBook={onPlanBook}
           onOpenDirectory={onOpenDirectory}
@@ -916,69 +994,6 @@ function getBookPrimaryActionLabel({ canPlan, canRead, readingStats }) {
   return readingStats.actionLabel;
 }
 
-function getBookTicketStatusText({ canPlan, canRead, readingStats }) {
-  if (!canPlan || !canRead) return "未设置读伴";
-  if (readingStats.percent >= 100) return "全书 100% · 可回顾";
-  if (readingStats.percent <= 0) return "未启卷";
-
-  return `已读 ${readingStats.percent}%`;
-}
-
-function getBookTicketStamp({ canPlan, canRead, progress, readingStats }) {
-  if (!canPlan) {
-    return {
-      tone: "pending",
-      kicker: "读伴",
-      label: "未设",
-      ariaLabel: "未设置读伴",
-    };
-  }
-
-  if (!canRead) {
-    return {
-      tone: "pending",
-      kicker: "读伴",
-      label: "待定",
-      ariaLabel: "未设置读伴",
-    };
-  }
-
-  if (readingStats.percent >= 100) {
-    return {
-      tone: "finished",
-      kicker: "全书",
-      label: "读完",
-      ariaLabel: "已读完",
-    };
-  }
-
-  if (hasReadToday(progress)) {
-    return {
-      tone: "read-today",
-      kicker: "今日",
-      label: "已读",
-      ariaLabel: "今日已读",
-    };
-  }
-
-  return {
-    tone: "unread-today",
-    kicker: "今日",
-    label: "未读",
-    ariaLabel: "今日未读",
-  };
-}
-
-function hasReadToday(progress = {}) {
-  const today = formatLocalDate(new Date());
-  if ((progress.readingDays || []).includes(today)) return true;
-
-  if (!progress.lastReadAt) return false;
-  const lastReadDate = new Date(progress.lastReadAt);
-  if (Number.isNaN(lastReadDate.getTime())) return false;
-  return formatLocalDate(lastReadDate) === today;
-}
-
 function CompactReadingHint({ stats }) {
   return (
     <section className="book-card-summary relative mt-5 rounded-lg px-4 py-4 pr-10">
@@ -1009,7 +1024,6 @@ function BookActionMenu({
   canRead,
   deleting,
   onOpenSalon,
-  onChatBook,
   onSetupBook,
   onPlanBook,
   onOpenDirectory,
@@ -1033,9 +1047,6 @@ function BookActionMenu({
     >
       <MenuItem onClick={() => chooseAction(onOpenSalon)}>
         整理这本书
-      </MenuItem>
-      <MenuItem onClick={() => chooseAction(onChatBook)}>
-        和读伴聊聊
       </MenuItem>
       {canRead && (
         <MenuItem onClick={() => chooseAction(() => onOpenDirectory(book.id))}>
@@ -1351,6 +1362,7 @@ function buildReadingStats(book, progress = {}) {
     percent,
     currentIndex,
     currentCompleted,
+    continuing,
     canAdvanceToNext,
     shouldOpenNextItem,
     actionItemIndex,

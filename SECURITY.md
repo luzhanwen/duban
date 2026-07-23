@@ -60,10 +60,13 @@ Last updated: 2026-07-07
 ```bash
 npm run security:scan
 npm run security:audit
+npm run security:rust-audit
 npm run build:formal
 cd src-tauri && cargo test && cargo check
 ```
 
-`npm run security:audit` 当前包括 `npm audit`、Rust 重复依赖树检查和本地安全扫描；它还没有包含 RustSec 数据库审计。后续 CI 或发布机应安装并运行 `cargo audit`。
+`npm run security:audit` 包括 `npm audit`、Rust 重复依赖树检查和本地安全扫描。RustSec 数据库审计由 CI 的独立 `RustSec Audit` job 固定执行；发布机安装 `cargo-audit` 后可用 `npm run security:rust-audit` 复跑。正式产物还会在 `release:preflight` 中检查测试书、`.env`、证书/私钥文件和常见私钥正文形态。
+
+项目内 RustSec 例外维护在 `src-tauri/.cargo/audit.toml`。例外必须精确到 advisory ID，写明依赖链、不可升级原因、输入是否可被用户控制和删除条件；不得忽略整个 warning/vulnerability 类别。当前两条 `quick-xml` 例外来自 Tauri/plist 的版本约束，plist 路径不接收导入书籍或模型响应，并应在上游支持 `quick-xml >=0.41` 后删除。
 
 生产依赖漏洞应优先处理。开发依赖漏洞需要根据影响面评估，尤其是构建工具、插件和包管理链路。

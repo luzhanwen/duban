@@ -1,17 +1,16 @@
 import { streamModelDetailed } from "./ai.js";
 import { isAiOutputTruncated } from "./aiCompletion.js";
-import { buildReadingReflectionPrompts } from "./promptTemplates.js";
+import {
+  buildReadingReflectionPrompts,
+  buildReadingReflectionSummaryPrompts,
+} from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
-import { buildReadingContractContext } from "./readingContract.js";
+import { buildCompanionContext } from "./companionContext.js";
+import { sanitizeCompanionAnswerForPolicy } from "./companionPolicy.js";
 import { getItem, getSettings, KEYS, setItem } from "./storage.js";
 import { toText } from "./text.js";
 
-const MAX_CONTEXT_CHARS = 9000;
-const MAX_READING_CONTEXT_CHARS = 5000;
 const MAX_HISTORY_MESSAGES = 10;
-const MAX_READING_CHAT_MESSAGES = 8;
-const MAX_READING_NOTES = 8;
-const REFLECTION_MAX_OUTPUT_TOKENS = 900;
 
 export async function getReadingReflection(bookId, itemKey) {
   if (!bookId || !itemKey) return [];
@@ -52,8 +51,10 @@ export async function sendReadingReflectionMessage({
   guide,
   readingChatMessages = [],
   readingNotes = [],
+  itemCompleted = false,
   messages,
   content,
+  sessionOverride,
   onDelta,
   signal,
 }) {
@@ -70,20 +71,27 @@ export async function sendReadingReflectionMessage({
 
   const existingMessages = normalizeReflectionMessages(messages);
   const history = existingMessages.slice(-MAX_HISTORY_MESSAGES);
-  const prompts = buildPrompt({
+  const context = buildCompanionContext({
+    scene: "readingReflection",
     book,
     item,
+    itemKey,
     chapterSections,
     guide,
     readingChatMessages,
     readingNotes,
     history,
     userMessage: text,
+    sessionOverride,
+    settings,
+    itemCompleted,
   });
+  const prompts = buildPrompt({ book, item, context, userMessage: text });
 
   const result = await streamModelDetailed({
     settings,
-    maxTokens: REFLECTION_MAX_OUTPUT_TOKENS,
+    maxTokens: context.maxOutputTokens,
+    hardMaxTokens: context.maxOutputTokens,
     system: prompts.system,
     messages: [
       {
@@ -94,18 +102,26 @@ export async function sendReadingReflectionMessage({
     onText: onDelta,
     signal,
     taskType: "readingReflection",
+    diagnosticContext: {
+      scene: context.scene,
+      policy: context.policy,
+      trace: context.trace,
+    },
   });
 
   const assistantMessage = {
     id: makeId("reflection-assistant"),
     role: "assistant",
-    content: toText(result.text).trim() || "这次追问生成失败。你可以再补一句理解，我们继续聊。",
+    content:
+      sanitizeCompanionAnswerForPolicy(toText(result.text).trim(), context.policy) ||
+      "这次追问生成失败。你可以再补一句理解，我们继续聊。",
     model: result.model || getActiveModel(settings),
     usage: result.usage,
     cost: estimateReflectionCost(settings, result),
     finishReason: result.finishReason,
     truncated: isAiOutputTruncated(result),
-    maxOutputTokens: REFLECTION_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: context.maxOutputTokens,
+    contextTrace: context.trace,
     createdAt: new Date().toISOString(),
   };
 
@@ -114,169 +130,107 @@ export async function sendReadingReflectionMessage({
   return { messages: nextMessages, user: userMessage, assistant: assistantMessage };
 }
 
-function buildPrompt({
+export async function generateReadingReflectionSummary({
   book,
   item,
+  itemKey,
   chapterSections,
   guide,
-  readingChatMessages,
-  readingNotes,
-  history,
-  userMessage,
+  readingChatMessages = [],
+  readingNotes = [],
+  messages,
+  onDelta,
+  signal,
 }) {
-  const contractContext = buildReadingContractContext({ book, item });
-  const contractPromptValues = buildContractPromptValues(contractContext);
-  const chapterText = chapterSections
-    .map(
-      (section) =>
-        `【${section.chapter.title}】\n页码：${section.chapter.startPage}-${section.chapter.endPage}\n${section.text}`
-    )
-    .join("\n\n---\n\n")
-    .slice(0, MAX_CONTEXT_CHARS);
-
-  const guideText = guide
-    ? [
-        guide.overview ? `导读开场：${guide.overview}` : "",
-        guide.goals?.length ? `阅读目标：${guide.goals.join("；")}` : "",
-        guide.questions?.length ? `读前问题：${guide.questions.join("；")}` : "",
-        guide.focus?.length ? `阅读提醒：${guide.focus.join("；")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "暂无导读。";
-
-  const historyText =
-    history.length > 0
-      ? history
-          .map((message) => `${message.role === "user" ? "用户" : "读伴"}：${message.content}`)
-          .join("\n")
-      : "暂无读后交流历史。";
-  const readingContextText = buildReadingContextText({
-    chatMessages: readingChatMessages,
-    notes: readingNotes,
+  const settings = await getSettings();
+  const existingMessages = normalizeReflectionMessages(messages).filter(
+    (message) => message.kind !== "summary"
+  );
+  const history = existingMessages.slice(-MAX_HISTORY_MESSAGES);
+  const context = buildCompanionContext({
+    scene: "readingReflection",
+    book,
+    item,
+    itemKey,
+    chapterSections,
+    guide,
+    readingChatMessages,
+    readingNotes,
+    history,
+    userMessage: "整理本节总结",
+    settings,
+    itemCompleted: true,
   });
+  const prompts = buildSummaryPrompt({ book, item, context });
+  const result = await streamModelDetailed({
+    settings,
+    maxTokens: context.maxOutputTokens,
+    hardMaxTokens: context.maxOutputTokens,
+    system: prompts.system,
+    messages: [{ role: "user", content: prompts.user }],
+    onText: onDelta,
+    signal,
+    taskType: "readingReflection",
+    diagnosticContext: {
+      scene: context.scene,
+      policy: context.policy,
+      trace: context.trace,
+    },
+  });
+  const summary = {
+    id: makeId("reflection-summary"),
+    role: "assistant",
+    kind: "summary",
+    content:
+      sanitizeCompanionAnswerForPolicy(toText(result.text).trim(), context.policy) ||
+      "这次没有整理出可靠的本节总结，请稍后重试。",
+    model: result.model || getActiveModel(settings),
+    usage: result.usage,
+    cost: estimateReflectionCost(settings, result),
+    finishReason: result.finishReason,
+    truncated: isAiOutputTruncated(result),
+    maxOutputTokens: context.maxOutputTokens,
+    contextTrace: context.trace,
+    createdAt: new Date().toISOString(),
+  };
+  const nextMessages = [...existingMessages, summary];
+  await saveReadingReflection(book.id, itemKey, nextMessages);
+  return { messages: nextMessages, summary };
+}
 
-  return buildReadingReflectionPrompts({
+function buildPrompt({ book, item, context, userMessage }) {
+  return {
+    ...buildReadingReflectionPrompts({
     bookTitle: toText(book.title),
     bookAuthor: toText(book.author) || "未知",
     day: item.day,
     itemTitle: item.title,
     startPage: item.startPage,
     endPage: item.endPage,
-    guideText,
-    chapterText,
-    ...contractPromptValues,
-    readingContextText,
-    historyText,
+    ...context.sections,
+    ...context.contractPromptValues,
+    contextBudgetInstruction: context.contextBudgetInstruction,
     userMessage,
-  });
-}
-
-function buildContractPromptValues(context) {
-  const hasCompanionFocus = Boolean(context.available?.companionFocus);
-  return {
-    contractBookProblem: toText(context.bookProblem).trim(),
-    contractCoreQuestion: toText(context.coreQuestion).trim(),
-    contractCompanionFocusLabel: hasCompanionFocus
-      ? formatCompanionFocusLabel(context.companionFocus)
-      : "",
-    contractCompanionFocusInstruction: hasCompanionFocus
-      ? toText(context.companionFocus?.promptInstruction).trim()
-      : "",
-    contractCurrentStructureRole: toText(context.currentStructureRole).trim(),
-    contractCurrentDifficultyHints: formatContractDifficultyHints(context.currentDifficultyHints),
-    contractCurrentKeyTurns: formatContractKeyTurns(context.currentKeyTurns),
-    contractSuggestedReadingPath: toText(context.suggestedReadingPath).trim(),
-    contractSourceLimitations: toText(context.sourceLimitations).trim(),
-    contractAvailableSummary: formatContractAvailableSummary(context.available),
+    }),
+    companionPolicy: context.policy,
   };
 }
 
-function formatCompanionFocusLabel(focus) {
-  const label = toText(focus?.label).trim();
-  const userText = toText(focus?.userText).trim();
-  const aiSummary = toText(focus?.aiSummary).trim();
-  return [label, userText || aiSummary].filter(Boolean).join("：");
-}
-
-function formatContractDifficultyHints(items) {
-  return asArray(items)
-    .map((item) => {
-      const topic = toText(item?.topic).trim();
-      const where = toText(item?.where).trim();
-      const whyHard = toText(item?.whyHard).trim();
-      const supportStrategy = toText(item?.supportStrategy).trim();
-      const title = [topic, where ? `位置：${where}` : ""].filter(Boolean).join("，");
-      const detail = [whyHard, supportStrategy ? `读伴可这样帮：${supportStrategy}` : ""]
-        .filter(Boolean)
-        .join("；");
-      return [title, detail].filter(Boolean).join("：");
-    })
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractKeyTurns(items) {
-  return asArray(items)
-    .map((item) =>
-      [toText(item?.title).trim(), toText(item?.whyItMatters).trim()]
-        .filter(Boolean)
-        .join("：")
-    )
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractAvailableSummary(available = {}) {
-  const parts = [];
-  if (available.wholeBookGuide) parts.push("已有整本书导读");
-  if (available.companionFocus) parts.push("已有用户选择的读伴侧重点");
-  if (available.structureMatch) parts.push("当前阅读项匹配到全书结构位置");
-  if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
-  return parts.length > 0
-    ? parts.join("；")
-    : "开书契约上下文为空，按原有读后交流逻辑追问，并省略上下文状态说明。";
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
-function buildReadingContextText({ chatMessages, notes }) {
-  const chatText = normalizeReflectionMessages(chatMessages)
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-MAX_READING_CHAT_MESSAGES)
-    .map((message) => {
-      const role = message.role === "user" ? "用户伴读提问" : "读伴伴读回答";
-      return `${role}：${message.content}`;
-    });
-  const noteText = normalizeReadingNotes(notes)
-    .slice(0, MAX_READING_NOTES)
-    .map((note, index) => {
-      const page = note.pageNumber ? `第 ${note.pageNumber} 页，` : "";
-      const quote = note.text ? `原文：“${note.text}”` : "";
-      const userNote = note.note ? `笔记：${note.note}` : "";
-      const assistant = note.assistantContent ? `读伴回答：${note.assistantContent}` : "";
-      return `笔记 ${index + 1}：${page}${[quote, userNote, assistant].filter(Boolean).join("；")}`;
-    });
-  const sections = [
-    chatText.length ? `伴读问答：\n${chatText.join("\n")}` : "",
-    noteText.length ? `高亮和笔记：\n${noteText.join("\n")}` : "",
-  ].filter(Boolean);
-
-  return sections.length ? sections.join("\n\n").slice(0, MAX_READING_CONTEXT_CHARS) : "用户当前未选择带入伴读问答或笔记，当前阅读项暂无这些上下文。";
-}
-
-function normalizeReadingNotes(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((note) => ({
-      pageNumber: Number(note?.pageNumber) || null,
-      text: toText(note?.text).trim(),
-      note: toText(note?.note).trim(),
-      assistantContent: toText(note?.assistantContent).trim(),
-    }))
-    .filter((note) => note.text || note.note || note.assistantContent);
+function buildSummaryPrompt({ book, item, context }) {
+  return {
+    ...buildReadingReflectionSummaryPrompts({
+      bookTitle: toText(book.title),
+      bookAuthor: toText(book.author) || "未知",
+      day: item.day,
+      itemTitle: item.title,
+      startPage: item.startPage,
+      endPage: item.endPage,
+      ...context.sections,
+      ...context.contractPromptValues,
+      contextBudgetInstruction: context.contextBudgetInstruction,
+    }),
+    companionPolicy: context.policy,
+  };
 }
 
 function normalizeReflectionMessages(value) {

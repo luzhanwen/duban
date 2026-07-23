@@ -6,6 +6,7 @@ import { clearAiDiagnostics, getAiDiagnostics } from "../lib/aiDiagnostics.js";
 import { AI_PROFILE_TASKS, DEFAULT_AI_PROFILES } from "../lib/aiProfiles.js";
 import { buildAiConfigText, parseAiConfigText } from "../lib/aiConfigImport.js";
 import {
+  buildDiagnosticEntryDetails,
   buildDiagnosticErrorDetails,
   copyDiagnosticText,
   exportDiagnosticPackage,
@@ -238,6 +239,7 @@ export default function Settings({ onOpenPrivacy }) {
   const [aiProfilesEnabled, setAiProfilesEnabled] = useState(DEFAULT_AI_PROFILES.enabled);
   const [aiProfileTasks, setAiProfileTasks] = useState(DEFAULT_AI_PROFILES.tasks);
   const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [testMsg, setTestMsg] = useState(null);
   const [configMsg, setConfigMsg] = useState(null);
@@ -360,10 +362,37 @@ export default function Settings({ onOpenPrivacy }) {
       return;
     }
 
-    await saveSettings(settings);
-    applySavedKeyState(settings);
-    setSaveMsg({ type: "ok", text: "已保存到本地。" });
-    setTimeout(() => setSaveMsg(null), 2000);
+    setSaving(true);
+    setSaveMsg({ type: "info", text: "正在保存模型配置…" });
+    setTestMsg(null);
+    try {
+      await saveSettings(settings);
+      applySavedKeyState(settings);
+      const savedNewKey =
+        settings.provider === PROVIDERS.openaiCompatible
+          ? Boolean(settings.openaiCompatible.apiKey)
+          : Boolean(settings.anthropic.apiKey);
+      setSaveMsg({
+        type: "ok",
+        text: desktopBackupAvailable
+          ? savedNewKey
+            ? "保存成功。API Key 已写入系统 Keychain，新的模型配置已经生效。"
+            : "保存成功。模型配置已经生效，并继续使用系统 Keychain 中已有的 API Key。"
+          : "保存成功。模型配置已保存到当前浏览器。",
+      });
+    } catch (error) {
+      setSaveMsg({
+        type: "error",
+        text: `保存失败：${
+          error?.message ||
+          (desktopBackupAvailable
+            ? "无法写入系统 Keychain。当前输入仍然保留，请解锁登录钥匙串后重试。"
+            : "无法写入本地存储，请稍后重试。")
+        }`,
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleConfigFileChange(event) {
@@ -576,8 +605,12 @@ export default function Settings({ onOpenPrivacy }) {
 
   async function handleCopyErrorDetails(entry) {
     try {
-      await copyDiagnosticText(buildDiagnosticErrorDetails(entry));
-      setDiagnosticsMsg({ type: "ok", text: "已复制脱敏错误详情。" });
+      await copyDiagnosticText(
+        isDiagnosticIssueEntry(entry)
+          ? buildDiagnosticErrorDetails(entry)
+          : buildDiagnosticEntryDetails(entry)
+      );
+      setDiagnosticsMsg({ type: "ok", text: "已复制脱敏诊断摘要。" });
     } catch (e) {
       setDiagnosticsMsg({
         type: "error",
@@ -1224,11 +1257,21 @@ export default function Settings({ onOpenPrivacy }) {
                     <p className="settings-save-subtitle">保存后，新的导读和问答会使用这套配置。</p>
                   </div>
                   <div className="settings-save-actions">
-                    <button type="button" onClick={handleTest} disabled={testing} className="settings-secondary-button">
+                    <button
+                      type="button"
+                      onClick={handleTest}
+                      disabled={testing || saving}
+                      className="settings-secondary-button"
+                    >
                       {testing ? "测试中…" : "测试连接"}
                     </button>
-                    <button type="button" onClick={handleSave} className="settings-primary-button">
-                      保存设置
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={saving || testing}
+                      className="settings-primary-button"
+                    >
+                      {saving ? "保存中…" : "保存设置"}
                     </button>
                   </div>
                 </div>
@@ -1585,7 +1628,10 @@ export default function Settings({ onOpenPrivacy }) {
                   )}
                 </SettingsSection>
 
-                <SettingsSection title="AI 错误详情" desc="复制内容只包含最近调用的脱敏摘要。">
+                <SettingsSection
+                  title="AI 调用与选材"
+                  desc="可查看每次调用使用了哪些材料、为什么排除其他材料，以及是否命中缓存。诊断中不保存正文、笔记、回答或 API Key。"
+                >
                   <div className="settings-action-row">
                     <button
                       type="button"
@@ -1881,6 +1927,7 @@ function BackupMetricGrid({ preview, compact = false }) {
     ["笔记", preview.noteCount],
     ["聊天", preview.chatCount],
     ["读后交流", preview.reflectionCount],
+    ["陪读事件", preview.companionEventCount],
     ["校验", preview.issues?.length ? `${preview.issues.length} 项提示` : "通过"],
     ["备份校验码", preview.manifestSha256 ? preview.manifestSha256.slice(0, 12) : "旧版未记录"],
   ];
@@ -2375,7 +2422,7 @@ function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
           <div className="settings-diagnostic-head">
             <div>
               <p className="settings-diagnostic-title">
-                {entry.taskLabel || "AI 请求"} · {entry.mode === "stream" ? "流式" : "非流式"}
+                {entry.taskLabel || "AI 请求"} · {formatDiagnosticMode(entry.mode)}
               </p>
               <p className="settings-diagnostic-meta">
                 {formatDateTime(entry.startedAt)} · {entry.provider || "未知供应商"} ·{" "}
@@ -2386,15 +2433,13 @@ function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
               <span className={`settings-diagnostic-badge settings-diagnostic-${entry.status}`}>
                 {formatDiagnosticStatus(entry.status)}
               </span>
-              {isDiagnosticIssueEntry(entry) && (
-                <button
-                  type="button"
-                  onClick={() => onCopyErrorDetails(entry)}
-                  className="settings-diagnostic-copy"
-                >
-                  复制
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => onCopyErrorDetails(entry)}
+                className="settings-diagnostic-copy"
+              >
+                复制摘要
+              </button>
             </div>
           </div>
 
@@ -2403,7 +2448,10 @@ function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
             <Metric label="输入 token" value={entry.inputTokens || 0} />
             <Metric label="输出 token" value={entry.outputTokens || 0} />
             <Metric label="费用" value={formatUsd(entry.actualCost || entry.estimatedCost || 0)} />
-            <Metric label="尝试" value={entry.attempts || "未记录"} />
+            <Metric
+              label="尝试"
+              value={entry.mode === "cache" ? "0（未调用）" : entry.attempts || "未记录"}
+            />
             <Metric label="Profile" value={entry.profileApplied ? "已应用" : "默认"} />
           </div>
 
@@ -2421,9 +2469,48 @@ function AiDiagnosticsView({ diagnostics, onCopyErrorDetails }) {
           {entry.baseUrlOrigin && (
             <p className="settings-diagnostic-detail">Base URL：{entry.baseUrlOrigin}</p>
           )}
+          {entry.context && <AiContextDiagnosticView context={entry.context} />}
         </article>
       ))}
     </div>
+  );
+}
+
+function AiContextDiagnosticView({ context }) {
+  const budget = context.budget || {};
+  return (
+    <details className="settings-context-diagnostic">
+      <summary>
+        本次使用了 {budget.sourceCount || 0} 项材料
+        {context.cache?.hit ? " · 已命中缓存" : ""}
+      </summary>
+      <div className="settings-context-diagnostic-body">
+        <p className="settings-diagnostic-detail">
+          {formatContextCache(context.cache)} · 已用 {budget.usedContextChars || 0} /{" "}
+          {budget.maxContextChars || 0} 字符 · 输出上限 {budget.maxOutputTokens || 0} token
+        </p>
+        <p className="settings-diagnostic-detail">{formatContextPolicy(context.policy)}</p>
+        {context.sources?.length > 0 && (
+          <div className="settings-context-source-list">
+            {context.sources.map((source, index) => (
+              <span key={`${source.ref || source.kind}-${index}`}>
+                {formatContextSource(source)}
+              </span>
+            ))}
+          </div>
+        )}
+        {context.exclusions?.length > 0 && (
+          <div className="settings-context-exclusion-list">
+            {context.exclusions.map((entry, index) => (
+              <span key={`${entry.kind}-${entry.reason}-${index}`}>
+                未带入 {formatContextSourceKind(entry.kind)}：
+                {formatContextExclusionReason(entry.reason)}（{entry.count} 项）
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -2441,6 +2528,82 @@ function formatDiagnosticStatus(status) {
   if (status === "blocked") return "已拦截";
   if (status === "cancelled") return "已取消";
   return "失败";
+}
+
+function formatDiagnosticMode(mode) {
+  if (mode === "stream") return "流式";
+  if (mode === "cache") return "缓存复用";
+  return "非流式";
+}
+
+function formatContextCache(cache) {
+  if (!cache?.kind) return "缓存状态未记录";
+  if (!cache.hit) return "未命中缓存，已重新整理材料";
+  return cache.kind === "guide-artifact" ? "直接使用已生成导读" : "使用已整理的上下文";
+}
+
+function formatContextPolicy(policy = {}) {
+  const values = [
+    { avoid: "仅使用已读内容", hint: "不透露未读内容", allow: "允许讨论后文" }[
+      policy.spoiler
+    ],
+    { concise: "简要回答", balanced: "标准回答", deep: "详细回答" }[
+      policy.answerDepth
+    ],
+    { never: "不追问", helpful: "信息不足时追问", always: "回答后追问" }[
+      policy.followUp
+    ],
+    { book: "仅限书中", text_first: "以书为主", open: "可补充外部知识" }[
+      policy.knowledgeBoundary
+    ],
+  ].filter(Boolean);
+  return values.length ? `本次规则：${values.join(" · ")}` : "本次规则未记录";
+}
+
+function formatContextSource(source) {
+  const page = source.pageNumber
+    ? source.pageEnd && source.pageEnd !== source.pageNumber
+      ? ` · 第 ${source.pageNumber}-${source.pageEnd} 页`
+      : ` · 第 ${source.pageNumber} 页`
+    : "";
+  const state = [source.compacted ? "已压缩" : "", source.truncated ? "已截短" : ""]
+    .filter(Boolean)
+    .join("、");
+  return `${formatContextSourceKind(source.kind)}${page} · ${source.charCount || 0} 字${
+    state ? ` · ${state}` : ""
+  }`;
+}
+
+function formatContextSourceKind(value) {
+  return {
+    selection: "选中的原文",
+    current_page: "当前页",
+    prior_reading: "已读内容",
+    target_item: "当前阅读项",
+    open_item: "允许带入的当前阅读项",
+    completed_item: "已完成阅读项",
+    guide: "导读",
+    history_user: "历史提问",
+    history_assistant: "历史回答",
+    reading_chat_user: "伴读提问",
+    reading_chat_assistant: "伴读回答",
+    reading_note: "阅读笔记",
+    memory: "确认保留的本书记忆",
+    unread_item: "未读正文",
+    assistant_history: "旧模型回答",
+    contract_key_turn: "全书关键转折",
+    contract_reading_path: "全书阅读路径",
+  }[value] || "其他材料";
+}
+
+function formatContextExclusionReason(value) {
+  return {
+    "spoiler-policy": "受未读内容设置限制",
+    "reading-frontier": "尚未确认读到",
+    "context-budget": "超过本次上下文容量",
+    "memory-scope": "与本次问题或阅读位置不符",
+    "empty-source": "没有可用文本",
+  }[value] || "未满足本次选材条件";
 }
 
 function formatHealthStatus(status) {

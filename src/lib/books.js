@@ -1,5 +1,9 @@
 import { getItem, removeItem, setItem, KEYS, store } from "./storage.js";
 import { BOOK_FORMATS, getBookFormat } from "./bookFormats.js";
+import {
+  normalizeCompanionMemory,
+  normalizeCompanionPolicy,
+} from "./companionPolicy.js";
 import { toText } from "./text.js";
 
 const COMPANION_FOCUS_TYPES = new Set([
@@ -47,7 +51,7 @@ const COMPANION_FOCUS_DEFAULTS = {
   custom: {
     label: "我自己指定",
     aiSummary: "",
-    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标收束。",
+    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标展开。",
   },
 };
 
@@ -94,6 +98,7 @@ export async function getReadingProgress(id) {
     completedItemKeys: [],
     completedAtByItemKey: {},
     currentPageByItemKey: {},
+    readStateByItemKey: {},
     readingDays: [],
     lastReadAt: null,
     ...saved,
@@ -106,6 +111,7 @@ export async function saveReadingProgress(id, progress) {
     completedItemKeys: [],
     completedAtByItemKey: {},
     currentPageByItemKey: {},
+    readStateByItemKey: {},
     readingDays: [],
     lastReadAt: null,
     ...progress,
@@ -202,6 +208,45 @@ export async function updateBookCompanionFocus(id, companionFocusPatch = {}) {
     ...existingProfile,
     schemaVersion: existingProfile.schemaVersion || 2,
     companionFocus,
+    updatedAt: now,
+  };
+  const updatedBook = {
+    ...book,
+    readingProfile,
+    updatedAt: now,
+  };
+  const nextBooks = [...books];
+  nextBooks[bookIndex] = updatedBook;
+
+  await setItem(KEYS.books, nextBooks);
+  return updatedBook;
+}
+
+export async function updateBookCompanionSettings(id, settings = {}) {
+  const books = await listBooks();
+  const bookIndex = books.findIndex((book) => book.id === id);
+  if (bookIndex < 0) return null;
+
+  const now = new Date().toISOString();
+  const book = books[bookIndex];
+  const existingProfile = isPlainObject(book.readingProfile) ? book.readingProfile : {};
+  const nextPolicy = normalizeCompanionPolicy(
+    hasOwn(settings, "policy") ? settings.policy : existingProfile.companionPolicy
+  );
+  const nextMemory = normalizeCompanionMemory(
+    hasOwn(settings, "memory")
+      ? { ...settings.memory, initialized: true }
+      : existingProfile.companionMemory,
+    existingProfile
+  );
+  const readingProfile = {
+    ...existingProfile,
+    schemaVersion: Math.max(Number(existingProfile.schemaVersion) || 0, 3),
+    companionPolicy: nextPolicy,
+    companionMemory: {
+      ...nextMemory,
+      initialized: true,
+    },
     updatedAt: now,
   };
   const updatedBook = {

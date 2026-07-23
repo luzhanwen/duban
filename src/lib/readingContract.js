@@ -1,5 +1,10 @@
 import { cleanText, toText } from "./text.js";
-import { normalizeWholeBookGuide } from "./wholeBookGuide.js";
+import {
+  buildCompanionMemoryInstruction,
+  buildCompanionPolicyInstruction,
+  getCompanionSettings,
+  resolveCompanionPolicy,
+} from "./companionPolicy.js";
 
 const FOCUS_TYPES = new Set([
   "mainline",
@@ -58,15 +63,20 @@ const DEFAULT_FOCUS_BY_TYPE = {
     label: "我自己指定",
     userText: "",
     aiSummary: "",
-    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标收束。",
+    promptInstruction: "后续导读、问答和读后追问都要围绕用户自定义的阅读目标展开。",
   },
 };
 
 const VALID_PACES = new Set(["light", "standard", "deep"]);
 
-export function buildReadingContractContext({ book, item } = {}) {
+export function buildReadingContractContext({ book, item, sessionOverride } = {}) {
   const guide = getUsableWholeBookGuide(book?.wholeBookGuide);
   const companionFocusResult = buildCompanionFocus(book?.readingProfile);
+  const companionSettings = getCompanionSettings(book?.readingProfile);
+  const companionPolicy = resolveCompanionPolicy(
+    companionSettings.policy,
+    sessionOverride
+  );
   const itemChapterIds = normalizeIdList(item?.chapterIds ?? item?.chapterId);
   const structureMatches = guide
     ? findChapterMatches(guide.structureMap, itemChapterIds)
@@ -82,6 +92,10 @@ export function buildReadingContractContext({ book, item } = {}) {
     bookProblem: guide ? clean(guide.bookProblem) : "",
     coreQuestion: guide ? clean(guide.coreQuestion) : "",
     companionFocus: companionFocusResult.value,
+    companionPolicy,
+    companionPolicyInstruction: buildCompanionPolicyInstruction(companionPolicy),
+    companionMemory: companionSettings.memory,
+    companionMemoryInstruction: buildCompanionMemoryInstruction(companionSettings.memory),
     currentStructureRole: buildCurrentStructureRole(structureMatches),
     currentDifficultyHints: difficultyMatches.map(toDifficultyHint).filter(hasUsefulValue),
     currentKeyTurns: keyTurnMatches.map(toKeyTurn).filter(hasUsefulValue),
@@ -93,6 +107,8 @@ export function buildReadingContractContext({ book, item } = {}) {
     available: {
       wholeBookGuide: Boolean(guide),
       companionFocus: companionFocusResult.available,
+      companionPolicy: true,
+      companionMemory: companionSettings.memory.items.length > 0,
       structureMatch: structureMatches.length > 0,
       difficultyMatch: difficultyMatches.length > 0,
     },
@@ -146,7 +162,32 @@ function cleanCompanionFocusText(value) {
 }
 
 function parseWholeBookGuideValue(value) {
-  return normalizeWholeBookGuide(value);
+  if (!value) return null;
+  let source = value;
+  if (typeof value === "string") {
+    const text = value.trim();
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    try {
+      source = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
+  return {
+    ...source,
+    status: clean(source.status) || "ready",
+    bookProblem: clean(source.bookProblem),
+    coreQuestion: clean(source.coreQuestion),
+    structureMap: normalizeObjectList(source.structureMap),
+    keyTurns: normalizeObjectList(source.keyTurns),
+    difficultyMap: normalizeObjectList(source.difficultyMap),
+    suggestedReadingPaths: normalizeObjectList(source.suggestedReadingPaths),
+    planAdvice: normalizePlanAdvice(source.planAdvice),
+    sourceLimitations: clean(source.sourceLimitations),
+  };
 }
 
 function findChapterMatches(items, itemChapterIds) {

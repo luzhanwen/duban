@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandName, renderBrandNameText } from "./BrandLogo.jsx";
 import ChineseIcon from "./ChineseIcon.jsx";
+import CompanionShell, {
+  CompanionComposer,
+  CompanionContext,
+  CompanionPresence,
+  CompanionTimeline,
+  useCompanionShell,
+  useCompanionTimelineScroll,
+} from "./CompanionShell.jsx";
+import CompanionJourneyTimeline from "./CompanionJourneyTimeline.jsx";
+import CompanionSectionRecordEditor from "./CompanionSectionRecordEditor.jsx";
 import PdfReader from "./PdfReader.jsx";
 import ReadingCompanionAvatar from "./ReadingCompanionAvatar.jsx";
 import TextBookReader from "./TextBookReader.jsx";
@@ -10,7 +20,15 @@ import {
   getBookPages,
   getReadingProgress,
   saveReadingProgress,
+  updateBook,
+  updateBookCompanionSettings,
 } from "../lib/books.js";
+import {
+  COMPANION_POLICY_OPTIONS,
+  COMPANION_SESSION_OVERRIDE_OPTIONS,
+  createCompanionMemoryItem,
+  getCompanionSettings,
+} from "../lib/companionPolicy.js";
 import {
   generateReadingGuide,
   getPlanItemKey,
@@ -19,6 +37,7 @@ import {
 import { getReadingChat, sendReadingChatMessage } from "../lib/readingChat.js";
 import {
   buildInitialReflectionMessage,
+  generateReadingReflectionSummary,
   getReadingReflection,
   saveReadingReflection,
   sendReadingReflectionMessage,
@@ -35,7 +54,39 @@ import {
   isPlanItemDue,
 } from "../lib/readingSchedule.js";
 import { isAiAbortError } from "../lib/aiCancellation.js";
+import {
+  buildCompanionJourney,
+  COMPANION_JOURNEY_TYPES,
+} from "../lib/companionJourney.js";
+import { companionEventIdForPayloadRef } from "../lib/companionEvents.js";
+import {
+  buildCompanionSessionRecord,
+  buildGuideClues,
+} from "../lib/companionTimeline.js";
+import { buildCompanionSectionRecordDraft } from "../lib/companionSectionRecord.js";
+import {
+  recordCompanionPolicyChange,
+  recordCompanionSessionOverride,
+  recordCompanionSessionRecord,
+  syncCompanionJourneyEvents,
+} from "../lib/companionEventStore.js";
+import {
+  cancelCompanionTransition,
+  runCompanionTransition,
+} from "../lib/companionTransition.js";
 import { toText } from "../lib/text.js";
+import {
+  buildBookContentMap,
+  buildSelectionAnchor,
+  getContentBlocksForPage,
+} from "../lib/contentMap.js";
+import {
+  buildAllowedReadingContext,
+  updateProgressReadState,
+} from "../lib/readingFrontier.js";
+import { getReaderPageKeyDirection } from "../lib/readerKeyboard.js";
+import { COMPANION_VISUAL_STATES } from "../lib/companionVisualState.js";
+import { repairLegacyReadingPlan } from "../lib/readingPlanChunks.js";
 
 const SESSION_STAGES = {
   intro: "intro",
@@ -49,15 +100,22 @@ const READER_VIEW_MODES = {
   page: "page",
 };
 const PAGE_ANIMATION_PREFERENCE_KEY = "duban:reader:page-animation";
+const GUIDE_GENERATION_TIMEOUT_MS = 120_000;
 
-const PAGE_TURN_TRANSITION_MS = 1460;
+const PAGE_TURN_TRANSITION_MS = 1120;
 const DEFAULT_READER_COMPANION_PROFILE = {
   name: "读伴",
-  color: "sage",
+  color: "cinnabar",
   expression: "gentle",
 };
 
 const READER_COMPANION_COLOR_OPTIONS = [
+  {
+    id: "cinnabar",
+    accent: "#b5372b",
+    soft: "#f8efe9",
+    ribbon: "#91352d",
+  },
   {
     id: "sage",
     accent: "#6f8a74",
@@ -100,6 +158,7 @@ export default function Reader({
     completedItemKeys: [],
     completedAtByItemKey: {},
     currentPageByItemKey: {},
+    readStateByItemKey: {},
     readingDays: [],
     lastReadAt: null,
   });
@@ -125,12 +184,15 @@ export default function Reader({
   const [loading, setLoading] = useState(true);
   const [preserveCurrentItemIndex, setPreserveCurrentItemIndex] = useState(false);
   const [pageTurnActive, setPageTurnActive] = useState(false);
+  const [companionArrivalActive, setCompanionArrivalActive] = useState(false);
   const progressRef = useRef(progress);
   const pendingOpenModeRef = useRef("default");
   const pageTurnFinishTimeoutRef = useRef(null);
   const guideAbortRef = useRef(null);
   const chatAbortRef = useRef(null);
   const reflectionAbortRef = useRef(null);
+  const readingDwellTimeoutRef = useRef(null);
+  const currentPageRef = useRef(null);
 
   useEffect(() => {
     progressRef.current = progress;
@@ -140,6 +202,9 @@ export default function Reader({
     () => () => {
       if (pageTurnFinishTimeoutRef.current) {
         window.clearTimeout(pageTurnFinishTimeoutRef.current);
+      }
+      if (readingDwellTimeoutRef.current) {
+        window.clearTimeout(readingDwellTimeoutRef.current);
       }
       cancelActiveAiRequests();
     },
@@ -151,11 +216,21 @@ export default function Reader({
 
     async function load() {
       setLoading(true);
-      const [savedBook, savedPages, savedProgress] = await Promise.all([
+      const [storedBook, savedPages, storedProgress] = await Promise.all([
         getBook(bookId),
         getBookPages(bookId),
         getReadingProgress(bookId),
       ]);
+      const repaired = repairLegacyReadingPlan(storedBook, storedProgress);
+      const savedBook = repaired.book;
+      const savedProgress = repaired.progress;
+
+      if (repaired.changed && savedBook?.id) {
+        await Promise.all([
+          updateBook(savedBook.id, { readingPlan: savedBook.readingPlan }),
+          saveReadingProgress(savedBook.id, savedProgress),
+        ]);
+      }
 
       if (!alive) return;
       const savedPlanItems = savedBook?.readingPlan?.items || [];
@@ -174,6 +249,7 @@ export default function Reader({
         completedItemKeys: savedProgress.completedItemKeys || [],
         completedAtByItemKey: savedProgress.completedAtByItemKey || {},
         currentPageByItemKey: savedProgress.currentPageByItemKey || {},
+        readStateByItemKey: savedProgress.readStateByItemKey || {},
         readingDays: savedProgress.readingDays || [],
         lastReadAt: savedProgress.lastReadAt || null,
       });
@@ -190,6 +266,10 @@ export default function Reader({
   const currentIndex = clampIndex(activeItemIndex ?? progress.currentItemIndex, planItems.length);
   const currentItem = planItems[currentIndex] || null;
   const currentKey = getPlanItemKey(currentItem, currentIndex);
+  const contentMap = useMemo(
+    () => buildBookContentMap({ book, pages, planItems }),
+    [book, pages, planItems]
+  );
   const completedKeys = progress.completedItemKeys || [];
   const completed = currentKey ? completedKeys.includes(currentKey) : false;
   const savedLocation = getSavedLocationForCurrentItem(progress, currentKey, currentItem);
@@ -205,16 +285,65 @@ export default function Reader({
     const pageNumber = Number(currentPage) || Number(currentItem.startPage) || null;
     if (!pageNumber) return null;
     const page = pages.find((itemPage) => Number(itemPage.pageNumber) === pageNumber);
+    const reliableBlocks = getContentBlocksForPage(contentMap, pageNumber, currentKey).filter(
+      (block) => block.quality !== "unusable"
+    );
     return {
       pageNumber,
-      text: toText(page?.text).trim(),
+      text: reliableBlocks.length > 0
+        ? reliableBlocks.map((block) => block.text).join("\n\n")
+        : "",
+      rawTextAvailable: Boolean(toText(page?.text).trim()),
+      quality: reliableBlocks.length > 0 ? "usable" : "unusable",
     };
-  }, [currentItem, currentPage, pages]);
+  }, [contentMap, currentItem, currentKey, currentPage, pages]);
+
+  const allowedReadingContext = useMemo(
+    () =>
+      buildAllowedReadingContext({
+        contentMap,
+        progress,
+        itemKey: currentKey,
+        currentPageNumber: currentPageContext?.pageNumber,
+      }),
+    [contentMap, currentKey, currentPageContext?.pageNumber, progress]
+  );
 
   const reflectionContextStats = useMemo(
     () => buildReflectionContextStats(chatMessages, notes),
     [chatMessages, notes]
   );
+  const companionJourney = useMemo(() => {
+    if (!book?.id || !currentKey) return [];
+    return buildCompanionJourney({
+      bookId: book.id,
+      planItems,
+      guidesByItemKey: guide ? { [currentKey]: guide } : {},
+      chatStore: { [currentKey]: chatMessages },
+      reflectionStore: { [currentKey]: reflectionMessages },
+      notesStore: { [currentKey]: notes },
+    });
+  }, [book?.id, chatMessages, currentKey, guide, notes, planItems, reflectionMessages]);
+
+  useEffect(() => {
+    if (!book?.id || guideLoading || chatLoading || reflectionLoading) return;
+    syncCompanionJourneyEvents(book.id, companionJourney).catch(() => {});
+  }, [book?.id, chatLoading, companionJourney, guideLoading, reflectionLoading]);
+
+  useEffect(() => {
+    if (!book?.id) return;
+    const settings = getCompanionSettings(book.readingProfile);
+    const timestamp = book.readingProfile?.updatedAt || book.updatedAt;
+    recordCompanionPolicyChange({
+      bookId: book.id,
+      itemKey: null,
+      policy: settings.policy,
+      memory: settings.memory,
+      identity: `snapshot:${timestamp || "legacy"}`,
+      timestamp,
+      source: "migration",
+    }).catch(() => {});
+  }, [book?.id, book?.readingProfile?.updatedAt, book?.updatedAt]);
 
   useEffect(() => {
     let alive = true;
@@ -237,6 +366,7 @@ export default function Reader({
       currentItem
     );
     const savedPage = savedLocationForItem?.pageNumber || normalizePageNumber(null, currentItem);
+    currentPageRef.current = savedPage;
     const openMode = pendingOpenModeRef.current || "default";
     const forceReading = openMode === "review" || openMode === "reading";
     setCurrentPage(savedPage);
@@ -349,6 +479,11 @@ export default function Reader({
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function changeSessionStage(nextStage, transitionName = "reader-scene") {
+    if (nextStage === sessionStage) return;
+    runCompanionTransition(() => setSessionStage(nextStage), { name: transitionName });
+  }
+
   async function jumpTo(index, mode = "default") {
     await openPlanItem(index, mode);
   }
@@ -357,7 +492,11 @@ export default function Reader({
     cancelGuideGeneration();
     const scrollBehavior = options?.scrollBehavior || "smooth";
     const trackActivity = options?.trackActivity !== false;
-    setSessionStage(SESSION_STAGES.reading);
+    if (options?.sceneTransition === false) {
+      setSessionStage(SESSION_STAGES.reading);
+    } else {
+      changeSessionStage(SESSION_STAGES.reading, "guide-to-reading");
+    }
     if (trackActivity) {
       recordReadingActivity({
         pageNumber:
@@ -375,14 +514,21 @@ export default function Reader({
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     if (!withPageTurn || reducedMotion) {
+      setCompanionArrivalActive(false);
       enterReadingStage({ scrollBehavior: reducedMotion ? "auto" : "smooth" });
       return;
     }
 
     if (pageTurnActive) return;
 
+    cancelCompanionTransition();
+    setCompanionArrivalActive(false);
     setPageTurnActive(true);
-    enterReadingStage({ scrollBehavior: "auto", trackActivity: false });
+    enterReadingStage({
+      scrollBehavior: "auto",
+      trackActivity: false,
+      sceneTransition: false,
+    });
 
     if (pageTurnFinishTimeoutRef.current) {
       window.clearTimeout(pageTurnFinishTimeoutRef.current);
@@ -396,23 +542,21 @@ export default function Reader({
           normalizePageNumber(null, currentItem),
       });
       setPageTurnActive(false);
+      setCompanionArrivalActive(true);
     }, PAGE_TURN_TRANSITION_MS);
   }
 
   function openReflection() {
     cancelChatGeneration();
-    ensureReflectionStarted();
-    setSessionStage(SESSION_STAGES.reflection);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function ensureReflectionStarted() {
-    if (reflectionMessages.length > 0 || !currentItem) return;
-
-    const opening = buildInitialReflectionMessage({ item: currentItem, guide });
-    const nextMessages = [opening];
-    setReflectionMessages(nextMessages);
-    if (book?.id && currentKey) {
+    const nextMessages =
+      reflectionMessages.length === 0 && currentItem
+        ? [buildInitialReflectionMessage({ item: currentItem, guide })]
+        : null;
+    runCompanionTransition(() => {
+      if (nextMessages) setReflectionMessages(nextMessages);
+      setSessionStage(SESSION_STAGES.reflection);
+    }, { name: "reading-to-reflection" });
+    if (nextMessages && book?.id && currentKey) {
       saveReadingReflection(book.id, currentKey, nextMessages);
     }
   }
@@ -422,7 +566,7 @@ export default function Reader({
     const key = getPlanItemKey(currentItem, currentIndex);
     const now = new Date().toISOString();
     const nextKeys = completedKeys.includes(key) ? completedKeys : [...completedKeys, key];
-    const next = {
+    let next = {
       ...progressRef.current,
       completedItemKeys: nextKeys,
       completedAtByItemKey: {
@@ -434,9 +578,29 @@ export default function Reader({
         : currentIndex,
       lastReadAt: now,
     };
+    next = updateProgressReadState(next, {
+      contentMap,
+      itemKey: key,
+      pageNumber: currentPageRef.current,
+      level: "completed",
+      timestamp: now,
+    });
     persistProgress(addReadingDay(next));
-    setSessionStage(SESSION_STAGES.completed);
+    changeSessionStage(SESSION_STAGES.completed, "reflection-to-record");
     await saveReadingProgress(book.id, progressRef.current);
+    await syncCompanionJourneyEvents(book.id, companionJourney)
+      .then(() =>
+        recordCompanionSessionRecord({
+          bookId: book.id,
+          itemKey: currentKey,
+          summary: buildCompanionSessionRecord(companionJourney, { itemKey: currentKey }),
+          record: buildCompanionSectionRecordDraft(companionJourney, {
+            itemKey: currentKey,
+          }),
+          eventIds: companionJourney.map((entry) => entry.id.replace(/^journey:/, "event:")),
+        })
+      )
+      .catch(() => {});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -456,7 +620,7 @@ export default function Reader({
     setPreserveCurrentItemIndex(false);
     setActiveItemIndex(clampIndex(nextIndex, planItems.length));
     persistProgress(next);
-    setSessionStage(SESSION_STAGES.intro);
+    changeSessionStage(SESSION_STAGES.intro, "record-to-guide");
     await saveReadingProgress(book.id, next);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -465,11 +629,16 @@ export default function Reader({
     const key = getPlanItemKey(currentItem, currentIndex);
     const nextCompletedAt = { ...(progress.completedAtByItemKey || {}) };
     delete nextCompletedAt[key];
-    const next = {
+    const next = updateProgressReadState({
       ...progress,
       completedItemKeys: completedKeys.filter((itemKey) => itemKey !== key),
       completedAtByItemKey: nextCompletedAt,
-    };
+    }, {
+      contentMap,
+      itemKey: key,
+      pageNumber: currentPageRef.current,
+      level: "unfinished",
+    });
     persistProgress(next);
     await saveReadingProgress(book.id, next);
   }
@@ -479,12 +648,12 @@ export default function Reader({
     setProgress(next);
   }
 
-  function recordReadingActivity({ pageNumber } = {}) {
+  function recordReadingActivity({ pageNumber, level = "reached" } = {}) {
     if (!book?.id || !currentKey || !currentItem) return;
 
     const normalizedPage = normalizePageNumber(pageNumber, currentItem);
     const now = new Date().toISOString();
-    const next = addReadingDay({
+    const base = {
       ...progressRef.current,
       currentItemIndex: preserveCurrentItemIndex
         ? progressRef.current.currentItemIndex
@@ -497,7 +666,14 @@ export default function Reader({
         },
       },
       lastReadAt: now,
-    });
+    };
+    const next = addReadingDay(updateProgressReadState(base, {
+      contentMap,
+      itemKey: currentKey,
+      pageNumber: normalizedPage,
+      level,
+      timestamp: now,
+    }));
 
     persistProgress(next);
     saveReadingProgress(book.id, next);
@@ -505,13 +681,27 @@ export default function Reader({
 
   function handleCurrentPageChange(pageNumber) {
     const normalizedPage = normalizePageNumber(pageNumber, currentItem);
+    const pageChanged = currentPageRef.current !== normalizedPage;
+    currentPageRef.current = normalizedPage;
     setCurrentPage(normalizedPage);
     recordReadingActivity({ pageNumber: normalizedPage });
+    if (!pageChanged && readingDwellTimeoutRef.current) return;
+    if (readingDwellTimeoutRef.current) window.clearTimeout(readingDwellTimeoutRef.current);
+    readingDwellTimeoutRef.current = window.setTimeout(() => {
+      readingDwellTimeoutRef.current = null;
+      if (document.visibilityState !== "visible" || currentPageRef.current !== normalizedPage) return;
+      recordReadingActivity({ pageNumber: normalizedPage, level: "engaged" });
+    }, 1800);
   }
 
-  async function handleGenerateGuide() {
+  async function handleGenerateGuide(force = false) {
     cancelGuideGeneration();
     const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, GUIDE_GENERATION_TIMEOUT_MS);
     guideAbortRef.current = controller;
     setGuideError("");
     setGuideLoading(true);
@@ -524,14 +714,18 @@ export default function Reader({
         chapterSections,
         currentIndex,
         planItems,
+        force: Boolean(force),
         signal: controller.signal,
       });
       setGuide(generated);
     } catch (e) {
-      if (!isAiAbortError(e)) {
+      if (timedOut) {
+        setGuideError("导读生成超过 2 分钟，已自动停止。请稍后重试。");
+      } else if (!isAiAbortError(e)) {
         setGuideError(e.message || "导读生成失败，请稍后重试。");
       }
     } finally {
+      window.clearTimeout(timeoutId);
       if (guideAbortRef.current === controller) {
         guideAbortRef.current = null;
         setGuideLoading(false);
@@ -545,6 +739,10 @@ export default function Reader({
     if (!text || chatLoading) return;
     const controller = new AbortController();
     chatAbortRef.current = controller;
+    recordReadingActivity({
+      pageNumber: options.quote?.pageNumber || currentPageRef.current,
+      level: "engaged",
+    });
 
     const optimisticMessage = {
       id: `chat-local-${Date.now()}`,
@@ -573,10 +771,12 @@ export default function Reader({
         itemKey: currentKey,
         chapterSections,
         currentPageContext,
+        readingContext: allowedReadingContext,
         guide,
         messages: previousMessages,
         content: text,
         quote: options.quote || null,
+        sessionOverride: options.sessionOverride || null,
         signal: controller.signal,
         onDelta: (delta) => {
           if (controller.signal.aborted) return;
@@ -590,6 +790,32 @@ export default function Reader({
         },
       });
       setChatMessages(result.messages);
+      const userEventType = options.quote
+        ? COMPANION_JOURNEY_TYPES.selectionQuestion
+        : COMPANION_JOURNEY_TYPES.userQuestion;
+      recordCompanionSessionOverride({
+        bookId: book.id,
+        itemKey: currentKey,
+        sessionOverride: options.sessionOverride,
+        relatedEventIds: [
+          result.user?.id
+            ? companionEventIdForPayloadRef({
+                store: "bookChat",
+                itemKey: currentKey,
+                sourceId: result.user.id,
+                type: userEventType,
+              })
+            : null,
+          result.assistant?.id
+            ? companionEventIdForPayloadRef({
+                store: "bookChat",
+                itemKey: currentKey,
+                sourceId: result.assistant.id,
+                type: COMPANION_JOURNEY_TYPES.companionAnswer,
+              })
+            : null,
+        ].filter(Boolean),
+      }).catch(() => {});
     } catch (e) {
       setChatMessages(previousMessages);
       if (!isAiAbortError(e)) {
@@ -603,16 +829,31 @@ export default function Reader({
     }
   }
 
+  async function handleSaveCompanionSettings(settings) {
+    const updatedBook = await updateBookCompanionSettings(book.id, settings);
+    if (updatedBook) setBook(updatedBook);
+    await recordCompanionPolicyChange({
+      bookId: book.id,
+      itemKey: null,
+      policy: settings.policy,
+      memory: settings.memory,
+      identity: `snapshot:${updatedBook?.readingProfile?.updatedAt || updatedBook?.updatedAt}`,
+      timestamp: updatedBook?.readingProfile?.updatedAt || updatedBook?.updatedAt,
+    }).catch(() => {});
+    return updatedBook;
+  }
+
   async function handleSendReflection(content) {
     const text = toText(content).trim();
     if (!text || reflectionLoading) return;
     const controller = new AbortController();
     reflectionAbortRef.current = controller;
 
-    const openingMessages =
+    const openingMessages = (
       reflectionMessages.length > 0
         ? reflectionMessages
-        : [buildInitialReflectionMessage({ item: currentItem, guide })];
+        : [buildInitialReflectionMessage({ item: currentItem, guide })]
+    ).filter((message) => message.kind !== "summary");
     const optimisticMessage = {
       id: `reflection-local-${Date.now()}`,
       role: "user",
@@ -640,6 +881,7 @@ export default function Reader({
         guide,
         readingChatMessages: includeReflectionContext ? chatMessages : [],
         readingNotes: includeReflectionContext ? notes : [],
+        itemCompleted: completed,
         messages: openingMessages,
         content: text,
         signal: controller.signal,
@@ -668,6 +910,61 @@ export default function Reader({
     }
   }
 
+  async function handleGenerateReflectionSummary() {
+    if (reflectionLoading) return;
+    const controller = new AbortController();
+    reflectionAbortRef.current = controller;
+    const previousMessages = reflectionMessages;
+    const baseMessages = reflectionMessages.filter((message) => message.kind !== "summary");
+    const streamingMessage = {
+      id: `reflection-summary-stream-${Date.now()}`,
+      role: "assistant",
+      kind: "summary",
+      content: "",
+      streaming: true,
+      createdAt: new Date().toISOString(),
+    };
+
+    setReflectionError("");
+    setReflectionLoading(true);
+    setReflectionMessages([...baseMessages, streamingMessage]);
+
+    try {
+      const result = await generateReadingReflectionSummary({
+        book,
+        item: currentItem,
+        itemKey: currentKey,
+        chapterSections,
+        guide,
+        readingChatMessages: includeReflectionContext ? chatMessages : [],
+        readingNotes: includeReflectionContext ? notes : [],
+        messages: baseMessages,
+        signal: controller.signal,
+        onDelta: (delta) => {
+          if (controller.signal.aborted) return;
+          setReflectionMessages((current) =>
+            current.map((message) =>
+              message.id === streamingMessage.id
+                ? { ...message, content: `${message.content}${delta}` }
+                : message
+            )
+          );
+        },
+      });
+      setReflectionMessages(result.messages);
+    } catch (e) {
+      setReflectionMessages(previousMessages);
+      if (!isAiAbortError(e)) {
+        setReflectionError(e.message || "本节总结生成中断，请稍后重试。");
+      }
+    } finally {
+      if (reflectionAbortRef.current === controller) {
+        reflectionAbortRef.current = null;
+        setReflectionLoading(false);
+      }
+    }
+  }
+
   function cancelActiveAiRequests() {
     cancelGuideGeneration();
     cancelChatGeneration();
@@ -675,7 +972,12 @@ export default function Reader({
   }
 
   function cancelGuideGeneration() {
-    guideAbortRef.current?.abort();
+    const controller = guideAbortRef.current;
+    if (!controller) return;
+    guideAbortRef.current = null;
+    controller.abort();
+    setGuideLoading(false);
+    setGuideStartedAt(null);
   }
 
   function cancelChatGeneration() {
@@ -688,6 +990,8 @@ export default function Reader({
 
   function handleAskSelection(selection) {
     const pageUnitLabel = getBookPageUnitLabel(book);
+    const anchor = buildSelectionAnchor(contentMap, selection, currentKey);
+    recordReadingActivity({ pageNumber: selection?.pageNumber, level: "engaged" });
 
     if (selection?.action === "ask") {
       setSelectedQuoteDraft({
@@ -696,6 +1000,7 @@ export default function Reader({
         pageUnitLabel,
         text: toText(selection.text).trim(),
         rects: normalizeHighlightRects(selection.rects),
+        ...anchor,
       });
       return;
     }
@@ -707,7 +1012,7 @@ export default function Reader({
       }
 
       setPendingNoteDraft({
-        ...buildPendingNoteFromSelection(selection),
+        ...buildPendingNoteFromSelection(selection, contentMap, currentKey),
         pageUnitLabel,
       });
     }
@@ -715,11 +1020,16 @@ export default function Reader({
 
   async function handleReplaceNoteSource(selection) {
     if (!book?.id || !currentKey || !noteSourceTarget?.id) return;
-    const nextSource = buildPendingNoteFromSelection(selection);
+    const nextSource = buildPendingNoteFromSelection(selection, contentMap, currentKey);
     const saved = await updateReadingNote(book.id, currentKey, noteSourceTarget.id, {
       pageNumber: nextSource.pageNumber,
       text: nextSource.text,
       rects: nextSource.rects,
+      anchorSchemaVersion: nextSource.anchorSchemaVersion,
+      contentBlockId: nextSource.contentBlockId,
+      blockCharRange: nextSource.blockCharRange,
+      contentFingerprint: nextSource.contentFingerprint,
+      anchorStatus: nextSource.anchorStatus,
       highlightDisabled: false,
     });
     setNotes(saved);
@@ -752,6 +1062,11 @@ export default function Reader({
       pageUnitLabel: quote.pageUnitLabel || getBookPageUnitLabel(book),
       text: quote.text,
       rects: quote.rects,
+      anchorSchemaVersion: quote.anchorSchemaVersion,
+      contentBlockId: quote.contentBlockId,
+      blockCharRange: quote.blockCharRange,
+      contentFingerprint: quote.contentFingerprint,
+      anchorStatus: quote.anchorStatus,
       note: "AI 回答",
       assistantContent: message.content,
       sourceMessageId: message.id,
@@ -825,9 +1140,14 @@ export default function Reader({
     );
   }
 
+  let stageContent;
+
   if (sessionStage === SESSION_STAGES.reading) {
-    return renderWithPageTurn(
+    stageContent = (
       <ReadingStage
+        itemKey={currentKey}
+        openingTransition={pageTurnActive}
+        companionArriving={companionArrivalActive}
         book={book}
         item={currentItem}
         currentIndex={currentIndex}
@@ -864,7 +1184,7 @@ export default function Reader({
         noteSourceTarget={noteSourceTarget}
         onCancelReplaceNoteSource={handleCancelReplaceNoteSource}
         onBack={onBack}
-        onIntro={() => setSessionStage(SESSION_STAGES.intro)}
+        onIntro={() => changeSessionStage(SESSION_STAGES.intro, "reading-to-guide")}
         onReflection={openReflection}
         onGenerateGuide={handleGenerateGuide}
         onCancelGuide={cancelGuideGeneration}
@@ -875,13 +1195,13 @@ export default function Reader({
         onCurrentPageChange={handleCurrentPageChange}
         onJump={jumpTo}
         onMarkUnfinished={markUnfinished}
+        onSaveCompanionSettings={handleSaveCompanionSettings}
       />
     );
-  }
-
-  if (sessionStage === SESSION_STAGES.reflection) {
-    return (
+  } else if (sessionStage === SESSION_STAGES.reflection) {
+    stageContent = (
       <ReflectionStage
+        itemKey={currentKey}
         book={book}
         item={currentItem}
         currentIndex={currentIndex}
@@ -897,15 +1217,15 @@ export default function Reader({
         onBack={onBack}
         onReading={startReading}
         onSend={handleSendReflection}
+        onGenerateSummary={handleGenerateReflectionSummary}
         onCancel={cancelReflectionGeneration}
         onComplete={finishToday}
       />
     );
-  }
-
-  if (sessionStage === SESSION_STAGES.completed) {
-    return (
+  } else if (sessionStage === SESSION_STAGES.completed) {
+    stageContent = (
       <DailyCompleteStage
+        itemKey={currentKey}
         book={book}
         item={currentItem}
         currentIndex={currentIndex}
@@ -916,35 +1236,62 @@ export default function Reader({
         onBack={onBack}
         onStartNext={startNextItemEarly}
         onOpenItem={openPlanItem}
+        onBookUpdated={setBook}
+      />
+    );
+  } else {
+    stageContent = (
+      <IntroStage
+        itemKey={currentKey}
+        book={book}
+        item={currentItem}
+        currentIndex={currentIndex}
+        planItems={planItems}
+        completedKeys={completedKeys}
+        completed={completed}
+        chapterSections={chapterSections}
+        guide={guide}
+        guideLoading={guideLoading}
+        guideStartedAt={guideStartedAt}
+        guideError={guideError}
+        readingTransitioning={pageTurnActive}
+        onBack={onBack}
+        onStartReading={() => startReading({ withPageTurn: true })}
+        onGenerateGuide={handleGenerateGuide}
+        onCancelGuide={cancelGuideGeneration}
+        onJump={jumpTo}
+        onMarkUnfinished={markUnfinished}
       />
     );
   }
 
   return renderWithPageTurn(
-    <IntroStage
-      book={book}
-      item={currentItem}
-      currentIndex={currentIndex}
-      planItems={planItems}
-      completedKeys={completedKeys}
-      completed={completed}
-      chapterSections={chapterSections}
-      guide={guide}
-      guideLoading={guideLoading}
-      guideStartedAt={guideStartedAt}
-      guideError={guideError}
-      readingTransitioning={pageTurnActive}
-      onBack={onBack}
-      onStartReading={() => startReading({ withPageTurn: true })}
-      onGenerateGuide={handleGenerateGuide}
-      onCancelGuide={cancelGuideGeneration}
-      onJump={jumpTo}
-      onMarkUnfinished={markUnfinished}
-    />
+    <CompanionShell
+      key={`${book.id}:${currentKey}`}
+      sessionKey={`${book.id}:${currentKey}`}
+      scene={sessionStage}
+      journey={companionJourney}
+      visualState={getReaderCompanionVisualState({
+        sessionStage,
+        guideLoading,
+        chatLoading,
+        reflectionLoading,
+        noteNotice,
+      })}
+      visualError={getReaderCompanionVisualError({
+        sessionStage,
+        guideError,
+        chatError,
+        reflectionError,
+      })}
+    >
+      {stageContent}
+    </CompanionShell>
   );
 }
 
 function IntroStage({
+  itemKey,
   book,
   item,
   currentIndex,
@@ -968,9 +1315,18 @@ function IntroStage({
 }) {
   const pageUnitLabel = getBookPageUnitLabel(book);
   const companion = getReaderCompanion(book);
+  const guideDisplayState = guideLoading
+    ? "loading"
+    : guide
+      ? "ready"
+      : guideError
+        ? "error"
+        : chapterSections.length === 0
+          ? "disabled"
+          : "empty";
 
   return (
-    <div className="reader-intro-page min-h-screen px-6 py-8">
+    <div className="reader-intro-page px-6 py-8">
       {readingTransitioning && (
         <span className="sr-only" role="status" aria-live="polite">
           正在进入阅读页
@@ -983,17 +1339,19 @@ function IntroStage({
         </button>
       </div>
 
-      <main className="reader-intro-main mx-auto flex max-w-4xl flex-col justify-center py-12 lg:min-h-[calc(100vh-96px)]">
-        <p className="reader-intro-kicker text-sm text-ink-soft">
-          Day {item.day} · {item.type === "guide" ? "开始前准备" : "今日章节"}
-        </p>
-        <h1 className="reader-intro-title mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-          {item.title}
-        </h1>
-        <p className="reader-intro-meta mt-4 text-sm text-ink-soft">
-          {formatPageRange(item.startPage, item.endPage, pageUnitLabel)} · 已完成 {completedKeys.length} /{" "}
-          {planItems.length} 个阅读日
-        </p>
+      <main className="reader-intro-main mx-auto flex max-w-4xl flex-col">
+        <header className="reader-intro-heading">
+          <p className="reader-intro-kicker text-sm text-ink-soft">
+            Day {item.day} · {item.type === "guide" ? "开始前准备" : "今日章节"}
+          </p>
+          <h1 className="reader-intro-title mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
+            {item.title}
+          </h1>
+          <p className="reader-intro-meta mt-4 text-sm text-ink-soft">
+            {formatPageRange(item.startPage, item.endPage, pageUnitLabel)} · 已完成 {completedKeys.length} /{" "}
+            {planItems.length} 个阅读日
+          </p>
+        </header>
 
         <section
           className="reader-intro-card reader-companion-guide-card mt-10 rounded-xl border border-line bg-paper-card p-7 shadow-sm"
@@ -1005,17 +1363,23 @@ function IntroStage({
             thinking={guideLoading}
           />
 
-          <div className="reader-companion-dialogue">
-            <TutorBriefing
-              companion={companion}
-              guide={guide}
-              loading={guideLoading}
-              startedAt={guideStartedAt}
-              error={guideError}
-              disabled={chapterSections.length === 0}
-              onGenerate={onGenerateGuide}
-              onCancel={onCancelGuide}
-            />
+          <div
+            className={`reader-companion-guide-scroll is-${guideDisplayState}`}
+            tabIndex={0}
+            aria-label="导读内容"
+          >
+            <div className="reader-companion-dialogue">
+              <TutorBriefing
+                guide={guide}
+                loading={guideLoading}
+                startedAt={guideStartedAt}
+                error={guideError}
+                disabled={chapterSections.length === 0}
+                onGenerate={onGenerateGuide}
+                onCancel={onCancelGuide}
+              />
+            </div>
+            <GuideClueStrip guide={guide} />
           </div>
         </section>
 
@@ -1056,6 +1420,22 @@ function IntroStage({
         </div>
       </main>
     </div>
+  );
+}
+
+function GuideClueStrip({ guide }) {
+  const clues = buildGuideClues(guide);
+  if (clues.length === 0) return null;
+
+  return (
+    <section className="companion-guide-clues" data-companion-shared="record">
+      <p>带进正文的线索</p>
+      <ol>
+        {clues.map((clue, index) => (
+          <li key={`${index}:${clue}`}>{clue}</li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -1104,6 +1484,9 @@ function PageTurnLines() {
 }
 
 function ReadingStage({
+  itemKey,
+  openingTransition,
+  companionArriving,
   book,
   item,
   currentIndex,
@@ -1151,8 +1534,16 @@ function ReadingStage({
   onCurrentPageChange,
   onJump,
   onMarkUnfinished,
+  onSaveCompanionSettings,
 }) {
   const readerPaneRef = useRef(null);
+  const textReaderRef = useRef(null);
+  const {
+    sidebarLayoutInitialized,
+    sidebarOpen,
+    setSidebarLayoutInitialized,
+    setSidebarOpen,
+  } = useCompanionShell();
   const visibleHighlights = useMemo(
     () => (pendingNoteDraft ? [pendingNoteDraft, ...notes] : notes),
     [notes, pendingNoteDraft]
@@ -1160,10 +1551,10 @@ function ReadingStage({
   const pdfBook = isPdfBook(book);
   const pageUnitLabel = getBookPageUnitLabel(book);
   const [readingMode, setReadingMode] = useState(READER_VIEW_MODES.scroll);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [pageAnimationEnabled, setPageAnimationEnabled] = useState(readPageAnimationPreference);
   const [pageTurnDirection, setPageTurnDirection] = useState("none");
   const [scrollAnchorPage, setScrollAnchorPage] = useState(initialPage);
+  const [textScreenPagination, setTextScreenPagination] = useState(null);
   const pageMode = readingMode === READER_VIEW_MODES.page;
   const pageRange = useMemo(() => {
     const start = Number(item?.startPage) || 1;
@@ -1172,8 +1563,19 @@ function ReadingStage({
   }, [item]);
   const activeReaderPage = normalizePageNumber(currentPage || initialPage, item);
   const readerInitialPage = pageMode ? activeReaderPage : scrollAnchorPage || initialPage;
-  const canGoPreviousPage = activeReaderPage > pageRange.start;
-  const canGoNextPage = activeReaderPage < pageRange.end;
+  const canGoPreviousLogicalPage = activeReaderPage > pageRange.start;
+  const canGoNextLogicalPage = activeReaderPage < pageRange.end;
+  const currentTextPagination =
+    textScreenPagination?.pageNumber === activeReaderPage ? textScreenPagination : null;
+  const canGoPreviousPage = pdfBook || !pageMode
+    ? canGoPreviousLogicalPage
+    : Boolean(currentTextPagination?.index > 0 || canGoPreviousLogicalPage);
+  const canGoNextPage = pdfBook || !pageMode
+    ? canGoNextLogicalPage
+    : Boolean(
+        (currentTextPagination && currentTextPagination.index < currentTextPagination.count - 1) ||
+        canGoNextLogicalPage
+      );
 
   useEffect(() => {
     setScrollAnchorPage(initialPage);
@@ -1185,29 +1587,34 @@ function ReadingStage({
       if (compactWindow.matches) setSidebarOpen(false);
     };
 
-    closeSidebarForCompactWindow();
+    if (!sidebarLayoutInitialized) {
+      closeSidebarForCompactWindow();
+      setSidebarLayoutInitialized(true);
+    }
     compactWindow.addEventListener("change", closeSidebarForCompactWindow);
     return () => compactWindow.removeEventListener("change", closeSidebarForCompactWindow);
-  }, []);
+  }, [setSidebarLayoutInitialized, setSidebarOpen, sidebarLayoutInitialized]);
+
+  useEffect(() => {
+    if (!selectedQuoteDraft?.text || sidebarOpen) return;
+    runCompanionTransition(() => setSidebarOpen(true), {
+      name: "companion-quote-wake",
+    });
+  }, [selectedQuoteDraft?.id, selectedQuoteDraft?.text, setSidebarOpen, sidebarOpen]);
 
   useEffect(() => {
     if (!pageMode) return undefined;
 
     function handleKeyDown(event) {
-      if (event.defaultPrevented || isEditableTarget(event.target)) return;
-      if (event.key === "ArrowLeft" || event.key === "PageUp") {
-        event.preventDefault();
-        handleReaderPageJump(activeReaderPage - 1);
-      }
-      if (event.key === "ArrowRight" || event.key === "PageDown") {
-        event.preventDefault();
-        handleReaderPageJump(activeReaderPage + 1);
-      }
+      const direction = getReaderPageKeyDirection(event, { pageMode });
+      if (!direction) return;
+      event.preventDefault();
+      handleReaderPageStep(direction);
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeReaderPage, pageMode]);
+  }, [activeReaderPage, pageMode, pdfBook]);
 
   function handleReadingModeChange(nextMode) {
     if (!Object.values(READER_VIEW_MODES).includes(nextMode) || nextMode === readingMode) return;
@@ -1217,7 +1624,22 @@ function ReadingStage({
       resetReaderPaneScroll(readerPaneRef.current);
     }
     setPageTurnDirection("none");
+    setTextScreenPagination(null);
     setReadingMode(nextMode);
+  }
+
+  function handleReaderPageStep(direction) {
+    const normalizedDirection = direction < 0 ? -1 : 1;
+    if (!pdfBook && pageMode) {
+      const handled = normalizedDirection < 0
+        ? textReaderRef.current?.goPrevious?.()
+        : textReaderRef.current?.goNext?.();
+      if (handled) {
+        setPageTurnDirection(normalizedDirection > 0 ? "next" : "previous");
+        return;
+      }
+    }
+    handleReaderPageJump(activeReaderPage + normalizedDirection);
   }
 
   function handleReaderPageJump(pageNumber) {
@@ -1229,8 +1651,20 @@ function ReadingStage({
     resetReaderPaneScroll(readerPaneRef.current);
   }
 
+  function handleSidebarVisibility(nextOpen) {
+    const normalizedNextOpen = Boolean(nextOpen);
+    if (normalizedNextOpen === sidebarOpen) return;
+    runCompanionTransition(() => setSidebarOpen(normalizedNextOpen), {
+      name: normalizedNextOpen ? "companion-wake" : "companion-rest",
+    });
+  }
+
   return (
-    <div className="reader-reading-page">
+    <div
+      className={`reader-reading-page ${openingTransition ? "is-opening-transition" : ""} ${
+        companionArriving ? "is-companion-arriving" : ""
+      }`}
+    >
       <header className="reader-reading-header">
         <div className="reader-reading-header-inner">
           <div className="reader-reading-title-block">
@@ -1258,8 +1692,9 @@ function ReadingStage({
               canGoPrevious={canGoPreviousPage}
               canGoNext={canGoNextPage}
               onModeChange={handleReadingModeChange}
-              onPrevious={() => handleReaderPageJump(activeReaderPage - 1)}
-              onNext={() => handleReaderPageJump(activeReaderPage + 1)}
+              onPrevious={() => handleReaderPageStep(-1)}
+              onNext={() => handleReaderPageStep(1)}
+              screenPagination={!pdfBook ? currentTextPagination : null}
               animationEnabled={pageAnimationEnabled}
               onAnimationEnabledChange={(enabled) => {
                 setPageTurnDirection("none");
@@ -1267,15 +1702,18 @@ function ReadingStage({
                 writePageAnimationPreference(enabled);
               }}
             />
-            <button
-              type="button"
-              aria-pressed={!sidebarOpen}
-              onClick={() => setSidebarOpen((open) => !open)}
-              className="reader-reading-action-button"
-            >
-              <ChineseIcon name="focus" className="h-4 w-4" decorative />
-              <span>{sidebarOpen ? "专注阅读" : "打开读伴"}</span>
-            </button>
+            {sidebarOpen && (
+              <button
+                type="button"
+                aria-controls="reader-companion-sidebar"
+                aria-expanded="true"
+                onClick={() => handleSidebarVisibility(false)}
+                className="reader-reading-action-button"
+              >
+                <ChineseIcon name="focus" className="h-4 w-4" decorative />
+                <span>专注阅读</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onIntro}
@@ -1289,7 +1727,11 @@ function ReadingStage({
               onClick={onBack}
               className="reader-reading-action-button"
             >
-              <ChineseIcon name="books" className="h-4 w-4" decorative />
+              <ChineseIcon
+                name={completed ? "books" : "tea"}
+                className="h-4 w-4"
+                decorative
+              />
               <span>{completed ? "回到书架" : "中途离开"}</span>
             </button>
             <button
@@ -1297,7 +1739,7 @@ function ReadingStage({
               onClick={onReflection}
               className="reader-reading-action-button reader-reading-action-primary"
             >
-              <ChineseIcon name="seal" className="h-4 w-4" decorative />
+              <ChineseIcon name="complete" className="h-4 w-4" decorative />
               <span>我读完了</span>
             </button>
           </div>
@@ -1331,58 +1773,75 @@ function ReadingStage({
             />
           ) : (
             <TextBookReader
+              ref={textReaderRef}
               pages={pages}
+              highlights={visibleHighlights}
               startPage={item.startPage}
               endPage={item.endPage}
               initialPage={readerInitialPage}
               readingMode={readingMode}
               activePage={activeReaderPage}
+              canGoPrevious={canGoPreviousLogicalPage}
+              canGoNext={canGoNextLogicalPage}
+              onRequestPageStep={handleReaderPageStep}
+              pageTurnDirection={pageTurnDirection}
+              pageAnimationEnabled={pageAnimationEnabled}
+              onPaginationChange={setTextScreenPagination}
               onCurrentPageChange={onCurrentPageChange}
               onAskSelection={onAskSelection}
             />
           )}
         </article>
 
-        {sidebarOpen && <TutorSidebar
-          item={item}
-          book={book}
-          currentIndex={currentIndex}
-          planItems={planItems}
-          completedKeys={completedKeys}
-          itemLocations={itemLocations}
-          completed={completed}
-          guide={guide}
-          loading={guideLoading}
-          startedAt={guideStartedAt}
-          error={guideError}
-          chatMessages={chatMessages}
-          chatLoading={chatLoading}
-          chatError={chatError}
-          notes={notes}
-          pendingNoteDraft={pendingNoteDraft}
-          noteNotice={noteNotice}
-          selectedQuoteDraft={selectedQuoteDraft}
-          onQuoteDraftUsed={onQuoteDraftUsed}
-          onSavePendingNote={onSavePendingNote}
-          onCancelPendingNote={onCancelPendingNote}
-          onAddChatMessageToNote={onAddChatMessageToNote}
-          onUpdateNote={onUpdateNote}
-          onDeleteNote={onDeleteNote}
-          onClearNoteHighlight={onClearNoteHighlight}
-          onStartReplaceNoteSource={onStartReplaceNoteSource}
-          noteSourceTarget={noteSourceTarget}
-          currentPage={currentPage}
-          currentPageHasText={currentPageHasText}
-          pageUnitLabel={pageUnitLabel}
-          disabled={chapterSections.length === 0 && !currentPageHasText}
-          onGenerate={onGenerateGuide}
-          onCancelGuide={onCancelGuide}
-          onStartGuideNote={onStartGuideNote}
-          onSendChat={onSendChat}
-          onCancelChat={onCancelChat}
-          onJump={onJump}
-          onMarkUnfinished={onMarkUnfinished}
-        />}
+        {sidebarOpen ? (
+          <TutorSidebar
+            itemKey={itemKey}
+            item={item}
+            book={book}
+            currentIndex={currentIndex}
+            planItems={planItems}
+            completedKeys={completedKeys}
+            itemLocations={itemLocations}
+            completed={completed}
+            guide={guide}
+            loading={guideLoading}
+            startedAt={guideStartedAt}
+            error={guideError}
+            chatMessages={chatMessages}
+            chatLoading={chatLoading}
+            chatError={chatError}
+            notes={notes}
+            pendingNoteDraft={pendingNoteDraft}
+            noteNotice={noteNotice}
+            selectedQuoteDraft={selectedQuoteDraft}
+            onQuoteDraftUsed={onQuoteDraftUsed}
+            onSavePendingNote={onSavePendingNote}
+            onCancelPendingNote={onCancelPendingNote}
+            onAddChatMessageToNote={onAddChatMessageToNote}
+            onUpdateNote={onUpdateNote}
+            onDeleteNote={onDeleteNote}
+            onClearNoteHighlight={onClearNoteHighlight}
+            onStartReplaceNoteSource={onStartReplaceNoteSource}
+            noteSourceTarget={noteSourceTarget}
+            currentPage={currentPage}
+            currentPageHasText={currentPageHasText}
+            pageUnitLabel={pageUnitLabel}
+            disabled={chapterSections.length === 0 && !currentPageHasText}
+            onGenerate={onGenerateGuide}
+            onCancelGuide={onCancelGuide}
+            onStartGuideNote={onStartGuideNote}
+            onSendChat={onSendChat}
+            onCancelChat={onCancelChat}
+            onJump={onJump}
+            onMarkUnfinished={onMarkUnfinished}
+            onSaveCompanionSettings={onSaveCompanionSettings}
+          />
+        ) : (
+          <CompanionWakeButton
+            companion={getReaderCompanion(book)}
+            onWake={() => handleSidebarVisibility(true)}
+          />
+        )}
       </main>
 
       {pendingNoteDraft && (
@@ -1430,6 +1889,7 @@ function ReadingModeControl({
   onModeChange,
   onPrevious,
   onNext,
+  screenPagination,
   animationEnabled,
   onAnimationEnabledChange,
 }) {
@@ -1475,7 +1935,9 @@ function ReadingModeControl({
               ←
             </button>
             <span className="reader-page-stepper-label">
-              本节 {pagePosition}/{pageRange.total}
+              {screenPagination?.count > 1
+                ? `本页 ${screenPagination.index + 1}/${screenPagination.count} · 本节 ${pagePosition}/${pageRange.total}`
+                : `本节 ${pagePosition}/${pageRange.total}`}
             </span>
             <button
               type="button"
@@ -1509,12 +1971,8 @@ function resetReaderPaneScroll(node) {
   });
 }
 
-function isEditableTarget(target) {
-  const element = target?.closest ? target : target?.parentElement;
-  return Boolean(element?.closest?.("input, textarea, select, [contenteditable='true']"));
-}
-
 function ReflectionStage({
+  itemKey,
   book,
   item,
   currentIndex,
@@ -1529,11 +1987,24 @@ function ReflectionStage({
   onBack,
   onReading,
   onSend,
+  onGenerateSummary,
   onCancel,
   onComplete,
 }) {
-  const [draft, setDraft] = useState("");
+  const {
+    journey,
+    reflectionDraft: draft,
+    scene,
+    setReflectionDraft: setDraft,
+  } = useCompanionShell();
   const messagesRef = useRef(null);
+  const latestMessage = messages[messages.length - 1];
+  const timelineRevision = `${messages.length}:${latestMessage?.id || ""}:${
+    toText(latestMessage?.content).length
+  }:${loading ? "loading" : "idle"}`;
+  useCompanionTimelineScroll("reflection", messagesRef, timelineRevision, {
+    initialPosition: "bottom",
+  });
   const lastItem = currentIndex >= planItems.length - 1;
   const completeLabel = lastItem
     ? completed
@@ -1543,17 +2014,12 @@ function ReflectionStage({
     ? "今天已完成"
     : "完成今天的阅读";
   const answered = messages.some((message) => message.role === "user");
+  const summary = messages.find((message) => message.kind === "summary");
+  const summarizing = messages.some(
+    (message) => message.kind === "summary" && message.streaming
+  );
   const hasReadingContext = readingContextStats.total > 0;
   const companion = getReaderCompanion(book);
-
-  useEffect(() => {
-    const node = messagesRef.current;
-    if (!node) return;
-
-    window.requestAnimationFrame(() => {
-      node.scrollTop = node.scrollHeight;
-    });
-  }, [messages, loading]);
 
   function submitAnswer(event) {
     event.preventDefault();
@@ -1571,63 +2037,44 @@ function ReflectionStage({
   }
 
   return (
-    <div className="min-h-screen px-6 py-8">
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-        <p className="text-sm text-ink-soft">读后交流</p>
-        <button onClick={onBack} className="text-sm text-accent underline">
+    <div className="reader-reflection-page">
+      <header className="reader-reflection-topbar">
+        <p>{toText(book.title)} · Day {item.day}</p>
+        <button type="button" onClick={onBack}>
           退出到书架
         </button>
-      </div>
+      </header>
 
-      <main className="mx-auto flex max-w-4xl flex-col justify-center py-12 lg:min-h-[calc(100vh-96px)]">
-        <p className="text-sm text-ink-soft">
-          {toText(book.title)} · Day {item.day}
-        </p>
-        <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-          读完后，留一个判断
-        </h1>
-        <p className="mt-5 max-w-3xl text-lg leading-9 text-ink">
-          写下一个问题、判断或印象最深的一处。
-        </p>
-
+      <main className="reader-reflection-main">
         <section
-          className="mt-10 flex min-h-[520px] flex-col rounded-xl border border-line bg-paper-card p-4 shadow-sm sm:p-5"
+          className="reader-reflection-surface"
           style={companion.style}
         >
-          <div className="flex shrink-0 flex-col gap-1 border-b border-line pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="reader-chat-heading">
+          <div className="reader-reflection-heading">
+            <CompanionPresence className="reader-chat-heading">
               <CompanionAvatarBadge companion={companion} size="tiny" thinking={loading} />
-              <div>
-                <h2 className="font-serif text-2xl text-ink">
-                  <BrandName />追问
-                </h2>
-                <p className="mt-1 text-sm text-ink-soft">
-                  {answered ? "继续。" : "写下回答。"}
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-col items-start gap-2 sm:mt-0 sm:items-end">
+              <CompanionContext>
+                <h2>读后记录</h2>
+                <p>{answered ? "沿着刚才的记录继续聊。" : "从刚才读到的内容接着聊。"}</p>
+              </CompanionContext>
+            </CompanionPresence>
+            <div className="reader-reflection-heading-actions">
               {loading && (
-                <div className="flex items-center gap-2">
-                  <div className="flex w-fit items-center gap-1 rounded-full bg-paper px-3 py-1">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.2s]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.1s]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
-                  </div>
+                <div className="reader-reflection-loading">
+                  <span>{summarizing ? "正在整理总结" : "读伴正在回应"}</span>
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="rounded-full border border-line bg-paper px-3 py-1 text-xs text-ink-soft hover:text-accent"
                   >
-                    停止追问
+                    停止
                   </button>
                 </div>
               )}
               <label
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+                className={`reader-reflection-context-toggle ${
                   hasReadingContext
-                    ? "cursor-pointer border-line bg-paper text-ink-soft"
-                    : "cursor-not-allowed border-line bg-paper text-ink-soft opacity-60"
+                    ? ""
+                    : "is-disabled"
                 }`}
               >
                 <input
@@ -1637,73 +2084,73 @@ function ReflectionStage({
                   onChange={(event) => onIncludeReadingContextChange(event.target.checked)}
                   className="sr-only"
                 />
-                <span
-                  className={`flex h-4 w-7 items-center rounded-full p-0.5 transition-colors ${
-                    hasReadingContext && includeReadingContext ? "bg-accent" : "bg-line"
-                  }`}
-                >
-                  <span
-                    className={`h-3 w-3 rounded-full bg-white transition-transform ${
-                      hasReadingContext && includeReadingContext ? "translate-x-3" : ""
-                    }`}
-                  />
-                </span>
-                <span>参考伴读记录和笔记</span>
-                <span className="text-[11px] text-ink-soft">
+                <span className="reader-reflection-context-switch" aria-hidden="true" />
+                <span>带入阅读记录</span>
+                <small>
                   {hasReadingContext
                     ? `${readingContextStats.chatCount} 提问 · ${readingContextStats.noteCount} 笔记`
                     : "暂无"}
-                </span>
+                </small>
               </label>
             </div>
           </div>
 
-          <div ref={messagesRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-1 py-5">
-            {messages.map((message) =>
-              message.streaming && !toText(message.content).trim() ? null : (
-                <ReflectionMessage key={message.id} message={message} companion={companion} />
-              )
-            )}
-            {loading && <ThinkingStatus companion={companion} />}
-          </div>
-
-          {error && <p className="mb-3 text-sm leading-6 text-red-600">{error}</p>}
-
-          <form onSubmit={submitAnswer} className="shrink-0 border-t border-line pt-4">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={handleTextareaKeyDown}
-              rows={3}
-              disabled={loading}
-              placeholder="写下你的理解、疑问或一个具体细节。Enter 发送，Shift+Enter 换行。"
-              className="w-full resize-none rounded-lg border border-line bg-paper px-4 py-3 text-sm leading-7 text-ink outline-none focus:border-accent disabled:opacity-60"
+          <CompanionTimeline
+            ref={messagesRef}
+            className="reader-reflection-timeline"
+            data-companion-shared="timeline"
+          >
+            <CompanionJourneyTimeline
+              entries={journey}
+              itemKey={itemKey}
+              activeScene={scene}
+              emptyMessage="读中留下的线索、问题和笔记会在这里接到本节回想。"
+              className="reader-reflection-journey"
             />
-            <button
-              type="submit"
-              disabled={!draft.trim() || loading}
-              className="mt-3 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {loading ? "等待追问…" : "发送回答"}
-            </button>
-          </form>
-        </section>
+            {loading && <ThinkingStatus companion={companion} />}
+          </CompanionTimeline>
 
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            onClick={onReading}
-            className="rounded-lg border border-line px-4 py-2 text-sm text-ink-soft hover:bg-paper-card"
-          >
-            回到正文
-          </button>
-          <button
-            onClick={onComplete}
-            disabled={loading || (completed && lastItem)}
-            className="rounded-lg bg-accent px-5 py-2 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-          >
-            {completeLabel}
-          </button>
-        </div>
+          {error && <p className="reader-reflection-error">{error}</p>}
+
+          <div className="reader-reflection-bottom">
+            <CompanionComposer onSubmit={submitAnswer} className="reader-reflection-composer">
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={handleTextareaKeyDown}
+                rows={2}
+                disabled={loading}
+                placeholder="还有什么想聊的，可以接着聊。"
+              />
+              <button type="submit" disabled={!draft.trim() || loading}>
+                {loading && !summarizing ? "等待回应" : "发送"}
+              </button>
+            </CompanionComposer>
+
+            <div className="reader-reflection-footer-actions">
+              <button type="button" onClick={onReading} className="is-quiet">
+                回到正文
+              </button>
+              <button
+                type="button"
+                onClick={onGenerateSummary}
+                disabled={!answered || loading}
+                className="is-summary"
+              >
+                <ChineseIcon name="ink" className="h-4 w-4" decorative />
+                {summary ? "重新整理总结" : "整理本节总结"}
+              </button>
+              <button
+                type="button"
+                onClick={onComplete}
+                disabled={loading || (completed && lastItem)}
+                className="is-primary"
+              >
+                {completeLabel}
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );
@@ -1738,6 +2185,7 @@ function ReflectionMessage({ message, companion }) {
 }
 
 function DailyCompleteStage({
+  itemKey,
   book,
   item,
   currentIndex,
@@ -1748,65 +2196,72 @@ function DailyCompleteStage({
   onBack,
   onStartNext,
   onOpenItem,
+  onBookUpdated,
 }) {
   const nextItem = planItems[currentIndex + 1];
   const hasNext = Boolean(nextItem);
   const nextDue = hasNext && isPlanItemDue(nextItem);
   const pageUnitLabel = getBookPageUnitLabel(book);
+  const { journey } = useCompanionShell();
+  const companion = getReaderCompanion(book);
 
   return (
-    <div className="min-h-screen px-6 py-8">
-      <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
-        <p className="text-sm text-ink-soft">今日阅读完成</p>
-        <button onClick={onBack} className="text-sm text-accent underline">
+    <div className="reader-complete-page">
+      <header className="reader-complete-topbar">
+        <p>今日阅读完成</p>
+        <button onClick={onBack}>
           退回书架
         </button>
-      </div>
+      </header>
 
-      <main className="mx-auto flex max-w-4xl flex-col justify-center py-16 lg:min-h-[calc(100vh-96px)]">
-        <p className="text-sm text-ink-soft">
-          {toText(book.title)} · Day {item.day}
-        </p>
-        <h1 className="mt-3 font-serif text-4xl leading-tight text-ink sm:text-5xl">
-          今天这段读完了
-        </h1>
+      <main className="reader-complete-main">
+        <section className="reader-complete-primary">
+          <div className="reader-complete-intro">
+            <p>{toText(book.title)} · Day {item.day}</p>
+            <h1>今天这段读完了</h1>
+          </div>
 
-        <section className="mt-10 rounded-xl border border-line bg-paper-card p-6 shadow-sm">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <section className="reader-complete-summary" aria-label="今日阅读概览">
+            <div className="reader-complete-stats">
             <Stat label="今日完成" value={`Day ${item.day}`} />
             <Stat label="累计进度" value={`${completedCount} / ${planItems.length} 项`} />
             <Stat label="下一阅读项" value={hasNext ? nextItem.title : "已经没有下一项"} />
+            </div>
+          </section>
+
+          <CompanionPresence className="companion-complete-presence" style={companion.style}>
+            <CompanionAvatarBadge companion={companion} size="tiny" />
+            <CompanionContext>
+              <CompanionSectionRecordEditor
+                book={book}
+                itemKey={itemKey}
+                journey={journey}
+                onBookUpdated={onBookUpdated}
+              />
+            </CompanionContext>
+          </CompanionPresence>
+
+          <div className="reader-complete-actions">
+            <button onClick={onBack} className="is-quiet">
+              退回书架
+            </button>
+            <button onClick={onStartNext} disabled={!hasNext} className="is-primary">
+              {hasNext
+                ? nextDue
+                  ? "开始下一项阅读"
+                  : "提前开始下一章阅读"
+                : "已经完成全部阅读"}
+            </button>
           </div>
         </section>
 
-        <div className="mt-8 grid gap-3 sm:grid-cols-2">
-          <button
-            onClick={onBack}
-            className="rounded-lg border border-line px-5 py-3 text-sm text-ink-soft hover:bg-paper-card"
-          >
-            退回书架
-          </button>
-          <button
-            onClick={onStartNext}
-            disabled={!hasNext}
-            className="rounded-lg bg-accent px-5 py-3 text-sm text-white shadow-sm hover:opacity-90 disabled:opacity-50"
-          >
-            {hasNext
-              ? nextDue
-                ? "开始下一项阅读"
-                : "提前开始下一章阅读"
-              : "已经完成全部阅读"}
-          </button>
-        </div>
-
-        <section className="mt-10 rounded-xl border border-line bg-paper-card p-5 shadow-sm">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs text-ink-soft">阅读目录</p>
-              <h2 className="mt-1 font-serif text-2xl text-ink">阅读目录</h2>
-            </div>
+        <section className="reader-complete-directory">
+          <div className="reader-complete-directory-heading">
+            <p>阅读目录</p>
+            <h2>接下来</h2>
           </div>
           <ReadingDirectoryList
+            compact
             currentIndex={currentIndex}
             planItems={planItems}
             completedKeys={completedKeys}
@@ -1840,36 +2295,103 @@ function getReaderCompanion(book) {
   };
 }
 
-function CompanionAvatarBadge({ companion, size = "normal", thinking = false }) {
+function getReaderCompanionVisualState({
+  sessionStage,
+  guideLoading,
+  chatLoading,
+  reflectionLoading,
+  noteNotice,
+}) {
+  if (/^(已添加|已把|笔记已更新|已重新绑定)/.test(toText(noteNotice))) {
+    return COMPANION_VISUAL_STATES.recording;
+  }
+  if (sessionStage === SESSION_STAGES.completed) {
+    return COMPANION_VISUAL_STATES.complete;
+  }
+  if (guideLoading) return COMPANION_VISUAL_STATES.preparing;
+  if (chatLoading || reflectionLoading) return COMPANION_VISUAL_STATES.answering;
+  if (sessionStage === SESSION_STAGES.reading) return COMPANION_VISUAL_STATES.quiet;
+  return COMPANION_VISUAL_STATES.waiting;
+}
+
+function getReaderCompanionVisualError({
+  sessionStage,
+  guideError,
+  chatError,
+  reflectionError,
+}) {
+  if (sessionStage === SESSION_STAGES.intro) return Boolean(guideError);
+  if (sessionStage === SESSION_STAGES.reading) return Boolean(chatError || guideError);
+  if (sessionStage === SESSION_STAGES.reflection) return Boolean(reflectionError);
+  return false;
+}
+
+function CompanionAvatarBadge({ companion, size = "normal", thinking = false, state }) {
+  const shell = useCompanionShell();
   const displayCompanion = companion || DEFAULT_READER_COMPANION_PROFILE;
   const expression = thinking ? "thinking" : displayCompanion.expression;
+  const variant = size === "normal" ? "full" : size === "mini" ? "mark" : "standard";
+  const visualState = state || shell.visualState || COMPANION_VISUAL_STATES.quiet;
 
   return (
     <div
       className={`reader-companion-avatar-badge reader-companion-avatar-${size}`}
       style={displayCompanion.style}
+      data-companion-shared="presence"
+      data-companion-avatar="true"
       aria-hidden="true"
     >
-      <ReadingCompanionAvatar stage={4} expression={expression} />
+      <ReadingCompanionAvatar
+        stage={4}
+        expression={expression}
+        variant={variant}
+        state={visualState}
+      />
     </div>
+  );
+}
+
+function CompanionWakeButton({ companion, onWake }) {
+  const { visualState } = useCompanionShell();
+  const displayCompanion = companion || getReaderCompanion(null);
+  return (
+    <button
+      type="button"
+      className="reader-companion-wake-button"
+      style={displayCompanion.style}
+      aria-label="打开读伴"
+      aria-controls="reader-companion-sidebar"
+      aria-expanded="false"
+      title="打开读伴"
+      data-companion-shared="presence"
+      data-companion-flight-target="toolbar"
+      onClick={onWake}
+    >
+      <ReadingCompanionAvatar
+        stage={4}
+        expression={displayCompanion.expression}
+        variant="mark"
+        state={visualState}
+      />
+    </button>
   );
 }
 
 function CompanionGuideHeader({ companion, title, subtitle, thinking = false }) {
   return (
-    <div className="reader-companion-guide-header">
+    <CompanionPresence className="reader-companion-guide-header">
       <CompanionAvatarBadge companion={companion} thinking={thinking} />
-      <div className="reader-companion-guide-copy">
+      <CompanionContext className="reader-companion-guide-copy">
         {subtitle && <p>{subtitle}</p>}
         <h2>{title}</h2>
-      </div>
-    </div>
+      </CompanionContext>
+    </CompanionPresence>
   );
 }
 
-function GuideSpeechBubble({ label, tone = "default", children }) {
+function GuideSpeechBubble({ label, tone = "default", className = "", children }) {
   return (
-    <div className={`guide-speech-bubble guide-speech-bubble-${tone}`}>
+    <div className={`guide-speech-bubble guide-speech-bubble-${tone} ${className}`.trim()}>
       {label && (
         <p className="guide-speech-label">
           {renderBrandNameText(label, `guide-speech-label-${label}`)}
@@ -1893,31 +2415,6 @@ function GuideOverviewBubbles({ overview }) {
       <GuideMarkdownText value={chunk} />
     </GuideSpeechBubble>
   ));
-}
-
-function GuideBubbleList({ kicker, title, items }) {
-  const list = toList(items).slice(0, 3);
-  if (list.length === 0) return null;
-
-  return (
-    <section className="guide-bubble-group">
-      <p className="guide-bubble-kicker">
-        {renderBrandNameText(kicker, `guide-bubble-kicker-${title}`)}
-      </p>
-      <h3>{title}</h3>
-      <ul>
-        {list.map((item, index) => (
-          <li
-            key={`${title}-${index}`}
-            className="guide-mini-bubble"
-            style={{ "--guide-item-delay": `${index * 70}ms` }}
-          >
-            <GuideMarkdownText value={item} compact />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
 }
 
 function splitGuideDialogueChunks(value) {
@@ -1968,9 +2465,9 @@ function TutorBriefing({
       )}
 
       {!guide && !disabled && !error && !loading && (
-        <GuideSpeechBubble tone="soft">
+        <GuideSpeechBubble tone="soft" className="guide-speech-bubble-action">
           <button
-            onClick={onGenerate}
+            onClick={() => onGenerate(false)}
             className="guide-primary-button rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           >
             生成导读
@@ -1981,21 +2478,9 @@ function TutorBriefing({
       {guide && !loading && (
         <div className="guide-ready guide-dialogue-stack">
           <GuideOverviewBubbles overview={guide.overview} />
-          <div className="guide-bubble-columns">
-            <GuideBubbleList
-              kicker="目标"
-              title="带走什么"
-              items={guide.goals}
-            />
-            <GuideBubbleList
-              kicker="问题"
-              title="留意什么"
-              items={guide.questions}
-            />
-          </div>
           <div className="guide-dialogue-actions">
             <button
-              onClick={onGenerate}
+              onClick={() => onGenerate(true)}
               disabled={loading || disabled}
               className="guide-secondary-button rounded-lg border border-accent px-4 py-2 text-sm text-accent hover:bg-paper disabled:opacity-50"
             >
@@ -2009,6 +2494,7 @@ function TutorBriefing({
 }
 
 function TutorSidebar({
+  itemKey,
   item,
   book,
   currentIndex,
@@ -2047,8 +2533,10 @@ function TutorSidebar({
   onCancelChat,
   onJump,
   onMarkUnfinished,
+  onSaveCompanionSettings,
 }) {
-  const [activePanel, setActivePanel] = useState("chat");
+  const { activePanel, setActivePanel } = useCompanionShell();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const companion = getReaderCompanion(book);
   const companionThinking = chatLoading || loading;
   const companionStatus = currentPage
@@ -2067,28 +2555,39 @@ function TutorSidebar({
   }, [selectedQuoteDraft, pendingNoteDraft]);
 
   return (
-    <aside className="reader-sidebar-shell">
+    <aside id="reader-companion-sidebar" className="reader-sidebar-shell">
       <section
         className="reader-sidebar-panel"
         style={companion.style}
       >
-        <div className="reader-companion-sidebar-card">
+        <CompanionPresence className="reader-companion-sidebar-card">
           <CompanionAvatarBadge companion={companion} size="tiny" thinking={companionThinking} />
-          <div className="min-w-0">
-            <p><BrandName /></p>
+          <CompanionContext className="min-w-0">
+            <p>页边伴读</p>
             <h2>{companionStatus}</h2>
             {currentPage && (
               <span className="reader-companion-context-status">
                 {currentPageHasText ? "参考本页内容与阅读进度中" : "参考阅读进度中"}
               </span>
             )}
-          </div>
-        </div>
+          </CompanionContext>
+          <button
+            type="button"
+            className="reader-companion-settings-button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="本书读伴设置"
+            title="本书读伴设置"
+          >
+            <ChineseIcon name="settings" className="h-4 w-4" decorative />
+          </button>
+        </CompanionPresence>
 
         <SidebarPanelTabs activePanel={activePanel} onChange={setActivePanel} />
 
         {activePanel === "chat" ? (
           <ChatPanel
+            bookId={book.id}
+            itemKey={itemKey}
             companion={companion}
             guide={guide}
             messages={chatMessages}
@@ -2142,15 +2641,213 @@ function TutorSidebar({
           />
         )}
       </section>
+      {settingsOpen && (
+        <CompanionSettingsDialog
+          book={book}
+          onClose={() => setSettingsOpen(false)}
+          onSave={async (settings) => {
+            await onSaveCompanionSettings?.(settings);
+            setSettingsOpen(false);
+          }}
+        />
+      )}
     </aside>
+  );
+}
+
+function CompanionSettingsDialog({ book, onClose, onSave }) {
+  const initialSettings = useMemo(
+    () => getCompanionSettings(book?.readingProfile),
+    [book?.readingProfile]
+  );
+  const [policy, setPolicy] = useState(initialSettings.policy);
+  const [memoryItems, setMemoryItems] = useState(initialSettings.memory.items);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  function addMemory() {
+    const item = createCompanionMemoryItem(memoryDraft);
+    if (!item) return;
+    setMemoryItems((current) => [...current, item]);
+    setMemoryDraft("");
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await onSave?.({
+        policy,
+        memory: {
+          schemaVersion: 1,
+          initialized: true,
+          items: memoryItems,
+        },
+      });
+    } catch (saveError) {
+      setError(saveError?.message || "保存失败，请稍后再试。");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="companion-settings-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
+      <form
+        className="companion-settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="companion-settings-title"
+        onSubmit={handleSubmit}
+      >
+        <header className="companion-settings-header">
+          <div>
+            <p>本书设置</p>
+            <h2 id="companion-settings-title">本书读伴设置</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="关闭本书读伴设置">
+            ×
+          </button>
+        </header>
+        <p className="companion-settings-intro">
+          以下设置仅对本书生效，可随时修改。
+        </p>
+
+        <div className="companion-settings-policy-grid">
+          <CompanionPolicySelect
+            label="未读内容处理"
+            value={policy.spoiler}
+            options={COMPANION_POLICY_OPTIONS.spoiler}
+            onChange={(value) => setPolicy((current) => ({ ...current, spoiler: value }))}
+          />
+          <CompanionPolicySelect
+            label="回答详细程度"
+            value={policy.answerDepth}
+            options={COMPANION_POLICY_OPTIONS.answerDepth}
+            onChange={(value) => setPolicy((current) => ({ ...current, answerDepth: value }))}
+          />
+          <CompanionPolicySelect
+            label="回答后是否需要追问"
+            value={policy.followUp}
+            options={COMPANION_POLICY_OPTIONS.followUp}
+            onChange={(value) => setPolicy((current) => ({ ...current, followUp: value }))}
+          />
+          <CompanionPolicySelect
+            label="回答参考范围"
+            value={policy.knowledgeBoundary}
+            options={COMPANION_POLICY_OPTIONS.knowledgeBoundary}
+            onChange={(value) =>
+              setPolicy((current) => ({ ...current, knowledgeBoundary: value }))
+            }
+          />
+        </div>
+
+        <section className="companion-memory-editor">
+          <div className="companion-memory-heading">
+            <div>
+              <h3>本书专属偏好</h3>
+              <p>可填写表达偏好、阅读目的或需要持续关注的内容。</p>
+            </div>
+            <span>{memoryItems.length}/20</span>
+          </div>
+          {memoryItems.length > 0 && (
+            <div className="companion-memory-list">
+              {memoryItems.map((item) => (
+                <div key={item.id} className="companion-memory-row">
+                  <input
+                    value={item.text}
+                    aria-label="编辑本书记忆"
+                    onChange={(event) =>
+                      setMemoryItems((current) =>
+                        current.map((memory) =>
+                          memory.id === item.id
+                            ? { ...memory, text: event.target.value.slice(0, 240) }
+                            : memory
+                        )
+                      )
+                    }
+                  />
+                  {item.source === "legacy" && <small>旧设置</small>}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMemoryItems((current) =>
+                        current.filter((memory) => memory.id !== item.id)
+                      )
+                    }
+                    aria-label="删除这条本书记忆"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {memoryItems.length < 20 && (
+            <div className="companion-memory-add">
+              <input
+                value={memoryDraft}
+                onChange={(event) => setMemoryDraft(event.target.value.slice(0, 240))}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.nativeEvent?.isComposing) return;
+                  event.preventDefault();
+                  addMemory();
+                }}
+                placeholder="例如：遇到生词时先用通俗语言解释"
+                aria-label="新增本书记忆"
+              />
+              <button type="button" onClick={addMemory} disabled={!memoryDraft.trim()}>
+                添加
+              </button>
+            </div>
+          )}
+        </section>
+
+        {error && <p className="companion-settings-error">{error}</p>}
+        <footer className="companion-settings-actions">
+          <button type="button" onClick={onClose}>取消</button>
+          <button type="submit" disabled={saving} className="is-primary">
+            {saving ? "保存中…" : "保存"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function CompanionPolicySelect({ label, value, options, onChange }) {
+  const selectedOption = options.find((option) => option.value === value) || options[0];
+  return (
+    <label className="companion-policy-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      <small>{selectedOption?.description}</small>
+    </label>
   );
 }
 
 const SIDEBAR_PANEL_OPTIONS = [
   { key: "chat", label: "问读伴" },
-  { key: "guide", label: "提示" },
   { key: "notes", label: "笔记" },
-  { key: "items", label: "阅读项" },
 ];
 
 function SidebarPanelTabs({ activePanel, onChange }) {
@@ -2190,6 +2887,8 @@ const GUIDE_TAB_OPTIONS = [
 const LONG_ANSWER_CHARS = 100;
 
 function ChatPanel({
+  bookId,
+  itemKey,
   companion,
   guide,
   messages,
@@ -2204,11 +2903,24 @@ function ChatPanel({
   onSend,
   onCancel,
 }) {
-  const [draft, setDraft] = useState("");
-  const [activeQuote, setActiveQuote] = useState(null);
+  const {
+    activeQuote,
+    chatDraft: draft,
+    journey,
+    scene,
+    sessionOverride,
+    setActiveQuote,
+    setChatDraft: setDraft,
+    setSessionOverride,
+  } = useCompanionShell();
   const textareaRef = useRef(null);
   const messagesRef = useRef(null);
   const savedChatNotes = useMemo(() => buildSavedChatNoteLookup(notes), [notes]);
+  const latestJourneyEntry = journey[journey.length - 1];
+  const timelineRevision = `${journey.length}:${latestJourneyEntry?.id || ""}:${
+    JSON.stringify(latestJourneyEntry?.payload || {}).length
+  }:${loading ? "loading" : "idle"}`;
+  useCompanionTimelineScroll("reading-chat", messagesRef, timelineRevision);
 
   useEffect(() => {
     if (!selectedQuoteDraft?.text) return;
@@ -2223,22 +2935,18 @@ function ChatPanel({
     }, 0);
   }, [selectedQuoteDraft, onQuoteDraftUsed]);
 
-  useEffect(() => {
-    const node = messagesRef.current;
-    if (!node) return;
-
-    window.requestAnimationFrame(() => {
-      node.scrollTop = node.scrollHeight;
-    });
-  }, [messages, loading]);
-
   function submitMessage(content = draft) {
     const text = toText(content).trim();
     if ((!text && !activeQuote) || loading || disabled) return;
     setDraft("");
     setActiveQuote(null);
     const quote = activeQuote ? buildQuoteMeta(activeQuote) : null;
-    onSend(buildChatMessageWithQuote(text, activeQuote), { quote });
+    const oneShotOverride = sessionOverride;
+    setSessionOverride("default");
+    onSend(buildChatMessageWithQuote(text, activeQuote), {
+      quote,
+      sessionOverride: oneShotOverride,
+    });
   }
 
   function handleSubmit(event) {
@@ -2250,6 +2958,44 @@ function ChatPanel({
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) return;
     event.preventDefault();
     submitMessage();
+  }
+
+  function bringTimelineCardToComposer(card) {
+    const sourceId = card?.sourceEntry?.payloadRef?.sourceId;
+    if (card?.type === COMPANION_JOURNEY_TYPES.companionAnswer && sourceId) {
+      const messageIndex = messages.findIndex((message) => message.id === sourceId);
+      const message = messages[messageIndex];
+      if (message && !message.streaming && !isChatMessageSavedToNote(message, savedChatNotes)) {
+        onAddMessageToNote?.(message, messages[messageIndex - 1]);
+      }
+      return;
+    }
+
+    setActiveQuote({
+      id: `journey-quote-${card.id}`,
+      text: card.quoteText || card.body,
+      pageNumber: card.sourceEntry?.sourceRef?.pageNumber || null,
+      rects: card.sourceEntry?.sourceRef?.rects || [],
+      source: "companion-journey",
+    });
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }
+
+  function timelineActionLabel(card) {
+    if (card.type !== COMPANION_JOURNEY_TYPES.companionAnswer) return "带入对话";
+    const sourceId = card.sourceEntry?.payloadRef?.sourceId;
+    const message = messages.find((item) => item.id === sourceId);
+    if (message?.streaming) return "回答生成中";
+    return message && isChatMessageSavedToNote(message, savedChatNotes)
+      ? "已记到笔记"
+      : "记到笔记";
+  }
+
+  function timelineActionDisabled(card) {
+    if (card.type !== COMPANION_JOURNEY_TYPES.companionAnswer) return false;
+    const sourceId = card.sourceEntry?.payloadRef?.sourceId;
+    const message = messages.find((item) => item.id === sourceId);
+    return Boolean(message?.streaming || (message && isChatMessageSavedToNote(message, savedChatNotes)));
   }
 
   return (
@@ -2280,33 +3026,42 @@ function ChatPanel({
         </div>
       )}
 
-      <div
+      <CompanionTimeline
         ref={messagesRef}
         className="reader-chat-messages"
+        data-companion-shared="timeline"
       >
-        {messages.length === 0 ? (
+        {journey.length === 0 ? (
           <AssistantWelcome companion={companion} />
         ) : (
-          messages.map((message, index) =>
-            message.streaming && !toText(message.content).trim() ? null : (
-              <ChatMessage
-                key={message.id}
-                companion={companion}
-                message={message}
-                previousMessage={messages[index - 1]}
-                latest={index === messages.length - 1}
-                savedToNote={isChatMessageSavedToNote(message, savedChatNotes)}
-                onAddToNote={onAddMessageToNote}
-              />
-            )
-          )
+          <CompanionJourneyTimeline
+            entries={journey}
+            itemKey={itemKey}
+            activeScene={scene}
+            onCardAction={bringTimelineCardToComposer}
+            getActionLabel={timelineActionLabel}
+            isActionDisabled={timelineActionDisabled}
+            compact
+          />
         )}
         {loading && <ThinkingStatus companion={companion} />}
-      </div>
+      </CompanionTimeline>
 
       {error && <p className="mt-3 text-xs leading-5 text-red-600">{error}</p>}
 
-      <form onSubmit={handleSubmit} className="mt-2 shrink-0">
+      <CompanionComposer onSubmit={handleSubmit} className="mt-2 shrink-0">
+        <label className="companion-session-override">
+          <span>本次回答</span>
+          <select
+            value={sessionOverride}
+            onChange={(event) => setSessionOverride(event.target.value)}
+            disabled={loading || disabled}
+          >
+            {COMPANION_SESSION_OVERRIDE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
         <div className="reader-chat-composer">
           {activeQuote && (
             <div className="mb-2 flex items-start gap-2 rounded-lg bg-paper px-3 py-2 text-xs text-ink-soft">
@@ -2342,7 +3097,7 @@ function ChatPanel({
         >
           {loading ? "等待回答…" : "发送"}
         </button>
-      </form>
+      </CompanionComposer>
     </section>
   );
 }
@@ -2943,7 +3698,7 @@ function SidebarPanel({
                 <span className="guide-skeleton-bar block h-2.5 w-10/12 rounded-full bg-paper" />
               </div>
               <button
-                onClick={onGenerate}
+                onClick={() => onGenerate(false)}
                 disabled={disabled}
                 className="guide-primary-button mt-4 w-full rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
@@ -3537,12 +4292,13 @@ function buildChapterSections(chapters, pages, item) {
   }));
 }
 
-function buildPendingNoteFromSelection(selection) {
+function buildPendingNoteFromSelection(selection, contentMap, itemKey) {
   return {
     id: `note-draft-${Date.now()}`,
     pageNumber: selection?.pageNumber || null,
     text: toText(selection?.text).trim(),
     rects: normalizeHighlightRects(selection?.rects),
+    ...buildSelectionAnchor(contentMap, selection, itemKey),
   };
 }
 
@@ -3568,6 +4324,11 @@ function buildQuoteMeta(quote) {
     pageUnitLabel: quote.pageUnitLabel || "页",
     text: toText(quote.text).trim(),
     rects: normalizeHighlightRects(quote.rects),
+    anchorSchemaVersion: quote.anchorSchemaVersion || null,
+    contentBlockId: quote.contentBlockId || null,
+    blockCharRange: quote.blockCharRange || null,
+    contentFingerprint: quote.contentFingerprint || null,
+    anchorStatus: quote.anchorStatus || null,
   };
 }
 

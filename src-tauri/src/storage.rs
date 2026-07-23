@@ -23,13 +23,14 @@ const PAGES_SUFFIX: &str = ":pages";
 const NOTES_SUFFIX: &str = ":notes";
 const CHAT_SUFFIX: &str = ":chat";
 const REFLECTION_SUFFIX: &str = ":reflection";
+const COMPANION_EVENTS_SUFFIX: &str = ":companion-events";
 const COVER_SUFFIX: &str = ":cover";
 const FORMATTED_TEXT_MARKER: &str = ":formatted-text:";
 const QUESTIONS_MARKER: &str = ":questions:";
 const DEFAULT_KEYCHAIN_SERVICE: &str = "com.duban.reader.test.keychain.ai";
 const KEYCHAIN_ANTHROPIC_ACCOUNT: &str = "anthropic.apiKey";
 const KEYCHAIN_OPENAI_COMPATIBLE_ACCOUNT: &str = "openaiCompatible.apiKey";
-const CURRENT_SCHEMA_VERSION: &str = "9";
+const CURRENT_SCHEMA_VERSION: &str = "10";
 const BACKUP_FORMAT: &str = "duban.local-backup";
 const BACKUP_VERSION: u32 = 3;
 const BACKUP_MANIFEST_FILE: &str = "manifest.json";
@@ -254,6 +255,7 @@ pub struct BackupPreview {
     chat_count: usize,
     reflection_count: usize,
     guide_count: usize,
+    companion_event_count: usize,
     formatted_text_count: usize,
     cover_count: usize,
     issues: Vec<BackupIssue>,
@@ -492,6 +494,14 @@ pub fn duban_storage_get_item(
             file: None,
         }));
     }
+    if let Some(book_id) = book_suffix_id(&key, COMPANION_EVENTS_SUFFIX) {
+        let conn = lock_conn(&state)?;
+        return Ok(Some(StoredItem {
+            kind: "json".to_string(),
+            value: Some(load_companion_events(&conn, book_id)?),
+            file: None,
+        }));
+    }
     if let Some((book_id, item_key)) = guide_key_parts(&key) {
         let conn = lock_conn(&state)?;
         return Ok(
@@ -615,6 +625,10 @@ fn sync_json_key(
     }
     if let Some(book_id) = book_suffix_id(&key, REFLECTION_SUFFIX) {
         sync_messages(conn, "reflection_messages", book_id, value)?;
+        return Ok(None);
+    }
+    if let Some(book_id) = book_suffix_id(&key, COMPANION_EVENTS_SUFFIX) {
+        sync_companion_events(conn, book_id, value)?;
         return Ok(None);
     }
     if let Some((book_id, item_key)) = guide_key_parts(&key) {
@@ -749,6 +763,17 @@ pub fn duban_storage_remove_item(
     state: State<'_, StorageState>,
 ) -> Result<(), String> {
     if key.trim().is_empty() {
+        return Ok(());
+    }
+    if let Some(book_id) = book_suffix_id(&key, COMPANION_EVENTS_SUFFIX) {
+        let conn = lock_conn(&state)?;
+        conn.execute(
+            "DELETE FROM companion_events WHERE book_id = ?1",
+            params![book_id],
+        )
+        .map_err(|_| "删除统一陪读事件失败。".to_string())?;
+        conn.execute("DELETE FROM kv_store WHERE key = ?1", params![&key])
+            .map_err(|_| "清理旧统一陪读事件失败。".to_string())?;
         return Ok(());
     }
     validate_key(&key)?;
@@ -956,6 +981,8 @@ fn list_storage_keys(conn: &Connection) -> Result<Vec<String>, String> {
              UNION
              SELECT 'book:' || book_id || ':reflection' FROM reflection_messages GROUP BY book_id
              UNION
+             SELECT 'book:' || book_id || ':companion-events' FROM companion_events GROUP BY book_id
+             UNION
              SELECT 'book:' || book_id || ':questions:' || item_key FROM reading_guides
              UNION
              SELECT 'book:' || book_id || ':cover' FROM book_covers
@@ -1042,6 +1069,8 @@ fn clear_storage_data(
         .map_err(|_| "清空章节导读缓存失败。".to_string())?;
     conn.execute("DELETE FROM reflection_messages", [])
         .map_err(|_| "清空读后交流失败。".to_string())?;
+    conn.execute("DELETE FROM companion_events", [])
+        .map_err(|_| "清空统一陪读事件失败。".to_string())?;
     conn.execute("DELETE FROM chat_messages", [])
         .map_err(|_| "清空伴读聊天失败。".to_string())?;
     conn.execute("DELETE FROM notes", [])
@@ -1603,6 +1632,9 @@ fn load_backup_json_value(
     if let Some(book_id) = book_suffix_id(key, REFLECTION_SUFFIX) {
         return Ok(Some(load_messages(conn, "reflection_messages", book_id)?));
     }
+    if let Some(book_id) = book_suffix_id(key, COMPANION_EVENTS_SUFFIX) {
+        return Ok(Some(load_companion_events(conn, book_id)?));
+    }
     if let Some((book_id, item_key)) = guide_key_parts(key) {
         return load_guide(conn, book_id, item_key);
     }
@@ -1873,6 +1905,11 @@ fn merge_json_key(
         return Ok(None);
     }
 
+    if let Some(book_id) = book_suffix_id(key, COMPANION_EVENTS_SUFFIX) {
+        merge_companion_events(conn, book_id, value)?;
+        return Ok(None);
+    }
+
     sync_json_key(conn, files_dir, key, value)
 }
 
@@ -1994,6 +2031,7 @@ fn diagnostic_table_counts(conn: &Connection) -> Result<Vec<TableCount>, String>
         "chat_messages",
         "reflection_messages",
         "reading_guides",
+        "companion_events",
         "app_settings",
         "book_covers",
         "formatted_texts",
@@ -2352,6 +2390,7 @@ fn build_backup_preview(
         chat_count: 0,
         reflection_count: 0,
         guide_count: 0,
+        companion_event_count: 0,
         formatted_text_count: 0,
         cover_count: 0,
         issues,
@@ -2372,6 +2411,9 @@ fn build_backup_preview(
             preview.reflection_count += count_grouped_items(&item.value);
         } else if guide_key_parts(&item.key).is_some() {
             preview.guide_count += 1;
+        } else if book_suffix_id(&item.key, COMPANION_EVENTS_SUFFIX).is_some() {
+            preview.companion_event_count +=
+                item.value.as_array().map(Vec::len).unwrap_or_default();
         } else if book_suffix_id(&item.key, COVER_SUFFIX).is_some() {
             preview.cover_count += 1;
         } else if formatted_text_key_parts(&item.key).is_some() {
@@ -2466,6 +2508,8 @@ fn validate_backup_report(backup: &StorageBackup, base_dir: Option<&Path>) -> Ve
         }
         if item.key == BOOKS_KEY {
             validate_backup_books(&item.value, &mut issues);
+        } else if book_suffix_id(&item.key, COMPANION_EVENTS_SUFFIX).is_some() {
+            validate_backup_companion_events(&item.key, &item.value, &mut issues);
         }
     }
 
@@ -2523,6 +2567,73 @@ fn validate_backup_report(backup: &StorageBackup, base_dir: Option<&Path>) -> Ve
     }
 
     issues
+}
+
+fn validate_backup_companion_events(key: &str, value: &Value, issues: &mut Vec<BackupIssue>) {
+    let Some(book_id) = book_suffix_id(key, COMPANION_EVENTS_SUFFIX) else {
+        return;
+    };
+    let Some(events) = value.as_array() else {
+        issues.push(backup_issue(
+            "error",
+            "invalid-companion-events",
+            "统一陪读事件必须是数组。",
+            Some(key),
+        ));
+        return;
+    };
+
+    let mut ids = BTreeSet::new();
+    for event in events {
+        let Some(id) = text_field(event, "id") else {
+            issues.push(backup_issue(
+                "error",
+                "companion-event-missing-id",
+                "统一陪读事件缺少 id。",
+                Some(key),
+            ));
+            continue;
+        };
+        if !ids.insert(id) {
+            issues.push(backup_issue(
+                "error",
+                "duplicate-companion-event-id",
+                "统一陪读事件中存在重复 id。",
+                Some(key),
+            ));
+        }
+        if text_field(event, "bookId").as_deref() != Some(book_id) {
+            issues.push(backup_issue(
+                "error",
+                "companion-event-book-mismatch",
+                "统一陪读事件的 bookId 与备份 key 不一致。",
+                Some(key),
+            ));
+        }
+        if text_field(event, "scene").is_none()
+            || text_field(event, "type").is_none()
+            || text_field(event, "status").is_none()
+        {
+            issues.push(backup_issue(
+                "error",
+                "companion-event-contract-incomplete",
+                "统一陪读事件缺少 scene、type 或 status。",
+                Some(key),
+            ));
+        }
+        if event
+            .get("sourceAnchor")
+            .and_then(Value::as_object)
+            .is_some_and(|anchor| anchor.contains_key("text"))
+        {
+            issues.push(backup_issue(
+                "error",
+                "companion-event-copies-source-text",
+                "统一陪读事件来源锚点不得复制正文文本。",
+                Some(key),
+            ));
+        }
+    }
 }
 
 fn normalize_import_mode(mode: &str) -> Result<&'static str, String> {
@@ -2778,6 +2889,9 @@ fn backup_key_priority(key: &str) -> u8 {
     {
         return 5;
     }
+    if book_suffix_id(key, COMPANION_EVENTS_SUFFIX).is_some() {
+        return 6;
+    }
     10
 }
 
@@ -3002,6 +3116,34 @@ fn initialize_schema(conn: &mut Connection, files_dir: &Path) -> Result<(), Stri
 
         CREATE INDEX IF NOT EXISTS idx_reading_guides_book
           ON reading_guides(book_id);
+
+        CREATE TABLE IF NOT EXISTS companion_events (
+          book_id TEXT NOT NULL,
+          id TEXT NOT NULL,
+          item_key TEXT,
+          reading_item_id TEXT,
+          scene TEXT NOT NULL,
+          type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          source_kind TEXT,
+          source_page_number INTEGER,
+          content_fingerprint TEXT,
+          payload_store TEXT,
+          payload_item_key TEXT,
+          payload_source_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          raw_json TEXT NOT NULL,
+          PRIMARY KEY (book_id, id),
+          FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_companion_events_book_item
+          ON companion_events(book_id, item_key, created_at);
+        CREATE INDEX IF NOT EXISTS idx_companion_events_book_type_status
+          ON companion_events(book_id, type, status);
+        CREATE INDEX IF NOT EXISTS idx_companion_events_payload_ref
+          ON companion_events(book_id, payload_store, payload_item_key, payload_source_id);
 
         CREATE TABLE IF NOT EXISTS app_settings (
           id TEXT PRIMARY KEY,
@@ -4699,6 +4841,146 @@ fn migrate_guides_from_kv(conn: &mut Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn load_companion_events(conn: &Connection, book_id: &str) -> Result<Value, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT raw_json
+             FROM companion_events
+             WHERE book_id = ?1
+             ORDER BY created_at ASC, id ASC",
+        )
+        .map_err(|_| "读取统一陪读事件失败。".to_string())?;
+    let rows = statement
+        .query_map(params![book_id], |row| row.get::<_, String>(0))
+        .map_err(|_| "读取统一陪读事件失败。".to_string())?;
+    let mut events = Vec::new();
+    for row in rows {
+        let raw_json = row.map_err(|_| "读取统一陪读事件失败。".to_string())?;
+        events.push(
+            serde_json::from_str(&raw_json).map_err(|_| "统一陪读事件格式损坏。".to_string())?,
+        );
+    }
+    Ok(Value::Array(events))
+}
+
+fn sync_companion_events(
+    conn: &mut Connection,
+    book_id: &str,
+    value: &Value,
+) -> Result<(), String> {
+    let events = value
+        .as_array()
+        .ok_or_else(|| "统一陪读事件必须是数组。".to_string())?;
+    let tx = conn
+        .transaction()
+        .map_err(|_| "开始统一陪读事件事务失败。".to_string())?;
+
+    tx.execute(
+        "DELETE FROM companion_events WHERE book_id = ?1",
+        params![book_id],
+    )
+    .map_err(|_| "重建统一陪读事件失败。".to_string())?;
+
+    let mut ids = BTreeSet::new();
+    for event in events {
+        let id = text_field(event, "id").ok_or_else(|| "统一陪读事件缺少 id。".to_string())?;
+        if !ids.insert(id.clone()) {
+            return Err("统一陪读事件存在重复 id。".to_string());
+        }
+        if text_field(event, "bookId").as_deref() != Some(book_id) {
+            return Err("统一陪读事件的 bookId 与存储 key 不一致。".to_string());
+        }
+        let scene =
+            text_field(event, "scene").ok_or_else(|| "统一陪读事件缺少 scene。".to_string())?;
+        let event_type =
+            text_field(event, "type").ok_or_else(|| "统一陪读事件缺少 type。".to_string())?;
+        let status =
+            text_field(event, "status").ok_or_else(|| "统一陪读事件缺少 status。".to_string())?;
+        let created_at = text_field(event, "createdAt").unwrap_or_else(current_timestamp);
+        let updated_at = text_field(event, "updatedAt").unwrap_or_else(|| created_at.clone());
+        let source_anchor = event.get("sourceAnchor").filter(|value| !value.is_null());
+        let payload_ref = event.get("payloadRef").filter(|value| !value.is_null());
+        let raw_json =
+            serde_json::to_string(event).map_err(|_| "统一陪读事件序列化失败。".to_string())?;
+
+        tx.execute(
+            "INSERT INTO companion_events (
+              book_id, id, item_key, reading_item_id, scene, type, status,
+              source_kind, source_page_number, content_fingerprint,
+              payload_store, payload_item_key, payload_source_id,
+              created_at, updated_at, raw_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                book_id,
+                id,
+                text_field(event, "itemKey"),
+                text_field(event, "readingItemId"),
+                scene,
+                event_type,
+                status,
+                source_anchor.and_then(|value| text_field(value, "kind")),
+                source_anchor.and_then(|value| int_field(value, "pageNumber")),
+                source_anchor.and_then(|value| text_field(value, "contentFingerprint")),
+                payload_ref.and_then(|value| text_field(value, "store")),
+                payload_ref.and_then(|value| text_field(value, "itemKey")),
+                payload_ref.and_then(|value| text_field(value, "sourceId")),
+                created_at,
+                updated_at,
+                raw_json,
+            ],
+        )
+        .map_err(|_| "写入统一陪读事件失败。".to_string())?;
+    }
+
+    tx.execute(
+        "DELETE FROM kv_store WHERE key = ?1",
+        params![book_scoped_key(book_id, COMPANION_EVENTS_SUFFIX)],
+    )
+    .map_err(|_| "清理旧统一陪读事件失败。".to_string())?;
+    tx.commit()
+        .map_err(|_| "提交统一陪读事件事务失败。".to_string())
+}
+
+fn merge_companion_events(
+    conn: &mut Connection,
+    book_id: &str,
+    incoming: &Value,
+) -> Result<(), String> {
+    let incoming_events = incoming
+        .as_array()
+        .ok_or_else(|| "统一陪读事件必须是数组。".to_string())?;
+    let existing = load_companion_events(conn, book_id)?;
+    let mut merged = BTreeMap::<String, Value>::new();
+
+    for event in existing
+        .as_array()
+        .into_iter()
+        .flatten()
+        .chain(incoming_events.iter())
+    {
+        let id = text_field(event, "id").ok_or_else(|| "统一陪读事件缺少 id。".to_string())?;
+        match merged.get(&id) {
+            Some(current) if !incoming_event_is_newer(event, current) => {}
+            _ => {
+                merged.insert(id, event.clone());
+            }
+        }
+    }
+
+    sync_companion_events(conn, book_id, &Value::Array(merged.into_values().collect()))
+}
+
+fn incoming_event_is_newer(incoming: &Value, current: &Value) -> bool {
+    let incoming_time = text_field(incoming, "updatedAt").unwrap_or_default();
+    let current_time = text_field(current, "updatedAt").unwrap_or_default();
+    if incoming_time != current_time {
+        return incoming_time > current_time;
+    }
+    let incoming_deleted = text_field(incoming, "status").as_deref() == Some("deleted");
+    let current_deleted = text_field(current, "status").as_deref() == Some("deleted");
+    incoming_deleted || !current_deleted
+}
+
 fn group_raw_json_by_item(rows: Vec<(String, String)>, parse_error: &str) -> Result<Value, String> {
     let mut grouped = Map::new();
 
@@ -5945,6 +6227,92 @@ mod tests {
             text_field(&redacted["anthropic"], "model").as_deref(),
             Some("claude-sonnet-4-6")
         );
+
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn companion_events_roundtrip_merge_and_rollback() {
+        let root = std::env::temp_dir().join(format!(
+            "duban-companion-events-test-{}-{}",
+            std::process::id(),
+            current_timestamp()
+        ));
+        let files_dir = root.join("files");
+        fs::create_dir_all(&files_dir).expect("create test files dir");
+
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        initialize_schema(&mut conn, &files_dir).expect("initialize schema");
+        sync_books(
+            &mut conn,
+            &json!([{ "id": "book-1", "title": "Event Test", "chapters": [] }]),
+        )
+        .expect("sync book");
+
+        let event = json!({
+            "schemaVersion": 1,
+            "id": "event:selection:1",
+            "bookId": "book-1",
+            "readingItemId": "item-1",
+            "itemKey": "item-1",
+            "scene": "reading",
+            "type": "selection_question",
+            "status": "active",
+            "sourceAnchor": {
+                "schemaVersion": 1,
+                "kind": "selection",
+                "pageNumber": 6,
+                "contentFingerprint": "fnv1a:abc"
+            },
+            "payloadRef": {
+                "store": "bookChat",
+                "itemKey": "item-1",
+                "sourceId": "message-1"
+            },
+            "relatedEventIds": [],
+            "metadata": {},
+            "createdAt": "2026-07-16T01:00:00.000Z",
+            "updatedAt": "2026-07-16T01:00:00.000Z"
+        });
+        sync_companion_events(&mut conn, "book-1", &json!([event.clone()]))
+            .expect("sync companion event");
+        let loaded = load_companion_events(&conn, "book-1").expect("load companion events");
+        assert_eq!(loaded.as_array().map(Vec::len), Some(1));
+        assert!(loaded.pointer("/0/sourceAnchor/text").is_none());
+
+        let mut newer = event.clone();
+        newer["status"] = json!("deleted");
+        newer["updatedAt"] = json!("2026-07-16T02:00:00.000Z");
+        merge_companion_events(&mut conn, "book-1", &json!([newer]))
+            .expect("merge newer tombstone");
+        merge_companion_events(&mut conn, "book-1", &json!([event.clone()]))
+            .expect("ignore older incoming event");
+        let merged = load_companion_events(&conn, "book-1").expect("load merged event");
+        assert_eq!(
+            merged.pointer("/0/status").and_then(Value::as_str),
+            Some("deleted")
+        );
+
+        let invalid = json!([event.clone(), event]);
+        assert!(sync_companion_events(&mut conn, "book-1", &invalid).is_err());
+        assert_eq!(
+            load_companion_events(&conn, "book-1")
+                .expect("load after rollback")
+                .pointer("/0/status")
+                .and_then(Value::as_str),
+            Some("deleted")
+        );
+
+        let mut backup = build_storage_backup(&conn, &files_dir, "test", None)
+            .expect("build backup with companion events");
+        finalize_backup_manifest(&mut backup).expect("finalize companion event backup");
+        let item = backup
+            .items
+            .iter()
+            .find(|item| item.key == book_scoped_key("book-1", COMPANION_EVENTS_SUFFIX))
+            .expect("companion events backup item");
+        assert_eq!(item.value.as_array().map(Vec::len), Some(1));
+        assert!(validate_backup_report(&backup, None).is_empty());
 
         fs::remove_dir_all(root).ok();
     }

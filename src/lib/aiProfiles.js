@@ -10,7 +10,7 @@ export const AI_PROFILE_TASKS = [
   {
     id: "readingGuide",
     label: "章节导读",
-    defaultMaxTokens: "1800",
+    defaultMaxTokens: "3200",
     defaultTemperature: "0.45",
   },
   {
@@ -72,13 +72,13 @@ export function normalizeAiProfiles(value = {}) {
   };
 }
 
-export function resolveAiProfileRequest({ settings, taskType, maxTokens }) {
+export function resolveAiProfileRequest({ settings, taskType, maxTokens, hardMaxTokens = null }) {
   const profiles = normalizeAiProfiles(settings?.aiProfiles);
   const profile = profiles.tasks?.[taskType];
   if (!profiles.enabled || !profile?.enabled) {
     return {
       settings,
-      maxTokens,
+      maxTokens: applyHardMaxTokens(maxTokens, hardMaxTokens),
       temperature: null,
       resultSettings: sanitizeAiSettings(settings),
       profile: null,
@@ -107,18 +107,28 @@ export function resolveAiProfileRequest({ settings, taskType, maxTokens }) {
     nextSettings.anthropic.model = profile.anthropicModel;
   }
 
+  const resolvedMaxTokens = applyHardMaxTokens(
+    readPositiveNumber(profile.maxTokens) || maxTokens,
+    hardMaxTokens
+  );
   return {
     settings: nextSettings,
-    maxTokens: readPositiveNumber(profile.maxTokens) || maxTokens,
+    maxTokens: resolvedMaxTokens,
     temperature: readTemperature(profile.temperature),
     resultSettings: sanitizeAiSettings(nextSettings),
     profile: {
       taskType,
       provider,
-      maxTokens: readPositiveNumber(profile.maxTokens) || maxTokens,
+      maxTokens: resolvedMaxTokens,
       temperature: readTemperature(profile.temperature),
     },
   };
+}
+
+function applyHardMaxTokens(value, hardMaxTokens) {
+  const resolved = readPositiveNumber(value) || 1;
+  const hardLimit = readPositiveNumber(hardMaxTokens);
+  return hardLimit ? Math.min(resolved, hardLimit) : resolved;
 }
 
 export function sanitizeAiSettings(settings = {}) {

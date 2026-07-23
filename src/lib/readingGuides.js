@@ -1,14 +1,18 @@
 import { callModelDetailed } from "./ai.js";
-import { createAiOutputTruncatedError, isAiOutputTruncated } from "./aiCompletion.js";
 import { buildReadingGuidePrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
-import { buildReadingContractContext } from "./readingContract.js";
+import { buildCompanionContext } from "./companionContext.js";
+import {
+  callReadingGuideWithRecovery,
+  isAiInputTooLong,
+} from "./readingGuideReliability.js";
 import { getItem, getSettings, KEYS, setItem } from "./storage.js";
 import { toText } from "./text.js";
+import { applyGeneratedTextPreferences } from "./generatedTextPreferences.js";
+import { recordAiCacheDiagnostic } from "./aiDiagnostics.js";
 
-const MAX_CONTEXT_CHARS = 12000;
 const JUNK_FRAGMENTS = new Set(["与", "和", "及", "或", "留意", "注意", "思考", "理解"]);
-const READING_GUIDE_STYLE_VERSION = 2;
+const READING_GUIDE_STYLE_VERSION = 3;
 
 export function getPlanItemKey(item, index = 0) {
   return item?.id || `${item?.type || "item"}:${index}`;
@@ -31,40 +35,122 @@ export async function generateReadingGuide({
   chapterSections,
   currentIndex = 0,
   planItems = [],
+  force = false,
   signal,
 }) {
   const settings = await getSettings();
-  const chapterText = chapterSections
-    .map(
-      (section) =>
-        `【${section.chapter.title}】\n页码：${section.chapter.startPage}-${section.chapter.endPage}\n${section.text}`
-    )
-    .join("\n\n---\n\n")
-    .slice(0, MAX_CONTEXT_CHARS);
-  const prompts = buildPrompt({ book, item, chapterText, currentIndex, planItems });
-
-  const result = await callModelDetailed({
+  const continuity = buildGuideContinuity({ item, currentIndex, planItems });
+  const contextArgs = {
+    book,
+    item,
+    itemKey,
+    chapterSections,
     settings,
-    maxTokens: 1800,
-    system: prompts.system,
-    messages: [
-      {
-        role: "user",
-        content: prompts.user,
-      },
-    ],
-    signal,
-    taskType: "readingGuide",
+    cacheIdentity: continuity,
+    memoryScope: {
+      previousItemKey: continuity.previousItemKey,
+      priorItemKeys: continuity.priorItemKeys,
+    },
+  };
+  const context = buildCompanionContext({
+    scene: "readingGuide",
+    ...contextArgs,
   });
+  const cachedGuide = force ? null : await getReadingGuide(book.id, itemKey);
+  const cachedSourceKey =
+    cachedGuide?.contextTrace?.sourceContextCacheKey || cachedGuide?.contextTrace?.cacheKey;
+  if (cachedSourceKey === context.trace.cacheKey) {
+    const cachedResult = {
+      ...cachedGuide,
+      contextTrace: {
+        ...cachedGuide.contextTrace,
+        cache: { hit: true, kind: "guide-artifact" },
+      },
+    };
+    await recordAiCacheDiagnostic({
+      taskType: "readingGuide",
+      settings,
+      diagnosticContext: {
+        scene: context.scene,
+        policy: context.policy,
+        trace: cachedResult.contextTrace,
+      },
+    }).catch(() => null);
+    return cachedResult;
+  }
+  const prompts = buildPrompt({ book, item, context, continuity });
 
-  if (isAiOutputTruncated(result)) {
-    throw createAiOutputTruncatedError(
-      "这次读前导读写得太长，被模型输出上限截断了。请重新生成，或减少当前阅读范围。",
-      result
-    );
+  try {
+    const generation = await callReadingGuideWithRecovery({
+      settings,
+      prompts,
+      maxOutputTokens: context.maxOutputTokens,
+      compactOutputInstruction: context.guideCompactOutputRequirement,
+      signal,
+      callModel: callModelDetailed,
+      parseGuide,
+      hasGuideContent,
+      diagnosticContext: {
+        scene: context.scene,
+        policy: context.policy,
+        trace: context.trace,
+      },
+    });
+    return saveGeneratedGuide({
+      book,
+      itemKey,
+      settings,
+      generation,
+      context,
+      sourceContextCacheKey: context.trace.cacheKey,
+    });
+  } catch (error) {
+    if (!isAiInputTooLong(error)) throw error;
   }
 
-  const parsed = parseGuide(result.text);
+  const compactContext = buildCompanionContext({
+    scene: "readingGuide",
+    ...contextArgs,
+    contextCompression: "compact",
+  });
+  const compactPrompts = buildPrompt({ book, item, context: compactContext, continuity });
+  const generation = await callReadingGuideWithRecovery({
+    settings,
+    prompts: compactPrompts,
+    maxOutputTokens: compactContext.maxOutputTokens,
+    compactOutputInstruction: compactContext.guideCompactOutputRequirement,
+    signal,
+    callModel: callModelDetailed,
+    parseGuide,
+    hasGuideContent,
+    diagnosticContext: {
+      scene: compactContext.scene,
+      policy: compactContext.policy,
+      trace: compactContext.trace,
+    },
+  });
+  return saveGeneratedGuide({
+    book,
+    itemKey,
+    settings,
+    generation,
+    context: compactContext,
+    sourceContextCacheKey: context.trace.cacheKey,
+    inputRecoveryAttempts: 1,
+  });
+}
+
+async function saveGeneratedGuide({
+  book,
+  itemKey,
+  settings,
+  generation,
+  context,
+  sourceContextCacheKey,
+  inputRecoveryAttempts = 0,
+}) {
+  const { result, parsed } = generation;
+  const generationUsage = combineGuideUsage(generation.results);
   const guide = {
     ...parsed,
     raw: result.text,
@@ -74,8 +160,19 @@ export async function generateReadingGuide({
     model: result.model || getActiveModel(settings),
     finishReason: result.finishReason || "",
     truncated: false,
-    usage: result.usage,
-    cost: estimateGuideCost(settings, result),
+    usage: generationUsage,
+    cost: estimateGuideCost(settings, { ...result, usage: generationUsage }),
+    contextTrace: {
+      ...context.trace,
+      sourceContextCacheKey,
+      inputCompression: {
+        ...context.trace.inputCompression,
+        recoveredFromInputLimit: inputRecoveryAttempts > 0,
+      },
+    },
+    generationAttempts: generation.attempts + inputRecoveryAttempts,
+    recoveredFrom:
+      generation.recoveredFrom || (inputRecoveryAttempts > 0 ? "input_too_long" : ""),
     generatedAt: new Date().toISOString(),
   };
 
@@ -98,16 +195,34 @@ function estimateGuideCost(settings, result) {
   return estimateClaudeCost(result.model || costSettings.anthropic?.model, result.usage);
 }
 
-function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
-  const contractContext = buildReadingContractContext({ book, item });
-  const contractPromptValues = buildContractPromptValues(contractContext);
+function combineGuideUsage(results) {
+  const combined = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  let hasUsage = false;
+  for (const result of Array.isArray(results) ? results : []) {
+    const usage = result?.usage;
+    if (!usage) continue;
+    hasUsage = true;
+    combined.input_tokens += Number(usage.input_tokens ?? usage.prompt_tokens) || 0;
+    combined.output_tokens += Number(usage.output_tokens ?? usage.completion_tokens) || 0;
+    combined.cache_creation_input_tokens += Number(usage.cache_creation_input_tokens) || 0;
+    combined.cache_read_input_tokens += Number(usage.cache_read_input_tokens) || 0;
+  }
+  return hasUsage ? combined : null;
+}
+
+function buildPrompt({ book, item, context, continuity }) {
   const purpose =
     book.readingProfile?.purpose ||
     book.readingProfile?.companionFocus?.label ||
     "study";
   const pace = formatReadingPace(book.readingProfile?.pace);
-  const continuity = buildGuideContinuity({ item, currentIndex, planItems });
-  return buildReadingGuidePrompts({
+  return {
+    ...buildReadingGuidePrompts({
     bookTitle: toText(book.title),
     bookAuthor: toText(book.author) || "未知",
     purpose,
@@ -121,74 +236,13 @@ function buildPrompt({ book, item, chapterText, currentIndex, planItems }) {
     previousItemTitle: continuity.previousTitle,
     nextItemTitle: continuity.nextTitle,
     continuityStrategy: continuity.strategy,
-    ...contractPromptValues,
-    chapterText,
-  });
-}
-
-function buildContractPromptValues(context) {
-  return {
-    contractBookProblem: toText(context.bookProblem).trim(),
-    contractCoreQuestion: toText(context.coreQuestion).trim(),
-    contractCompanionFocusLabel: formatCompanionFocusLabel(context.companionFocus),
-    contractCompanionFocusInstruction: toText(context.companionFocus?.promptInstruction).trim(),
-    contractCurrentStructureRole: toText(context.currentStructureRole).trim(),
-    contractCurrentDifficultyHints: formatContractDifficultyHints(context.currentDifficultyHints),
-    contractCurrentKeyTurns: formatContractKeyTurns(context.currentKeyTurns),
-    contractSuggestedReadingPath: toText(context.suggestedReadingPath).trim(),
-    contractSourceLimitations: toText(context.sourceLimitations).trim(),
-    contractAvailableSummary: formatContractAvailableSummary(context.available),
+    ...context.contractPromptValues,
+    contextBudgetInstruction: context.contextBudgetInstruction,
+    guideOverviewRequirement: context.guideOverviewRequirement,
+    chapterText: context.sections.chapterText,
+    }),
+    companionPolicy: context.policy,
   };
-}
-
-function formatCompanionFocusLabel(focus) {
-  const label = toText(focus?.label).trim();
-  const userText = toText(focus?.userText).trim();
-  const aiSummary = toText(focus?.aiSummary).trim();
-  return [label, userText || aiSummary].filter(Boolean).join("：");
-}
-
-function formatContractDifficultyHints(items) {
-  return asArray(items)
-    .map((item) => {
-      const topic = toText(item?.topic).trim();
-      const where = toText(item?.where).trim();
-      const whyHard = toText(item?.whyHard).trim();
-      const supportStrategy = toText(item?.supportStrategy).trim();
-      const title = [topic, where ? `位置：${where}` : ""].filter(Boolean).join("，");
-      const detail = [whyHard, supportStrategy ? `读伴可这样帮：${supportStrategy}` : ""]
-        .filter(Boolean)
-        .join("；");
-      return [title, detail].filter(Boolean).join("：");
-    })
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractKeyTurns(items) {
-  return asArray(items)
-    .map((item) =>
-      [toText(item?.title).trim(), toText(item?.whyItMatters).trim()]
-        .filter(Boolean)
-        .join("：")
-    )
-    .filter(Boolean)
-    .join("；");
-}
-
-function formatContractAvailableSummary(available = {}) {
-  const parts = [];
-  if (available.wholeBookGuide) parts.push("已有整本书导读");
-  if (available.companionFocus) parts.push("已有用户选择的读伴侧重点");
-  if (available.structureMatch) parts.push("当前阅读项匹配到全书结构位置");
-  if (available.difficultyMatch) parts.push("当前阅读项匹配到阅读难点");
-  return parts.length > 0
-    ? parts.join("；")
-    : "开书契约上下文为空，按原有章节导读逻辑自然生成，并省略上下文状态说明。";
-}
-
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
 }
 
 function formatReadingPace(pace) {
@@ -219,9 +273,13 @@ function buildGuideContinuity({ item, currentIndex, planItems }) {
     position,
     previousTitle,
     nextTitle,
+    previousItemKey: previous ? getPlanItemKey(previous, safeIndex - 1) : "",
+    priorItemKeys: items
+      .slice(0, safeIndex)
+      .map((planItem, index) => getPlanItemKey(planItem, index)),
     strategy: firstItem
-      ? "这是第一项导读：可以先建立整本书坐标，再进入当前阅读项。overview 建议使用“先看整本书”和“今天这章的位置”两个主体标题，中间用一行 --- 分隔。"
-      : `这是连续阅读中的后续导读：必须承上启下，先接住上一项「${previousTitle}」留下的问题、概念或叙事推进，再说明今天这一项如何继续推进。overview 建议使用“接上一次阅读”和“今天往哪里推进”两个主体标题，中间用一行 --- 分隔；读前问题只放在 questions 数组里。`,
+      ? "这是第一项导读：先用几句话说明这本书在讲什么，再用一个具体冲突、反常之处或现实后果说明当前内容为什么值得读。overview 使用“先看这本书”和“今天为什么值得读”两个主体标题，中间用一行 --- 分隔。"
+      : `这是连续阅读中的后续导读：用 1 句话说明上一项「${previousTitle}」讲到的具体事件、观点或结果，再用一个具体冲突、反常之处或现实后果说明今天为什么值得继续读。overview 使用“接上一次阅读”和“今天为什么值得读”两个主体标题，中间用一行 --- 分隔；读前问题只放在 questions 数组里。`,
   };
 }
 
@@ -255,7 +313,7 @@ function normalizeGuide(value) {
 
   return {
     ...value,
-    overview: toText(repaired?.overview || value.overview),
+    overview: applyGeneratedTextPreferences(toText(repaired?.overview || value.overview)),
     goals: chooseGuideList(value.goals, repaired?.goals),
     concepts: chooseGuideList(value.concepts, repaired?.concepts),
     questions: chooseGuideList(value.questions, repaired?.questions),
@@ -371,7 +429,9 @@ function chooseGuideList(existing, repaired) {
 }
 
 function sanitizeList(items) {
-  return toList(items).filter((item) => !isJunkFragment(item));
+  return toList(items)
+    .map(applyGeneratedTextPreferences)
+    .filter((item) => !isJunkFragment(item));
 }
 
 function hasSuspiciousFragments(items) {

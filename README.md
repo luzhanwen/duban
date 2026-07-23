@@ -1,5 +1,7 @@
 # 读伴 · Duban
 
+[![CI](https://github.com/luzhanwen/duban/actions/workflows/ci.yml/badge.svg)](https://github.com/luzhanwen/duban/actions/workflows/ci.yml)
+
 <p align="center">
   <img src="./public/logo.svg" alt="读伴 logo" width="96" />
 </p>
@@ -12,14 +14,51 @@
 
 当前项目仍保留浏览器 MVP，同时已接入 Tauri 桌面形态：
 
-- 本地优先：浏览器版使用 IndexedDB；Tauri 桌面版已开始迁移到 SQLite + App 数据目录文件存储，书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流和章节导读缓存已结构化，API Key 保存在系统 Keychain。
+- 本地优先：浏览器版使用 IndexedDB；Tauri 桌面版使用 SQLite + App 数据目录文件存储，书籍元数据、章节索引、原始文件索引、分页文本、阅读计划、阅读进度、笔记、聊天、读后交流和章节导读缓存已结构化，API Key 保存在系统 Keychain。
 - BYOK：用户在设置页填写自己的模型 API Key。
 - 无云端后端：浏览器版直接调用模型供应商接口，桌面版通过本地 Rust command 代理模型请求。
 - 多供应商：支持 Anthropic Claude 和 OpenAI-compatible Chat Completions。
-- 桌面壳：Tauri 版本已支持 `.app` / 本地测试版 `.dmg`，并具备本地 SQLite + Keychain 存储后端雏形。
+- 桌面 App：正式版本通过 Developer ID 签名、Apple 公证和 Gatekeeper 校验，以 `.dmg` 分发；本地测试版与正式版的数据和 Keychain 隔离。
 - 安全基线：P6.5 已补依赖审计、Tauri command 输入校验、路径护栏、CSP、安全头和敏感信息扫描脚本。
 
 更完整的需求共识、设计决策和开发日志见 [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md)，阶段路线见 [docs/ROADMAP.md](docs/ROADMAP.md)，剩余生产级升级步骤见 [docs/PRODUCTION_UPGRADE_PLAN.md](docs/PRODUCTION_UPGRADE_PLAN.md)。
+
+## Public Alpha 使用说明
+
+读伴目前是 **Public Alpha**。它适合愿意自行保管书库备份和模型密钥的个人用户试用，不应作为唯一的书籍或笔记存档位置。
+
+### 安装与首次设置
+
+1. 在 [GitHub Releases](https://github.com/luzhanwen/duban/releases) 下载最新 prerelease 的 `arm64` DMG。
+2. 打开 DMG，把「读伴」拖入「应用程序」后再启动。正式 DMG 已经过 Developer ID 签名和 Apple 公证。
+3. 首次启动按向导连接 AI 服务。默认推荐 DeepSeek，也支持 Anthropic Claude 和 OpenAI-compatible 服务；API Key 由用户自行申请和付费。
+4. 上传 PDF 或 MOBI，确认书名、章节范围和章节用途后开始阅读。
+
+当前发布包只面向 **Apple Silicon Mac**，主要在 macOS 13 及以上版本验证；暂不提供 Intel 构建。浏览器版仍可用于轻量体验，但桌面版的数据可靠性、Keychain 和本地文件能力更完整。
+
+### 数据与备份
+
+- 书籍、分页文本、进度、笔记和聊天默认只保存在本机；读伴没有自己的云端书库或账号系统。
+- 使用 AI 时，当前任务需要的阅读文本会发送到用户选择的第三方模型服务商。
+- 桌面版 API Key 保存在 macOS Keychain，目录式书库备份默认不包含 API Key。
+- 请定期进入「设置 -> 数据备份」导出目录备份。导入前可预览并校验，支持合并导入和覆盖恢复；升级前建议额外导出一次。
+
+### 已知限制
+
+- 当前只支持 PDF 和 MOBI；扫描版/纯图片 PDF 没有 OCR，可能无法提取正文和章节。
+- MOBI 以提取后的文本阅读为主，不保证完整还原原书排版、图片和复杂样式。
+- 复杂 PDF/MOBI 的章节仍可能需要人工调整；请在导入确认页检查章节范围。
+- 暂无云同步、多人协作、在线书城、移动端 App，也不会默认上传 PDF 原文件。
+- 已发布的 Alpha.4 不包含 2026-07-13 之后完成的混合 MOBI/KF8、窄窗口动态分屏和精确划词/笔记高亮修复；这些改动需要随下一候选版本重新发布和回归。
+
+### 反馈与安全
+
+- 一般缺陷请使用 [Bug report](https://github.com/luzhanwen/duban/issues/new?template=bug_report.yml)。
+- 功能建议请使用 [Feature request](https://github.com/luzhanwen/duban/issues/new?template=feature_request.yml)。
+- 安全问题请按 [SECURITY.md](SECURITY.md) 走私密报告流程，不要在公开 issue 中附上 API Key、私人书籍、完整诊断包或可利用细节。
+- 复现桌面问题时，可从「设置 -> 诊断」导出脱敏诊断包，并在发送前再次检查内容。
+
+Alpha 版本可能改变数据结构和交互，Stable 通道将在兼容性和恢复流程经过更广泛验证后再启用。每次升级内容和限制以对应 [Release notes](https://github.com/luzhanwen/duban/releases) 为准。
 
 ## 体验路径
 
@@ -155,6 +194,7 @@ npm run version:check
 npm run release:self-test
 npm run security:scan
 npm run security:audit
+npm run security:rust-audit # 需要先安装 cargo-audit
 ```
 
 当前开发版本为 `0.2.0-alpha.4`。App 版本以 `package.json` 为唯一人工修改来源；升版、Git tag 和 Changelog 规则见 [docs/VERSIONING.md](docs/VERSIONING.md)。

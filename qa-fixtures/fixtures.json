@@ -1,7 +1,7 @@
 {
   "format": "duban.qa-fixtures",
   "generatedBy": "npm run qa:fixtures",
-  "schemaVersion": "9",
+  "schemaVersion": "10",
   "backupVersion": "3",
   "fixtures": [
     {
@@ -46,6 +46,19 @@
       "sha256": "34e2f05b7c4f52a49e613ef822b34d112e1a84d8eb73f10676bc9a46a55a76b7"
     },
     {
+      "id": "p7-context-cases",
+      "kind": "contract-cases",
+      "format": "duban.p7-context-cases",
+      "purpose": [
+        "P7.11"
+      ],
+      "expected": "Defines the seven fixed, synthetic P7 context and viewport regression cases.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/p7/companion-context-cases.json",
+      "byteSize": 2295,
+      "sha256": "32a73125cd71b3dc512fcf69f85ebc2455475157a94146a8b3a676cc011fa23d"
+    },
+    {
       "id": "backup-empty-v3",
       "kind": "backup",
       "format": "duban.local-backup",
@@ -57,8 +70,25 @@
       "expected": "Previews without validation errors. Merge import is a no-op; replace import clears data.",
       "license": "Synthetic fixture created for this repository.",
       "path": "qa-fixtures/backups/duban-backup-empty-v3/manifest.json",
-      "byteSize": 450,
-      "sha256": "ac254ef3ff448b7a4662cd763e4c0ab0ffa3c4d8e05ab28fdd507d97f4a55760"
+      "byteSize": 451,
+      "sha256": "251f3ef75b887a56552261331dffaec15a268ad77963983f97ae8162e6dde603"
+    },
+    {
+      "id": "backup-companion-events-v3",
+      "kind": "backup",
+      "format": "duban.local-backup",
+      "purpose": [
+        "P7.5",
+        "P7.9.3",
+        "BK-002",
+        "BK-003",
+        "UPG-004"
+      ],
+      "expected": "Restores two linked section memories and one tombstone; repeated merge import stays deduplicated and does not revive deleted records.",
+      "license": "Synthetic fixture created for this repository.",
+      "path": "qa-fixtures/backups/duban-backup-companion-events-v3/manifest.json",
+      "byteSize": 6404,
+      "sha256": "b3a24cf6e34a2e19a5ef8b8c6ff76d35cca465d489de2d1eb5b823887c78abbb"
     },
     {
       "id": "backup-tampered-v3",
@@ -71,8 +101,8 @@
       "expected": "Preview reports a manifest hash validation issue.",
       "license": "Synthetic fixture created for this repository.",
       "path": "qa-fixtures/backups/duban-backup-tampered-v3/manifest.json",
-      "byteSize": 452,
-      "sha256": "3d16f00246cfbd4bbf6fa61142bfcfe6165a4996b0eed2b729adf6f4340812fe"
+      "byteSize": 453,
+      "sha256": "ce1ef834e4fe3dd95937a732e4f6eb8d8f519847537810da8634753e72f3d105"
     }
   ],
   "policy": {

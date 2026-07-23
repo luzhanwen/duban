@@ -1,6 +1,7 @@
 import { callModelDetailed } from "./ai.js";
 import { isAiOutputTruncated } from "./aiCompletion.js";
 import { updateBook } from "./books.js";
+import { isChapterIncluded } from "./chapterRoles.js";
 import { buildWholeBookGuidePrompts } from "./promptTemplates.js";
 import { estimateClaudeCost, estimateCustomCost } from "./pricing.js";
 import { getSettings } from "./storage.js";
@@ -128,8 +129,10 @@ function buildChapterList(chapters) {
 }
 
 function buildGuideChapterText(chapters, pages) {
-  const guideChapters = chapters.filter((chapter) => chapter.role === "guide");
-  const selected = guideChapters.length > 0 ? guideChapters : chapters.slice(0, 2);
+  const includedChapters = chapters.filter(isChapterIncluded);
+  const guideChapters = includedChapters.filter((chapter) => chapter.role === "guide");
+  const selected =
+    guideChapters.length > 0 ? guideChapters : includedChapters.slice(0, 2);
 
   return selected
     .map((chapter) => buildChapterTextBlock(chapter, pages, MAX_GUIDE_CHAPTER_CHARS))
@@ -139,8 +142,9 @@ function buildGuideChapterText(chapters, pages) {
 }
 
 function buildSampleText(chapters, pages) {
-  const mainChapters = chapters.filter((chapter) => !chapter.role || chapter.role === "main");
-  const sourceChapters = mainChapters.length > 0 ? mainChapters : chapters;
+  const includedChapters = chapters.filter(isChapterIncluded);
+  const mainChapters = includedChapters.filter((chapter) => chapter.role !== "guide");
+  const sourceChapters = mainChapters.length > 0 ? mainChapters : includedChapters;
   if (sourceChapters.length === 0) return "暂无正文抽样文本。";
 
   const selected = pickSampleChapters(sourceChapters);
@@ -419,7 +423,7 @@ export const DEFAULT_FOCUS_OPTIONS = [
     type: "mainline",
     label: "帮我抓主线",
     description: "减少被细节带走，持续提醒这段和全书问题的关系。",
-    promptInstruction: "后续回答要优先收束到全书主线和当前章节位置。",
+    promptInstruction: "后续回答要优先回到全书主线和当前章节位置。",
   },
   {
     type: "background",

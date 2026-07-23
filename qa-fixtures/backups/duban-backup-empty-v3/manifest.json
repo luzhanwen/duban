@@ -1,12 +1,12 @@
 {
   "format": "duban.local-backup",
   "backupVersion": 3,
-  "schemaVersion": "9",
+  "schemaVersion": "10",
   "exportedAt": "2026-07-09T00:00:00.000Z",
   "app": "Duban QA Fixture",
   "label": "QA Empty Backup Fixture",
   "notes": "Preview-only empty backup fixture. Merge import is a no-op; replace import clears current data.",
-  "manifestSha256": "10e86d501300fd7817f8f85bf6922ab9e129b908c19f330624776d09c8755376",
+  "manifestSha256": "9825e0690415b77abbd8bbe2f7c589719fe4fbb3fe03c73de913ba8948698ea4",
   "includesApiKeys": false,
   "items": [],
   "files": []

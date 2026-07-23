@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import AiSetupWizard from "./components/AiSetupWizard.jsx";
-import BookCompanionChat from "./components/BookCompanionChat.jsx";
 import BookSalon from "./components/BookSalon.jsx";
 import BookSetup from "./components/BookSetup.jsx";
 import Reader from "./components/Reader.jsx";
@@ -14,6 +13,7 @@ import SplashScreen from "./components/SplashScreen.jsx";
 import { initializeDesktopWindowIcon } from "./lib/desktopIcon.js";
 import { APP_RUNTIME } from "./lib/runtime.js";
 import { getSettings, normalizeSettings } from "./lib/storage.js";
+import { runCompanionTransition } from "./lib/companionTransition.js";
 
 const DESKTOP_DOWNLOAD_URL =
   import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim() ||
@@ -74,29 +74,30 @@ export default function App() {
     setView("readingPlan");
   }
 
-  function openBookCompanionChat(bookId) {
-    setCurrentBookId(bookId);
-    setView("bookCompanionChat");
-  }
-
   function openBookSalon(bookId) {
     setCurrentBookId(bookId);
     setView("bookSalon");
   }
 
   function openReader(bookId, options = {}) {
-    setCurrentBookId(bookId);
-    setReaderRequest({
-      bookId,
-      itemIndex: Number.isInteger(options.itemIndex) ? options.itemIndex : null,
-      mode: options.mode || "default",
-      requestedAt: Date.now(),
-    });
-    setView("reader");
+    runCompanionTransition(() => {
+      setCurrentBookId(bookId);
+      setReaderRequest({
+        bookId,
+        itemIndex: Number.isInteger(options.itemIndex) ? options.itemIndex : null,
+        mode: options.mode || "default",
+        requestedAt: Date.now(),
+      });
+      setView("reader");
+    }, { name: "open-reader" });
   }
 
   return (
-    <div className="app-root min-h-full">
+    <div
+      className={`app-root min-h-full ${
+        APP_RUNTIME.isBrowser ? "app-runtime-browser" : "app-runtime-desktop"
+      } ${view === "bookSetup" ? "is-book-setup" : ""}`}
+    >
       {showSplash && (
         <SplashScreen leaving={splashLeaving} toSetup={aiSetup.status === "needed"} />
       )}
@@ -112,7 +113,7 @@ export default function App() {
 
       {!inReader && (
         <header className="border-b border-line bg-paper-card/90 backdrop-blur">
-          <div className="mx-auto flex max-w-[1480px] items-center justify-between px-6 py-3 sm:px-10 lg:px-16">
+          <div className="app-wide-frame mx-auto flex max-w-[1480px] items-center justify-between px-6 py-3 sm:px-10 lg:px-16">
             <button
               onClick={() => setView("shelf")}
               className="rounded-lg outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-paper-card"
@@ -149,16 +150,6 @@ export default function App() {
             onSetupBook={openBookSetup}
             onPlanBook={openReadingPlan}
             onReadBook={openReader}
-            onChatBook={openBookCompanionChat}
-            onOpenSalon={openBookSalon}
-          />
-        )}
-        {view === "bookCompanionChat" && currentBookId && (
-          <BookCompanionChat
-            bookId={currentBookId}
-            onBack={() => setView("shelf")}
-            onReadBook={openReader}
-            onPlanBook={openReadingPlan}
             onOpenSalon={openBookSalon}
           />
         )}
@@ -168,7 +159,6 @@ export default function App() {
             onBack={() => setView("shelf")}
             onReadBook={openReader}
             onPlanBook={openReadingPlan}
-            onChatBook={openBookCompanionChat}
           />
         )}
         {view === "bookSetup" && currentBookId && (
@@ -186,18 +176,20 @@ export default function App() {
           />
         )}
         {view === "reader" && currentBookId && (
-          <Reader
-            bookId={currentBookId}
-            initialItemIndex={
-              readerRequest?.bookId === currentBookId ? readerRequest.itemIndex : null
-            }
-            initialMode={
-              readerRequest?.bookId === currentBookId ? readerRequest.mode : "default"
-            }
-            requestId={readerRequest?.requestedAt || 0}
-            onBack={() => setView("shelf")}
-            onPlan={openReadingPlan}
-          />
+          <div>
+            <Reader
+              bookId={currentBookId}
+              initialItemIndex={
+                readerRequest?.bookId === currentBookId ? readerRequest.itemIndex : null
+              }
+              initialMode={
+                readerRequest?.bookId === currentBookId ? readerRequest.mode : "default"
+              }
+              requestId={readerRequest?.requestedAt || 0}
+              onBack={() => setView("shelf")}
+              onPlan={openReadingPlan}
+            />
+          </div>
         )}
       </main>
     </div>

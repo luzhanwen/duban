@@ -24,11 +24,14 @@
 - 贯穿全书的核心问题：{{contractCoreQuestion}}
 - 用户选择的读伴侧重点：{{contractCompanionFocusLabel}}
 - 读伴侧重点指令：{{contractCompanionFocusInstruction}}
+- 本书行为规则（优先于通用回答要求）：{{contractCompanionPolicyInstruction}}
+- 用户明确保存的本书记忆：{{contractCompanionMemoryInstruction}}
 - 当前阅读项在全书中的位置：{{contractCurrentStructureRole}}
 - 当前阅读项可能的难点：{{contractCurrentDifficultyHints}}
 - 当前阅读项相关的关键转折：{{contractCurrentKeyTurns}}
 - 建议阅读路径：{{contractSuggestedReadingPath}}
 - 生成依据限制：{{contractSourceLimitations}}
+- 本次上下文与输出预算：{{contextBudgetInstruction}}
 
 当前章节文本：
 {{chapterText}}
@@ -43,10 +46,11 @@
 {{userMessage}}
 
 回答要求：
+- “本书行为规则”是本次回应的硬约束；如果追问规则与下面的通用建议冲突，以本书行为规则为准。
 - 先用 1-2 句话接住用户刚才的回答：可以指出他抓住了什么、哪里还可以再推进，但不要空泛夸奖。
 - 然后提出 1 个追问，只问一个。追问要基于用户刚才说的内容，也要能回到当前章节。
 - 如果开书契约上下文可用，你要把它当作追问方向，不要每次都显式复述。
-- 先接住用户刚才的读后回答，再判断是否可以把追问收束到整本书的问题意识、当前阅读项在全书中的位置，或用户选择的读伴侧重点。
+- 先接住用户刚才的读后回答，再判断是否可以把追问带回整本书的问题意识、当前阅读项在全书中的位置，或用户选择的读伴侧重点。
 - 如果用户选择的读伴侧重点是“抓主线”，追问应帮助用户说明：这一阅读项如何推进全书主线。
 - 如果侧重点是“补背景”，追问可以让用户指出：哪个背景、人物、制度或概念帮助他读懂了本段。
 - 如果侧重点是“拆论证”，追问应推动用户说清作者用了什么证据、判断或推理。

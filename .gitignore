@@ -20,3 +20,5 @@ coverage/
 
 # Local-only test PDFs. Keep book files on the machine unless the rights are clear.
 public/test-books/*.pdf
+output/pdf/duban-synthetic-qa/*.pdf
+tmp/

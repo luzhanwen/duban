@@ -1,15 +1,17 @@
-# 开书契约上下文
+# 开书契约与统一陪读上下文
 
-> 最后更新：2026-07-02
+> 最后更新：2026-07-22
 
-本文档记录“开书契约上下文”的实现进展、设计意义和使用边界。它不是 prompt 文案文档，而是维护章节导读、阅读中问答、读后交流可以复用的轻量上下文能力。
+本文档保留“开书契约上下文”的演进，并记录 P7 统一陪读上下文、阅读边界和缓存来源。它不是 prompt 文案文档；产品文风维护在 `PROMPT_WRITING_STANDARDS.md`。
 
 ## 当前状态
 
-开书契约上下文已经完成第一轮主链路接入：
+当前分为两层：`readingContract.js` 规范化单本书的开书契约，`companionContext.js` 再按导读、问答和读后场景选择可用材料、执行防剧透边界、预算与缓存。第一轮主链路已经完成：
 
 - `src/lib/readingContract.js`
 - 导出 `buildReadingContractContext({ book, item })`
+- `src/lib/companionContext.js`
+- 导出统一的 `buildCompanionContext(...)`
 - 已接入章节导读、阅读中问答和读后交流
 - 已支持单本书 `readingProfile.companionFocus` 的安全更新
 - 当前解析整本书导读时复用 `normalizeWholeBookGuide`，避免上下文构建和开书导读模块各自维护一套 JSON 修复逻辑
@@ -83,6 +85,16 @@
 `readingProfile.companionFocus` 是单本书的读伴记忆。它既来自开书设置，也可以在阅读过程中被安全更新。
 
 截至 2026-07-06，开书设置第一步已改为“多轮设定读伴对话”。这几轮回答会被保存到同一个 `companionFocus` 中，并通过现有开书契约上下文进入后续导读、问答和读后交流。
+
+截至 2026-07-22，长期软记忆与后续导读之间增加了受控承接层。`buildReadingContractContext` 仍负责规范化整本书策略和记忆，`buildCompanionContext` 则根据当前场景决定哪些记忆真正进入请求：章节导读只接受当前阅读项之前、用户明确保留且本次相关的记录，最多 3 条；问答和读后继续使用各自的按需规则。该筛选不新增存储字段或 schema。
+
+导读承接判定：
+
+- `source: session_record` 且 `sourceItemKey` 为紧邻上一项：按连续阅读关系可用。
+- `source: session_record` 且来自更早阅读项：必须与当前导读查询命中。
+- `source: user`：必须与当前导读查询命中。
+- `source: legacy`、当前/未来阅读项、来源项缺失或无关记录：不可用。
+- 来源追踪保留 `memorySource`、`sourceItemKey`、`sourceEventId` 和 `relevance`，不保留正文。
 
 当前主要字段：
 
@@ -190,6 +202,109 @@
 
 - `npm run build` 通过。
 - 构建只出现既有的大 chunk 提示。
+
+## 2026-07-18：P7.7 统一按需上下文
+
+### 唯一组装入口
+
+书内 AI 请求统一调用：
+
+```js
+buildCompanionContext({
+  scene: "readingGuide" | "readingChat" | "readingReflection",
+  book,
+  item,
+  itemKey,
+  chapterSections,
+  currentPageContext,
+  readingContext,
+  guide,
+  history,
+  readingChatMessages,
+  readingNotes,
+  userMessage,
+  quote,
+  sessionOverride,
+  settings,
+  itemCompleted,
+});
+```
+
+调用文件不得重新拼整项正文或历史材料。组装结果提供：
+
+- `sections`：已经过筛选和预算裁剪的 prompt 材料。
+- `contractPromptValues`：按场景和剧透边界裁剪后的开书契约字段。
+- `contextBudgetInstruction`：简短/适中/深入对应的结构与硬预算说明。
+- `maxOutputTokens`：当前策略允许的最大输出。
+- `trace`：不含正文的来源、指纹、排除原因、prompt/策略/模型版本和缓存信息。
+
+### 场景边界
+
+- `readingGuide`：允许使用目标阅读项生成不剧透导读；严格模式不带入整书关键转折和后续阅读路径。
+- `readingChat`：严格/方向模式仅使用选区、当前页、确认已读正文和相关用户记忆；允许后文模式才加入本项全文、导读和模型历史。
+- `readingReflection`：当前项确认完成后可使用本项全文；未完成时只使用当前页与确认已读正文。用户勾选带入的问答和笔记按优先级选择。
+- 阅读停留、翻页、高亮和窗口状态只更新进度或来源，不调用组装器后的模型路径。
+
+### 缓存与失效
+
+- 上下文中间材料只保存在最多 48 项的会话内 LRU，不落 SQLite，也不进入备份。
+- 章节导读完整制品沿用既有 `book:{id}:questions:{itemKey}` / `reading_guides`。
+- cache key 包含正文与来源指纹、开书契约/读伴侧重点、策略、模型与服务地址/profile、prompt 版本、用户问题和导读连续性。
+- 正文、阅读计划连续性、策略、模型或 prompt 任一变化都会失效。
+- 普通“生成导读”可以复用完全匹配制品；用户明确“重新生成导读”会绕过制品缓存。
+
+### 隐私和兼容
+
+- `contextTrace` 不保存书籍正文、用户问题全文或模型回答全文，只保存引用和指纹。
+- usage 与费用继续保存在原导读/消息字段中；预算和调用诊断沿用 P6。
+- 本轮不新增持久化 schema，桌面 schema 仍为 10、目录备份仍为 v3。
+
+### 2026-07-16：P7.4 行为策略、记忆与单次覆盖
+
+`buildReadingContractContext({ book, item, sessionOverride })` 现在会统一提供：
+
+- `companionPolicy`：规范化后的有效策略；单次覆盖只在本次构建中合并。
+- `companionPolicyInstruction`：剧透、回答深度、追问和知识边界的最高优先级规则，并固定要求只响应用户主动发起的阅读操作。
+- `companionMemory`：用户显式保存或旧 `companionFocus` 惰性映射的可见记忆。
+- `companionMemoryInstruction`：最多 8 条、总长受限的记忆文本，并明确不得把记忆当作书中事实。
+
+接入范围：
+
+- `readingGuides.js`：策略决定输出 token，并将行为规则和记忆带入章节导读。
+- `readingChat.js`：策略决定输出 token；默认防剧透时不构建完整阅读项 `chapterText`，只保留当前可见页等已允许上下文。
+- `readingReflection.js`：策略决定输出 token，并约束是否追问及知识范围。
+
+兼容边界：
+
+- 没有新策略的旧书使用稳定默认值，不要求迁移后才能阅读。
+- 旧书中的 `proactivity` 仅作兼容字段读取，统一降级为 `quiet`，不会恢复主动提问。
+- `companionFocus` 仍继续作为原有阅读目标兼容字段使用，不会被 `companionPolicy` 覆盖或删除。
+- P7.6 已接入按正文块记录的已读范围；旧书或旧进度没有新字段时继续按空范围保守处理。
+
+验证：`npm run test:companion-policy` 和 `npm run test:p7` 通过。
+
+### 2026-07-16：P7.5 事件引用与来源锚点
+
+- 开书契约、行为策略和软记忆的可编辑对象仍保存在 `book.readingProfile`，避免出现两份可写真相源。
+- 陪读事件会保存策略/记忆快照引用、单次覆盖范围和相关问答事件 id，便于本节记录与后续诊断追踪“当时使用了什么规则”。
+- 导读、聊天、读后和笔记正文仍保存在各自原表；事件只保存 payload reference 与 `sourceAnchor`，禁止复制正文到事件索引。
+- P7.5 的页码、文本页、字符范围和选区矩形继续兼容；P7.6 可选增加正文块 id、块内字符范围、内容指纹和定位状态。
+
+### 2026-07-16：防剧透上下文硬隔离
+
+- `spoiler=avoid / hint` 时，阅读中问答只带入当前可见页、用户问题、用户引用和用户显式记忆；完整阅读项正文继续保持关闭。
+- 整本书问题意识、核心问题、结构位置、难点地图、关键转折、建议阅读路径、章节导读和历史 assistant 消息均视为潜在未读内容，不进入严格请求。
+- `spoiler=allow` 才恢复上述书内上下文和逐字流式回答。
+- 严格回答在完整生成后经过 `sanitizeCompanionAnswerForPolicy` 检查再展示与持久化，避免传输过程中出现后文提示又在结束时消失。
+- P7.6 已将系统确认读过的合格正文块加入严格请求；未读块、低质量块和整节正文仍保持关闭。
+
+### 2026-07-17：P7.6 已读范围与来源定位
+
+- 正文分块来自本地已有页文本，使用稳定 id、页码、阅读项、字符范围、内容指纹和质量等级描述，不向模型发送内容，也不要求旧书重新导入。
+- 阅读进度按阅读项记录 `reachedRanges`、`engagedRanges` 和 `completedAt`。翻到某页只算到达；可见停留、划词、提问、记笔记或完成本节才算确认阅读。
+- `spoiler=avoid / hint` 的阅读中问答使用当前可见页，加上系统确认已读且文本质量合格的历史正文块；跳页形成的空档、未读页和低质量块不会进入请求。
+- 来源定位 v2 增加 `contentBlockId`、`blockCharRange`、`contentFingerprint` 和 `anchorStatus`。旧 v1 仍可读取；文本轻微变化时可尝试回找，失败时返回失效状态。
+- `readStateByItemKey` 保存在既有 `reading_progress.raw_json`，来源字段保存在既有事件/笔记/聊天 JSON；SQLite schema 和备份格式不变。
 
 ### 2026-06-15：第三步，接入阅读中问答
 

@@ -1,4 +1,8 @@
 import { estimateSettingsCost } from "./pricing.js";
+import {
+  buildCompanionDiagnosticContext,
+  normalizeCompanionDiagnosticContext,
+} from "./companionDiagnostics.js";
 import { getItem, KEYS, setItem } from "./storage.js";
 import { toText } from "./text.js";
 
@@ -28,7 +32,7 @@ export async function recordAiDiagnostic(input) {
   const saved = await getAiDiagnostics();
   const entry = buildAiDiagnosticEntry(input);
   const next = {
-    version: 1,
+    version: 2,
     updatedAt: entry.endedAt,
     entries: [entry, ...saved.entries].slice(0, AI_DIAGNOSTICS_MAX_ENTRIES),
   };
@@ -46,6 +50,7 @@ export function buildAiDiagnosticEntry({
   budgetCheck,
   result,
   error,
+  diagnosticContext,
 }) {
   const start = normalizeIsoDate(startedAt) || new Date().toISOString();
   const end = normalizeIsoDate(endedAt) || new Date().toISOString();
@@ -62,7 +67,7 @@ export function buildAiDiagnosticEntry({
 
   return {
     id: makeDiagnosticId(),
-    mode: mode === "stream" ? "stream" : "call",
+    mode: normalizeMode(mode),
     status: getDiagnosticStatus(error),
     taskType,
     taskLabel: TASK_LABELS[taskType] || TASK_LABELS.default,
@@ -76,7 +81,7 @@ export function buildAiDiagnosticEntry({
     outputTokens,
     estimatedCost: roundCost(Number(estimatedCost?.totalCost) || 0),
     actualCost: roundCost(Number(actualCost?.totalCost) || 0),
-    attempts: error ? null : Number(result?.attempts) || 1,
+    attempts: error ? null : mode === "cache" ? 0 : Number(result?.attempts) || 1,
     finishReason: sanitizeDiagnosticText(result?.finishReason || ""),
     truncated: Boolean(result?.truncated),
     errorCode: sanitizeDiagnosticText(error?.code || ""),
@@ -87,14 +92,30 @@ export function buildAiDiagnosticEntry({
     startedAt: start,
     endedAt: end,
     durationMs: Math.max(0, new Date(end).getTime() - new Date(start).getTime()) || 0,
+    context: diagnosticContext?.sources
+      ? normalizeCompanionDiagnosticContext(diagnosticContext)
+      : buildCompanionDiagnosticContext(diagnosticContext),
   };
+}
+
+export async function recordAiCacheDiagnostic({ taskType, settings, diagnosticContext }) {
+  const now = new Date();
+  return recordAiDiagnostic({
+    mode: "cache",
+    taskType,
+    startedAt: now,
+    endedAt: now,
+    settings,
+    result: { attempts: 0 },
+    diagnosticContext,
+  });
 }
 
 export function normalizeAiDiagnostics(value) {
   if (!value || typeof value !== "object") return createEmptyDiagnostics();
   const entries = Array.isArray(value.entries) ? value.entries : [];
   return {
-    version: 1,
+    version: 2,
     updatedAt: normalizeIsoDate(value.updatedAt) || "",
     entries: entries
       .map(normalizeDiagnosticEntry)
@@ -116,7 +137,7 @@ function normalizeDiagnosticEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   return {
     id: sanitizeDiagnosticText(entry.id, 80) || makeDiagnosticId(),
-    mode: entry.mode === "stream" ? "stream" : "call",
+    mode: normalizeMode(entry.mode),
     status: ["success", "error", "cancelled", "blocked"].includes(entry.status)
       ? entry.status
       : "error",
@@ -132,7 +153,7 @@ function normalizeDiagnosticEntry(entry) {
     outputTokens: Number(entry.outputTokens) || 0,
     estimatedCost: roundCost(Number(entry.estimatedCost) || 0),
     actualCost: roundCost(Number(entry.actualCost) || 0),
-    attempts: Number(entry.attempts) || null,
+    attempts: entry.mode === "cache" ? 0 : Number(entry.attempts) || null,
     finishReason: sanitizeDiagnosticText(entry.finishReason, 80),
     truncated: Boolean(entry.truncated),
     errorCode: sanitizeDiagnosticText(entry.errorCode, 80),
@@ -143,15 +164,21 @@ function normalizeDiagnosticEntry(entry) {
     startedAt: normalizeIsoDate(entry.startedAt) || "",
     endedAt: normalizeIsoDate(entry.endedAt) || "",
     durationMs: Number(entry.durationMs) || 0,
+    context: normalizeCompanionDiagnosticContext(entry.context),
   };
 }
 
 function createEmptyDiagnostics() {
   return {
-    version: 1,
+    version: 2,
     updatedAt: "",
     entries: [],
   };
+}
+
+function normalizeMode(value) {
+  if (value === "stream" || value === "cache") return value;
+  return "call";
 }
 
 function getDiagnosticStatus(error) {

@@ -4,8 +4,13 @@ import ChineseIcon from "./ChineseIcon.jsx";
 import ReadingCompanionScene from "./ReadingCompanionScene.jsx";
 import { getBookPageUnitLabel } from "../lib/bookFormats.js";
 import { getBook, getBookPages, updateBook } from "../lib/books.js";
+import { isChapterIncluded } from "../lib/chapterRoles.js";
 import { formatUsd } from "../lib/pricing.js";
 import { isAiAbortError } from "../lib/aiCancellation.js";
+import {
+  READING_PLAN_CHUNKING_VERSION,
+  splitChapterIntoPlanChunks,
+} from "../lib/readingPlanChunks.js";
 import { toText } from "../lib/text.js";
 import {
   DEFAULT_FOCUS_OPTIONS,
@@ -52,7 +57,7 @@ const OPENING_STEPS = [
     id: "guide",
     title: "设定读伴",
     desc: "确定陪读方式",
-    icon: "seal",
+    icon: "ink",
   },
   {
     id: "pace",
@@ -115,16 +120,16 @@ const OPENING_DIALOG_ROUNDS = [
   {
     id: "intro",
     stage: 0,
-    title: "空白读伴",
+    title: "开始设置",
     message:
-      "Hi，我是读伴，你的阅读助手。接下来，我们会进行几轮对话，真正定制你的阅读体验。",
-    actionLabel: "开始设定",
+      "你好，我是读伴。回答几个简单的问题，我会按你的需要陪你读这本书。",
+    actionLabel: "开始",
   },
   {
     id: "context",
     stage: 1,
-    title: "先知道你从哪里来",
-    message: "在翻开这本书之前，你已经带着什么印象、经验或疑问来到这里？",
+    title: "阅读背景",
+    message: "在开始阅读前，你对这本书或相关主题已经了解多少？",
     field: "context",
     placeholder:
       "比如：我以前在历史课本里见过这段时期，也听别人推荐过这本书，但一直没真正读进去。",
@@ -133,13 +138,13 @@ const OPENING_DIALOG_ROUNDS = [
       "我对这本书相关的时代或话题有一点印象。",
       "我之前读这类书容易被名字、年份和概念劝退。",
     ],
-    actionLabel: "告诉你了，下一轮",
+    actionLabel: "继续",
   },
   {
     id: "curiosity",
     stage: 2,
-    title: "再点亮你的好奇心",
-    message: "这本书里，你最想找到什么？可以是一个问题、一种感觉，或者一个你想弄明白的地方。",
+    title: "阅读重点",
+    message: "读这本书时，你最想了解或解决什么问题？",
     field: "curiosity",
     placeholder:
       "比如：我想知道这些历史事件和普通人的生活有什么关系，也想看制度为什么会这样运转。",
@@ -148,13 +153,13 @@ const OPENING_DIALOG_ROUNDS = [
       "我想知道它和今天的生活或工作有什么关系。",
       "我想读出能写进笔记或文章里的东西。",
     ],
-    actionLabel: "好奇心也给你了",
+    actionLabel: "继续",
   },
   {
     id: "companion",
     stage: 3,
-    title: "最后定下陪读方式",
-    message: "接下来读的时候，你希望我更像什么样的读伴？",
+    title: "陪读方式",
+    message: "阅读过程中，你希望读伴怎样协助你？",
     field: "companion",
     placeholder:
       "比如：少打断我，先帮我抓主线；我卡住时再补背景；读完一节后帮我整理成几句能记住的话。",
@@ -163,15 +168,15 @@ const OPENING_DIALOG_ROUNDS = [
       "多用白话解释，不要一上来堆概念。",
       "读完后帮我沉淀成笔记和可复述的话。",
     ],
-    actionLabel: "读伴成形",
+    actionLabel: "确认设置",
   },
   {
     id: "ready",
     stage: 4,
-    title: "读伴已成形",
+    title: "设置完成",
     message:
-      "好了。我会带着这些记忆陪你读这本书。接下来保存读伴，我们就可以开始安排阅读节奏。",
-    actionLabel: "保存读伴，定阅读节奏",
+      "设置已经完成。保存后，可以继续安排阅读节奏。",
+    actionLabel: "保存并继续",
   },
 ];
 
@@ -253,7 +258,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
         type: "custom",
         label: "我自己指定",
         description: "用一句话说明这本书主要想解决什么。",
-        promptInstruction: "后续回答要围绕用户自定义的阅读目标收束。",
+        promptInstruction: "后续回答要围绕用户自定义的阅读目标展开。",
       },
     ];
   }, [wholeBookGuide]);
@@ -383,6 +388,7 @@ export default function ReadingPlanSetup({ bookId, onBack, onDone }) {
 
     const readingPlan = {
       status: "draft",
+      chunkingVersion: READING_PLAN_CHUNKING_VERSION,
       generatedBy: wholeBookGuide ? "local_opening" : "local_fallback",
       summary: planPreview.summary,
       items: planPreview.items,
@@ -788,7 +794,7 @@ function OpeningCompanionIntro({
         </div>
 
         <div className="opening-chat-area">
-          <div className="opening-chat-progress" aria-label="读伴成形进度">
+          <div className="opening-chat-progress" aria-label="读伴设置进度">
             <span style={{ width: `${progress}%` }} />
           </div>
           <div className="opening-chat-meta">
@@ -799,7 +805,7 @@ function OpeningCompanionIntro({
           <div className="opening-chat-bubble opening-chat-bubble-assistant">
             <p className="opening-chat-kicker">
               {renderBrandNameText(
-                isIntro ? "新读伴正在生成" : isReady ? "定制完成" : `第 ${round.stage} 轮对话`,
+                isIntro ? "准备开始" : isReady ? "设置完成" : `第 ${round.stage} 步`,
                 `opening-round-kicker-${round.id}`
               )}
             </p>
@@ -840,7 +846,7 @@ function OpeningCompanionIntro({
               <span>准备保存</span>
               <p>
                 <BrandName className="opening-companion-brand" />
-                已经记住你的阅读来处、好奇心和陪读方式。
+                已记录你的阅读背景、关注问题和陪读方式。
               </p>
             </div>
           )}
@@ -1203,8 +1209,9 @@ function buildPlanPreview({
   splitLongChapters,
   selectedFocus,
 }) {
-  const guideChapters = book.chapters.filter((chapter) => chapter.role === "guide");
-  const mainChapters = book.chapters.filter((chapter) => !chapter.role || chapter.role === "main");
+  const includedChapters = book.chapters.filter(isChapterIncluded);
+  const guideChapters = includedChapters.filter((chapter) => chapter.role === "guide");
+  const mainChapters = includedChapters.filter((chapter) => chapter.role !== "guide");
   const items = [];
   let nextDate = parseDate(startDate);
 
@@ -1250,7 +1257,7 @@ function buildPlanPreview({
 
   const summary =
     mainChapters.length === 0
-      ? "请先回到书籍信息页，把至少一个章节标记为正文。"
+      ? "请先回到书籍信息页，至少打开一个章节的阅读开关。"
       : `${pace.title}节奏，每次约 ${pace.minutesPerSession} 分钟，按正文 ${mainChapters.length} 章安排，预计 ${items.length} 个阅读日完成。`;
 
   return {
@@ -1260,35 +1267,6 @@ function buildPlanPreview({
     riskNotes: wholeBookGuide?.planAdvice?.riskNotes || [],
     items,
   };
-}
-
-function splitChapterIntoPlanChunks(chapter, { splitLongChapters, maxPagesPerSession }) {
-  const startPage = Number(chapter.startPage);
-  const endPage = Number(chapter.endPage);
-  const pageCount = Math.max(1, endPage - startPage + 1);
-
-  if (!splitLongChapters || pageCount <= maxPagesPerSession) {
-    return [
-      {
-        title: chapter.title,
-        startPage,
-        endPage,
-      },
-    ];
-  }
-
-  const chunks = [];
-  let cursor = startPage;
-  while (cursor <= endPage) {
-    const chunkEnd = Math.min(endPage, cursor + maxPagesPerSession - 1);
-    chunks.push({
-      title: `${chapter.title}（第 ${chunks.length + 1} 段）`,
-      startPage: cursor,
-      endPage: chunkEnd,
-    });
-    cursor = chunkEnd + 1;
-  }
-  return chunks;
 }
 
 function findWholeBookRole(guide, chapter) {

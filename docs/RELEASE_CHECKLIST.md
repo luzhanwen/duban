@@ -1,21 +1,23 @@
 # 读伴 Release Checklist
 
-> 最后更新：2026-07-13
+> 最后更新：2026-07-22
 
 这份清单用于每次发布前逐项确认。它不替代 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)，而是把发布当天要做的检查压成一张可执行 checklist。
 
 首个 `0.1.0 formal arm64 signed` 候选包虽通过机器验证，但人工 Smoke Test 发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记为不得分发。Test bundle 已改用受限 Tauri fs 插件并完成旧书回归；下一正式候选仍需重新签名/公证和执行本清单全部人工项。完整证据见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
 
-`v0.2.0-alpha.4` 已完成重新签名、公证、staple、Gatekeeper、独立下载校验和正式旧书回归，确认上述状态 `0` 问题已在正式候选中修复。干净 macOS 首次安装与 Alpha.3 → Alpha.4 自动更新仍按本清单和 QA Matrix 继续验收。
+`v0.2.0-alpha.4` 是当前已发布的正式 prerelease，已完成签名、公证、staple、Gatekeeper、独立下载校验和正式旧书回归。`v0.2.0-alpha.5` 是本次正式候选，将汇总 Alpha.4 之后的 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新，并用于 Alpha.4 → Alpha.5 App 内自动更新验收。
+
+Alpha.4 首次安装回归又发现扩展名为 `.mobi` 的混合 MOBI/KF8 文件可能只导入 1 个残缺文本页。本次 Alpha.5 候选已纳入恢复文本页、按 TOC 层级归并章节以及阅读分段修复；发布前必须重新执行 `SMK-004`、`LIB-006` 和 `RD-002`。
 
 ## 0. 发布边界
 
-- [ ] 确认 `package.json` 版本与目标 tag/release notes 一致；当前开发目标为 `0.2.0-alpha.4`。
+- [ ] 读取 `package.json` 的实时版本，并确认与目标 tag/release notes 一致；不要从本文复制旧版本号。
 - [ ] 确认发布通道：`formal`。
 - [ ] 在候选包「诊断 -> 版本与构建」确认 App version、Git commit 与目标发布提交一致，且不显示 `dirty`。
 - [ ] 确认发布类型：`local` 内测包，或 `signed` 正式签名包。
 - [ ] 确认本次 release notes 的主要变化、已知限制和备份建议。
-- [ ] 确认 Apple Developer Program 状态；若尚未通过审核，本次只能发布 local 内测包。
+- [ ] 确认 Developer ID Application 证书仍有效，`macos-release` Environment 和 Apple Secrets 可用。
 
 ## 1. 合并前检查
 
@@ -37,6 +39,7 @@ cd src-tauri && cargo fmt --check
 cd src-tauri && cargo check
 cd src-tauri && cargo test
 npm run security:scan
+npm run security:rust-audit # 需先安装 cargo-audit；CI 会固定执行
 git diff --check
 ```
 
@@ -48,6 +51,7 @@ git diff --check
 - [ ] `cargo check` 通过。
 - [ ] `cargo test` 通过。
 - [ ] `npm run security:scan` 通过。
+- [ ] CI 的 `RustSec Audit` job 通过；发布机已安装 `cargo-audit` 时，本地 `npm run security:rust-audit` 通过。
 - [ ] 如果 QA fixtures 有变化，`npm run qa:fixtures:verify` 通过。
 - [ ] `git diff --check` 通过。
 

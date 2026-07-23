@@ -31,7 +31,8 @@ expectScript("version:check", "scripts/version.mjs check");
 expectScript("tauri:dev", "tauri:dev:test");
 expectScript("tauri:dev:test", "src-tauri/tauri.test.conf.json");
 expectScript("tauri:build:formal", "src-tauri/tauri.formal.conf.json");
-expectScript("tauri:build:test", "src-tauri/tauri.test.conf.json");
+expectScript("tauri:build:test", "scripts/build_test_desktop.mjs");
+expectFileContains("scripts/build_test_desktop.mjs", "src-tauri/tauri.test.conf.json");
 expectScript("package:mac-local", "tauri:build:formal");
 expectScript("release:preflight", "version:check");
 expectScript("release:check", "scripts/release_check.mjs");
@@ -133,12 +134,31 @@ function validateFormalDist() {
   }
 
   const forbidden = ["/test-books/", "test-books/wanli15.pdf", "导入测试"];
+  const forbiddenFileNames = [
+    /^\.env(?:\.|$)/i,
+    /\.(?:key|pem|p12|pfx|mobileprovision)$/i,
+  ];
+  const forbiddenSecretText = [
+    "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "minisign encrypted secret key",
+  ];
   for (const filePath of walk(distPath)) {
+    const relativeDistPath = path.relative(distPath, filePath);
+    const fileName = path.basename(filePath);
+    if (forbiddenFileNames.some((pattern) => pattern.test(fileName))) {
+      issues.push(`formal dist contains sensitive file shape ${relativeDistPath}`);
+    }
     if (statSync(filePath).size > 2_000_000) continue;
     const content = readFileSync(filePath, "utf8");
     for (const token of forbidden) {
       if (content.includes(token)) {
         issues.push(`formal dist leaks test-only token ${token} in ${path.relative(root, filePath)}`);
+      }
+    }
+    for (const token of forbiddenSecretText) {
+      if (content.includes(token)) {
+        issues.push(`formal dist contains private-key material in ${path.relative(root, filePath)}`);
       }
     }
   }

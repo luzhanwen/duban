@@ -2,6 +2,7 @@
 
 > 最后更新：2026-07-11  
 > 当前阶段：Alpha.4 已发布并更新真实 Alpha manifest，等待使用已安装的 Alpha.3 完成 App 内升级验收
+> 最后复核：2026-07-22，信任根、通道和发布边界仍有效。
 
 ## 目标
 
@@ -67,13 +68,13 @@ https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.jso
 - 用户通过应用内确认弹窗开始安装；确认后先调用现有目录式备份创建恢复点，并用“升级到 `<version>` 前的恢复点”标记。备份失败时下载与安装不会开始。
 - 下载和安装继续由 Tauri updater 完成签名验证；安装成功后通过 `process:allow-restart` 重启 App，重启失败时保留手动重启提示。
 - 手动下载通过官方 opener 打开版本对应 GitHub Release；capability 只允许 `https://github.com/luzhanwen/duban/releases*`，不能打开任意路径或域名。
-- UI 覆盖未检查、检查中、已是最新版、发现新版本、创建恢复点、下载/安装、等待重启和错误状态；真实下载、签名拒绝和 schema 恢复仍由 P6.8.5 双版本包验收。
+- UI 覆盖未检查、检查中、已是最新版、发现新版本、创建恢复点、下载/安装、等待重启和错误状态；真实下载、签名拒绝和 schema 恢复继续由发布人员按 Release Checklist 验收。
 
 ### P6.8.5 双版本验收
 
 - `0.2.0-alpha.3` 已首次内置 updater 公钥和 Alpha manifest 地址；签名、公证、updater archive/signature、GitHub Release 和远端 `alpha/latest.json` 已真实发布并独立核验。
-- `0.2.0-alpha.4` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布；仍需用已安装的 Alpha.3 实机完成检查、下载、签名校验、安装、重启和数据恢复验证。
-- 另做篡改签名、断网、下载中断、备份失败、manifest 仍指向旧版和手动下载 fallback 测试。
+- `0.2.0-alpha.4` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布。Alpha.3 → Alpha.4 的 App 内检查、下载、签名校验、安装、重启和数据恢复由用户自行验收，不阻塞 P6 工程阶段冻结。
+- 篡改签名、断网、下载中断、备份失败、manifest 仍指向旧版和手动下载 fallback 继续保留在发布 QA 清单。
 
 ## 密钥状态
 
@@ -83,7 +84,7 @@ https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.jso
 npm run tauri signer generate -- -w ~/.tauri/duban-updater.key
 ```
 
-`.key` 是私钥；配套公钥内容可以写入仓库。不得把私钥文件放进项目目录，也不得通过聊天、Issue、PR、Release 或普通文件分享工具传递。GitHub Environment Secret 已配置；用户暂时没有合适的加密 U 盘，离线备份作为 Alpha.3 正式发布前人工检查项保留，不阻塞 P6.8.4 开发。
+`.key` 是私钥；配套公钥内容可以写入仓库。不得把私钥文件放进项目目录，也不得通过聊天、Issue、PR、Release 或普通文件分享工具传递。GitHub Environment Secret 已配置；离线备份由用户在取得合适的受控加密介质后完成，是扩大外部测试前的发布运营检查项，不阻塞 P6 工程阶段冻结。
 
 ## 每次发布检查
 

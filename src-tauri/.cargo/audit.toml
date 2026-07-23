@@ -1,0 +1,9 @@
+[advisories]
+# Tauri 2.11.3 -> plist 1.9.0 currently requires quick-xml 0.39.x.
+# These advisories affect adversarial XML namespace/attribute parsing; Duban does
+# not pass imported books, model responses, or other user-controlled XML into
+# the plist path. Remove both ignores as soon as plist accepts quick-xml >=0.41.
+ignore = [
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]

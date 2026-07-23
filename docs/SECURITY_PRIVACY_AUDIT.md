@@ -1,6 +1,6 @@
 # 安全与隐私审计记录
 
-> 最后更新：2026-07-13
+> 最后更新：2026-07-22
 
 这份文档承接 P6.5「安全与隐私加固」。它记录依赖审计、Tauri 权限面、敏感信息边界和后续安全清单；不替代 [PRODUCTION_UPGRADE_PLAN.md](./PRODUCTION_UPGRADE_PLAN.md)，也不替代完整隐私说明。
 
@@ -20,7 +20,7 @@
 
 - 建立可复跑的依赖安全审计入口。
 - 记录当前前端依赖审计结果。
-- 记录 Rust 依赖树和 `cargo audit` 工具缺口。
+- 记录 Rust 依赖树和 `cargo audit` / RustSec 审计基线。
 - 盘点 Tauri capabilities、本地文件读取、command 暴露面和当前风险。
 
 ### 可复跑命令
@@ -144,13 +144,11 @@ AI command：
 - 设置页测试连接只使用当前输入的 API Key，不自动读取 Keychain。
 - 自定义 OpenAI-compatible Base URL 在保存、TXT 导入、测试连接和已启用任务 profile 中有二次确认。
 
-## 当前待办
+## 当前状态与持续复查
 
-- P6.5.2：逐项复查 Tauri command 输入校验、文件路径边界、备份导入路径和清空/删除类操作。已完成基础版。
-- P6.5.3：补正式 Web/Tauri 安全头与 CSP 策略。已完成基础版。
-- P6.5.4：系统扫描日志、错误、备份、诊断导出，确认不包含 API Key 或正文级隐私。已完成可复跑脚本基础版。
-- P6.5.5：更新隐私说明和安全说明，让浏览器版与桌面版边界一致。已完成基础版。
-- 后续 CI：安装并运行 `cargo audit`，把 RustSec 审计纳入发布检查。
+- P6.5.2-P6.5.5 基础版均已完成：command/路径边界、CSP/安全头、敏感信息扫描和隐私说明已经落地。
+- CI 已通过独立 job 运行 RustSec `cargo audit`；`npm run security:audit` 负责 npm audit、Rust 重复依赖树和本地安全扫描，两者共同构成发布前基线。
+- 后续新增 Tauri command、外部网络目标、诊断字段、备份字段或安全例外时，必须增量更新本审计。
 
 ## P6.5.2-P6.5.5 安全加固收尾
 
@@ -190,7 +188,7 @@ npm run build
 已知限制：
 
 - `public/_headers` 是静态托管平台配置约定；如果未来部署到 Nginx、S3/CloudFront、Vercel 或自建服务，需要把同等响应头复制到对应平台配置。
-- `npm run security:audit` 当前仍未包含 RustSec 漏洞数据库审计；需要在 P6.9 CI 或本机安装 `cargo audit` 后补齐。
+- `cargo audit` 已进入 CI；本机若未安装该命令，仍以 CI 的 RustSec job 作为发布阻断结果。
 - CSP 当前显式允许 Anthropic、OpenAI、DeepSeek、Moonshot/Kimi API origin；新增供应商或自定义云代理时必须同步复查 CSP 与 Base URL 确认文案。
 
 ## 复查原则

@@ -28,7 +28,9 @@ for (const fixture of manifest.fixtures || []) {
 await verifyPdf("qa-fixtures/books/duban-qa-two-page.pdf", 2);
 await verifyCorruptPdf("qa-fixtures/books/duban-qa-corrupt.pdf");
 verifyBackupManifest("qa-fixtures/backups/duban-backup-empty-v3/manifest.json", true);
+verifyCompanionEventBackup("qa-fixtures/backups/duban-backup-companion-events-v3/manifest.json");
 verifyBackupManifest("qa-fixtures/backups/duban-backup-tampered-v3/manifest.json", false);
+verifyP7ContextCases("qa-fixtures/p7/companion-context-cases.json");
 
 if (issues.length) {
   console.error("QA fixture verification failed:");
@@ -64,6 +66,51 @@ function verifyBackupManifest(relativePath, shouldMatch) {
   } else {
     expect(expected !== actual, `${relativePath} manifestSha256 should be intentionally invalid`);
   }
+}
+
+function verifyCompanionEventBackup(relativePath) {
+  verifyBackupManifest(relativePath, true);
+  const backup = readJson(path.join(root, relativePath));
+  const item = backup.items.find((entry) => /:companion-events$/.test(entry.key));
+  expect(Boolean(item), `${relativePath} should contain companion events`);
+  const events = Array.isArray(item?.value) ? item.value : [];
+  expect(events.length === 4, `${relativePath} should contain four companion events`);
+  expect(new Set(events.map((event) => event.id)).size === events.length, `${relativePath} event ids should be unique`);
+  expect(events.every((event) => event.schemaVersion === 1), `${relativePath} event schema should be v1`);
+  expect(
+    events.every((event) => !Object.prototype.hasOwnProperty.call(event.sourceAnchor || {}, "text")),
+    `${relativePath} source anchors must not copy source text`
+  );
+  const booksItem = backup.items.find((entry) => entry.key === "books");
+  const book = Array.isArray(booksItem?.value) ? booksItem.value[0] : null;
+  const memories = book?.readingProfile?.companionMemory?.items || [];
+  expect(memories.length === 2, `${relativePath} should contain two retained memories`);
+  expect(
+    memories.every((memory) => memory.source === "session_record" && memory.sourceEventId),
+    `${relativePath} retained memories should keep session record sources`
+  );
+  const sessionEvents = events.filter((event) => event.type === "session_record");
+  expect(sessionEvents.length === 3, `${relativePath} should contain three session record events`);
+  expect(
+    sessionEvents.filter((event) => event.status === "deleted").length === 1,
+    `${relativePath} should contain one session record tombstone`
+  );
+}
+
+function verifyP7ContextCases(relativePath) {
+  const fixture = readJson(path.join(root, relativePath));
+  expect(fixture.format === "duban.p7-context-cases", `${relativePath} has unexpected format`);
+  const ids = (fixture.cases || []).map((item) => item.id);
+  const required = [
+    "normal-text-pdf",
+    "pdf-without-outline",
+    "scanned-page",
+    "long-chapter",
+    "legacy-book",
+    "mobi-book",
+    "narrow-window",
+  ];
+  expect(JSON.stringify(ids) === JSON.stringify(required), `${relativePath} must define all fixed P7 cases`);
 }
 
 function readJson(filePath) {

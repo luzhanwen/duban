@@ -20,6 +20,9 @@ APP_PATH="$TARGET_RELEASE_DIR/bundle/macos/$APP_NAME.app"
 TARGET_DMG="$DMG_DIR/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.dmg"
 TARGET_UPDATE_ARCHIVE="$TARGET_RELEASE_DIR/bundle/macos/${ARTIFACT_NAME}_${VERSION}_${RELEASE_CHANNEL}_${ARCH}_${RELEASE_KIND}.app.tar.gz"
 TARGET_UPDATE_SIGNATURE="${TARGET_UPDATE_ARCHIVE}.sig"
+UPDATER_KEY_PATH="${TAURI_SIGNING_PRIVATE_KEY_PATH:-$HOME/.tauri/duban-updater.key}"
+UPDATER_PASSWORD_SERVICE="${TAURI_SIGNING_PASSWORD_SERVICE:-com.duban.reader.updater-signing}"
+UPDATER_PASSWORD_ACCOUNT="${TAURI_SIGNING_PASSWORD_ACCOUNT:-$USER}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS signing must run on macOS."
@@ -32,9 +35,25 @@ if [[ -z "${APPLE_SIGNING_IDENTITY:-}" && -z "${APPLE_CERTIFICATE:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -f "$UPDATER_KEY_PATH" ]]; then
+  TAURI_SIGNING_PRIVATE_KEY="$(<"$UPDATER_KEY_PATH")"
+  export TAURI_SIGNING_PRIVATE_KEY
+fi
+
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(
+    security find-generic-password \
+      -a "$UPDATER_PASSWORD_ACCOUNT" \
+      -s "$UPDATER_PASSWORD_SERVICE" \
+      -w 2>/dev/null || true
+  )"
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+fi
+
 if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" || -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
   echo "Missing updater signing credentials."
-  echo "Set TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD in the release environment."
+  echo "Private key path: $UPDATER_KEY_PATH"
+  echo "Store the password in Keychain service $UPDATER_PASSWORD_SERVICE, or set the two Tauri signing environment variables."
   exit 1
 fi
 

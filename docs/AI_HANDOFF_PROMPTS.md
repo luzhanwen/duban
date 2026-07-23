@@ -1,6 +1,6 @@
 # 后续 AI 接手提示词
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-22
 
 本文档保存后续让 AI 接手读伴项目时可直接复制的提示词模板。它不是产品 prompt；产品内导读、问答、读后交流 prompt 仍维护在 `src/prompts/`，写作标准见 [PROMPT_WRITING_STANDARDS.md](./PROMPT_WRITING_STANDARDS.md)，开书契约上下文见 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md)。
 
@@ -29,12 +29,27 @@
 12. 如果涉及正式发布包、构建通道、artifact、checksum 或 release notes：docs/RELEASE_PROCESS.md
 13. 如果涉及 App 版本、Changelog 或 Git tag：docs/VERSIONING.md
 14. 如果涉及 GitHub Release、CI 签名、公证或发布 Secrets：docs/GITHUB_RELEASE_AUTOMATION.md
+15. 如果涉及导读、读中问答、读后回想、读伴设置、记忆或 P7：docs/COMPANION_ACTIVE_READING_PLAN.md
+16. 如果涉及 P7.8 读伴形象、导读、侧栏、时间线、设置或场景衔接：docs/COMPANION_UI_AUDIT.md
+17. 如果涉及具体词语偏好：src/prompts/wordSubstitutions.md；它是唯一主文件，不要另建代码替换表
 
 项目当前是浏览器 MVP + Tauri 桌面版：
 - 浏览器版使用 IndexedDB。
 - 桌面版使用 Tauri Rust 本地后端、SQLite、App 数据目录、系统 Keychain 和目录式备份。
 - API Key 不得进入 SQLite、备份、日志或错误信息。
 - 用户 PDF、笔记、聊天记录默认只保存在本地。
+- P7.1-P7.11 已完成并进入维护状态；下一步进入 P8.1 移动技术验证。
+- P7 诊断摘要集中在 `companionDiagnostics.js`：只能记录材料类型、脱敏引用、页码、计数、预算、策略和缓存状态；不得添加正文、笔记、问题、回答、prompt 或原始 id。
+- 对 P7 做发布回归时同时执行 `docs/P7_RELEASE_CHECKLIST.md` 与通用 `docs/RELEASE_CHECKLIST.md`；P7 阶段完成不代表某个公开 tag 已经签名、公证或发布。
+- P7.8.1 已确认问题不只在暖黄纸片 PNG：导读、阅读侧栏、时间线、记录、输入区和设置存在重复头像、嵌套卡片、页面级裁切及独立工具面板感。三个方向必须使用同一示例内容，同时覆盖导读、读中、读后/记录、宽窄布局和完整/标准/印记规格；用户定稿前不要替换代码或批量清理旧资产。
+- P7.8 必须遵守 `COMPANION_UI_AUDIT.md` 的不可变功能边界：一个视口一个主要身份信号、一个场景一个主要表面、用户右/读伴左/记录居中、正文优先、透明背景三规格、窄窗不压缩正文。不要只换头像，也不要在旧界面上继续堆装饰或状态动画。
+- P7.8.2 三案与最终概念母稿归档在 `docs/assets/p7-8-2/`。第一版手绘 SVG 因把侧坐低头猫改成另一种圆润形象被人工否决并已删除，禁止重新接回；两个重复 `ReadingCompanion* 2.jsx` 也已清理。当前活跃资产是 `public/companion-assets/cinnabar-companion-*-v2.png` 三份透明 PNG，分别承担完整、标准、印记规格；不得用完整图直接缩放替代小规格，也不得改变侧坐、低头、前爪搭页的核心姿态。阅读页收起后只保留页边印记，点击恢复侧栏，工具栏不得重复增加文字入口。
+- 产品已取消主动提问：不要根据停留、翻页、高亮或阅读事件自动调用模型，也不要恢复页边主动入口、主动程度设置或调度器。
+- 旧 proactivity / intervention 相关字段与事件只为读取和备份兼容保留，不得据此恢复产品能力。
+- 导读、读中问答和读后回想必须复用 `src/lib/companionContext.js`。不要在各调用文件重新拼整章正文、历史回答或整书导读。
+- 严格防剧透请求只能使用组装器放行的选区、当前页和确认已读正文；`contextTrace` 只能保存引用、指纹、用途、预算和排除原因，不能复制书籍正文。
+- 模型 profile 可以降低 P7 三类任务的输出上限，不能突破 `companionPolicy.answerDepth` 的硬上限。
+- 不要为上下文块新增持久化表；当前使用会话内 LRU。完整章节导读沿用既有导读存储，并通过 `contextTrace.cacheKey` 判断命中与失效。
 
 请先用 rg/sed 阅读相关代码，不要凭印象改。
 除非我明确要求只给方案，否则请实现、验证并更新文档。
@@ -53,15 +68,17 @@
 请按以下顺序工作：
 1. 阅读 docs/APP_EVOLUTION_LOG.md，确认上一阶段状态。
 2. 阅读 docs/ROADMAP.md 和 docs/PROJECT_NOTES.md，确认当前优先级。
-3. 如果涉及本地后端，阅读 docs/BACKEND_DEVELOPMENT_STANDARDS.md。
-4. 如果涉及 SQLite/备份/Keychain，阅读 docs/DESKTOP_STORAGE_SCHEMA.md。
-5. 实现改动。
-6. 跑必要验证。
-7. 更新相关 docs，并在 APP_EVOLUTION_LOG.md 追加实施日志。
+3. 如果涉及 P7，阅读 docs/COMPANION_ACTIVE_READING_PLAN.md，并确认使用 2026-07-18 后的新编号。
+4. 如果涉及本地后端，阅读 docs/BACKEND_DEVELOPMENT_STANDARDS.md。
+5. 如果涉及 SQLite/备份/Keychain，阅读 docs/DESKTOP_STORAGE_SCHEMA.md。
+6. 实现改动。
+7. 跑必要验证。
+8. 更新相关 docs，并在 APP_EVOLUTION_LOG.md 追加实施日志。
 
 要求：
 - 不要破坏浏览器版。
 - 不要把 API Key 写入 SQLite、备份、日志或错误信息。
+- 不要重新引入主动提问、主动提醒、候选问题预生成或阅读事件触发调度。
 - 不要留下 Tauri/Vite 测试进程。
 - 最终用简洁中文汇报。
 ```
@@ -304,36 +321,14 @@
 不要输出过长实现细节，不要让用户自己复制文件；用户和你在同一个工作区。
 ```
 
-## 接手前快速事实
+## 接手前事实来源
 
-截至 2026-07-07：
+这里不再复制一份会持续过期的“当前事实快照”。接手者必须从以下来源读取实时状态：
 
-- Tauri 桌面版已可启动，已有本地测试版 `.app` / `.dmg`。
-- 桌面模型请求已迁到 Rust command。
-- 桌面存储 schema 当前为 `9`。
-- API Key 已迁入系统 Keychain。
-- AI transport 允许在当前 Tauri 进程内短期缓存已从 Keychain 解析出的密钥，以减少连续系统授权弹窗；缓存不得落盘，保存/删除 Key 后必须失效。
-- 原始 PDF/MOBI 文件在 App 数据目录 `files/`。
-- 封面缓存文件在 App 数据目录 `files/covers/`，索引在 `book_covers`。
-- 非敏感 settings 在 `app_settings`，AI 排版缓存 在 `formatted_texts`。
-- 目录式备份在 App 数据目录 `backups/`，结构为 `manifest.json + files/`，当前 backupVersion 为 `3`。
-- 备份支持预览、校验、合并导入和覆盖恢复。
-- 备份不包含 API Key。
-- P6.1 数据安全收口、P6.2 存储结构收束和 P6.3 大文件解析韧性主体已完成。
-- 产品内提示词规范维护在 `docs/PROMPT_WRITING_STANDARDS.md`；改 `src/prompts/` 前必须先读。
-- P6.4 已完成 Keychain 连续弹窗修复、结构化错误、超时、有限重试、请求取消、输出截断识别、费用/token 预算保护、模型 profile 管理和脱敏调用诊断。
-- P6.5 安全与隐私加固基础版已完成：依赖审计、Tauri 权限基线、command 输入校验、路径护栏、Tauri/Web CSP 与安全头、敏感信息扫描脚本、隐私/安全说明同步都已落地。
-- P6.6 基础版已完成：诊断字段/隐私过滤规范已落文档，Rust 本地 JSONL 诊断日志会记录 App 启动、SQLite 初始化、AI 请求摘要和备份操作摘要；设置页可运行健康检查、导出诊断包，并复制最近 AI 错误详情。
-- `npm run security:scan` 会检查真实密钥形态、Tauri CSP/headers、asset protocol 保持关闭、fs 单文件只读 scope、其他 capabilities 和备份密钥剥离锚点；`npm run security:audit` 会同时跑 `npm audit`、Rust 重复依赖树和安全扫描。
-- P6.7.1 发布配置收束已完成：正式包使用 `formal` channel、`com.duban.reader`，测试包使用 `test` channel、`com.duban.reader.test`；发布流程见 `docs/RELEASE_PROCESS.md`。
-- P6.7.2 签名/公证链路已跑通，但首个公证候选包在人工回归中发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记作废。后续真实 Test bundle 证明 XHR 兼容方案仍不稳定，现已由受限 Tauri fs 插件取代：只读 `$APPDATA/files/**`，`PdfReader` 统一以二进制 `data` 加载；旧书原页和文本层回归通过。下一正式候选包必须重新签名、公证、Gatekeeper/checksum 验证，再继续干净环境全量回归。
-- test/formal 环境必须严格隔离：基础 Tauri 配置和 `npm run tauri:dev` 均使用 `com.duban.reader.test`，正式配置显式使用 `com.duban.reader`；Keychain service 分别为 `com.duban.reader.test.keychain.ai` 与 `com.duban.reader.keychain.ai`。不得把开发入口改回生产 identifier，不得让测试版自动迁移正式目录。
-- 本机已同时启动 test/formal 验证隔离：test SQLite 为 2 本书，formal 新库为 0 本书；后续改启动脚本、identifier、数据目录或 Keychain service 时必须重复 QA `REL-007` / `AI-008`。
-- 当前 App 开发版本为 `0.2.0-alpha.2`。`package.json` 是唯一人工版本源；禁止单独修改 Tauri/Cargo/lockfile，必须使用 `npm run version:set -- <semver>` 或 `npm run version:bump -- <kind>`，并执行 `npm run version:check`。`v0.2.0-alpha.1` 是签名前失败且无 Release 的不可变 tag，历史 `v0.1.0` 也不得移动或复用；版本规则见 `docs/VERSIONING.md`。
-- App 内版本信息由 `vite.config.js` 构建注入并由 `src/lib/appVersion.js` 统一消费；禁止在组件里手写 App/schema/backup 版本。正式候选包诊断页必须显示 `formal`、目标 commit 且不带 `dirty`。
-- P6.9.1 基础 CI 和 P6.9.2 Release preflight CI 已完成：`.github/workflows/ci.yml` 会执行 formal build、release preflight、Rust fmt/check/test 和安全扫描。
-- P6.9.3 发布检查清单与协作模板已完成：`docs/RELEASE_CHECKLIST.md`、`.github/PULL_REQUEST_TEMPLATE.md`、bug report 和 feature request issue forms 已落地。
-- P6.10.1 QA 矩阵基础版已完成：`docs/QA_MATRIX.md` 覆盖 P0 smoke、P1 核心回归、升级恢复、环境维度、样本策略和发布测试记录模板。
-- P6.10.2 fixtures/样本说明基础版已完成：`qa-fixtures/` 包含合成 PDF、坏 PDF、HTML 源文本、空备份 manifest、篡改备份 manifest 和 fixtures manifest；`npm run qa:fixtures` 可重生成，`npm run qa:fixtures:verify` 可校验。
-- P6.7.6 tag 驱动发布已实跑成功：`v0.2.0-alpha.2` 自动完成 tagged source 全检、Developer ID 签名、Apple 公证/staple、Gatekeeper 和 GitHub prerelease assets 上传；独立下载 SHA、stapler、spctl、codesign 验证通过。配置见 `docs/GITHUB_RELEASE_AUTOMATION.md`。
-- 仍待推进：`v0.2.0-alpha.2` 公开下载 DMG 的人工 smoke test、ASCII Release asset 命名、P6.10 升级样本、artifact 内容扫描增强、压缩归档、备份签名、迁移夹具、P6.8 自动更新和 CI 中的 `cargo audit`。
+- App 版本：`package.json`，并运行 `npm run version:check`。
+- 当前阶段与下一步：`docs/ROADMAP.md`。
+- 桌面 schema、备份版本和数据目录：`docs/DESKTOP_STORAGE_SCHEMA.md` 与 `src-tauri/src/storage.rs`。
+- 发布、签名、公证和 updater 状态：`docs/RELEASE_CHECKLIST.md`、`docs/VERSIONING.md`、`docs/AUTO_UPDATE_ARCHITECTURE.md`。
+- 当前 P7 状态：`docs/COMPANION_ACTIVE_READING_PLAN.md`。
+- 最近实施与验证：`docs/APP_EVOLUTION_LOG.md` 顶部最新日期记录。
+- 文档一致性：运行 `npm run docs:audit`。

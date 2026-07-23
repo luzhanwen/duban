@@ -1,14 +1,15 @@
 # 读伴版本管理规范
 
-> 最后更新：2026-07-11
+> 最后更新：2026-07-22
 
 本文档定义读伴的 App 版本、Git tag、发布通道、数据兼容版本和升版流程。版本相关改动必须同时遵守 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) 与 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
 ## 当前版本
 
-- 当前开发版本：`0.2.0-alpha.4`
+- 当前开发版本：`0.2.0-alpha.5`
+- `v0.2.0-alpha.5`：当前正式候选，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新，并用于 Alpha.4 → Alpha.5 自动更新验收。
 - `v0.2.0-alpha.3`：首个包含 updater 信任根、签名更新包和 Alpha manifest 的正式 prerelease。
-- `0.2.0-alpha.4`：P6.12.1 正式候选目标，包含旧 PDF fs 读取修复，并用于 Alpha.3 → Alpha.4 自动更新验收。
+- `v0.2.0-alpha.4`：已发布的正式 prerelease，包含旧 PDF fs 读取修复和 Alpha updater 资产；工作区仍可能存在同版本号下尚未发布的后续改动，下一次正式候选必须先升版。
 - `v0.2.0-alpha.1`：首次自动发布失败 tag，签名前停止且没有 GitHub Release；保持不可变。
 - 上一个历史 tag：`v0.1.0`，指向旧提交 `be4fb57`，不得移动、覆盖或删除。
 - 当前阶段：内部 Alpha；不得仅凭版本号宣称可公开稳定发布。
@@ -25,7 +26,7 @@
 
 ```bash
 npm run version:check
-npm run version:set -- 0.2.0-alpha.4
+npm run version:set -- 0.2.0-alpha.5
 npm run version:bump -- prerelease
 npm run version:bump -- patch
 npm run version:bump -- minor
@@ -64,7 +65,7 @@ rc.N     发布候选，功能冻结，只修发布阻塞问题
 | --- | --- | --- |
 | App version | `0.2.0-alpha.1` | 用户版本、构建产物、Git tag |
 | Git commit | 当前短 SHA | 精确定位源码和构建 |
-| SQLite schema | `9` | 本地数据库迁移 |
+| SQLite schema | `10` | 本地数据库迁移 |
 | Backup format | `3` | 备份导入兼容性 |
 
 macOS bundle 字段只能使用数字和点，因此预发布后缀不直接写入 Info.plist：

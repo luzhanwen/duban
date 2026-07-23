@@ -1,6 +1,8 @@
 # 读伴后端开发标准
 
 > 最后更新：2026-07-13
+>
+> 最后复核：2026-07-22，当前工程边界仍有效。
 
 本文档定义读伴后端相关工作的工程标准。当前读伴没有云端业务服务器；这里的“后端”主要指 Tauri Rust 本地后端、SQLite/App 数据目录、Keychain、备份、模型请求代理，以及前端到这些能力的 adapter 边界。未来如果引入云端后端，也必须先更新本文档和隐私边界。
 
@@ -89,6 +91,15 @@ SQLite 是桌面版结构化数据来源：
 
 App 版本以 `package.json` 为唯一人工修改来源。涉及 Cargo/Tauri 版本时必须使用 `npm run version:set` / `version:bump`，并通过 `npm run version:check`；SQLite schema 与 backup format 继续独立升版，不能跟随 App version 机械变化。
 
+P7.5 陪读事件规则：
+
+- 当前桌面 schema 为 `10`，`companion_events` 是陪读事件与来源引用的结构化索引。
+- 导读、问答、读后和笔记正文继续由原表保存；事件只保存 payload reference、状态、关系和来源锚点，禁止复制正文或用户私人内容全文。
+- 历史记录必须通过确定性 id 惰性映射，重复同步不得生成副本；找不到阅读项时保留 `orphaned`，不能静默删除。
+- `sourceAnchor` 可以保存页码、文本页、字符范围、选区矩形和内容指纹，不得保存 `text` 字段。
+- 删除状态必须用 tombstone 表达。按事件合并时先比较 `updatedAt`，时间相同时 tombstone 优先，避免旧备份复活删除记录。
+- 一组事件的校验和写入必须处于同一事务；重复 id、错误 bookId、非法 scene/type/status 均应整体回滚。
+
 当前允许的临时低风险内部 key：
 
 - `__duban:ai-budget:{YYYY-MM-DD}`：AI 预算日用量，只保存日期、任务类型、token 和估算费用；不得进入备份。
@@ -151,10 +162,11 @@ API Key 存储规则：
 - `manifest.json` 保存 metadata、schemaVersion、manifestSha256、items、files 索引、label 和 notes。
 - 原始文件放在备份目录的 `files/`，每个文件必须记录 `byteSize` 和 `sha256`。
 - 导入前必须校验 format、backupVersion、schemaVersion、manifestSha256、重复 key、重复书籍 id、文件路径、防目录穿越、文件存在性、文件大小和文件 sha256。
+- 含 `companion-events` 时，还必须校验事件 id 唯一、bookId 一致、scene/type/status 合法，并拒绝 `sourceAnchor.text` 或其他正文副本。
 - 导入前必须创建自动恢复点；导入失败时要优先恢复导入前状态，并在错误里说明回滚结果。
 - 设置页允许维护备份名称/备注、删除本地备份，并通过外部目录或 `manifest.json` 路径导入备份。
 - 导入模式至少支持：
-  - `merge`：保留当前库里备份未涉及的数据；同 id 书籍和同 key 数据以备份为准。
+  - `merge`：保留当前库里备份未涉及的数据；普通同 id 书籍和同 key 数据以备份为准，陪读事件按 id、`updatedAt` 和 tombstone 逐条合并。
   - `replace`：覆盖恢复，先清空当前书库数据再恢复备份。
 
 后续如果加入 zip/tar：
@@ -217,7 +229,7 @@ API Key 存储规则：
 
 - `本地书籍文件不存在，请重新导入。`
 - `备份校验未通过，请先查看校验报告。`
-- `读取系统 Keychain 失败。`
+- `无法读取已保存的 API Key。请打开「设置」，重新填写并保存当前模型的 Key。`
 - `模型服务返回空内容，请稍后重试。`
 
 ## 本地诊断日志
@@ -251,6 +263,7 @@ npm run build
 
 ```bash
 npm run security:scan
+npm run security:rust-audit # 需要本机已安装 cargo-audit；CI 固定执行
 ```
 
 发布前或 P6.x 阶段收尾要跑：
@@ -259,13 +272,20 @@ npm run security:scan
 npm run security:audit
 ```
 
-说明：`npm run security:audit` 当前包含前端 `npm audit`、Rust 重复依赖树和本地安全扫描，但还不包含 `cargo audit`。RustSec 漏洞审计应在后续 CI 或发布机补齐。
+说明：`npm run security:audit` 包含前端 `npm audit`、Rust 重复依赖树和本地安全扫描；RustSec 漏洞审计由 CI 的独立 job 固定执行，发布机安装 `cargo-audit` 后可运行 `npm run security:rust-audit`。不得用“本机未安装工具”跳过 CI RustSec 结果。
+
+RustSec 例外只能写入 `src-tauri/.cargo/audit.toml`，必须精确到 advisory ID 并记录依赖链、输入边界、暂时无法升级的原因和删除条件。禁止使用宽泛 ignore 让后续新漏洞静默通过。
 
 涉及桌面启动、SQLite、文件、Keychain 或备份时，还要跑：
 
 ```bash
 npm run tauri:dev
 ```
+
+最终 bundle 回归还要注意：
+
+- 前端变更后的 `tauri build` 成功输出不等于 bundle 一定包含最新前端。完全退出旧 App 后，核对 `src-tauri/target/release/bundle/macos/*.app/Contents/MacOS/*` 的修改时间或 hash 晚于本轮前端构建。
+- 如果 bundle 仍复用旧 release binary，可先触发一个受 Cargo 跟踪的 Rust 源文件时间戳更新后重新构建；仍不可靠时执行 `cargo clean -p duban` 再构建。清理会删除较大的本地编译缓存，只在确认产物陈旧时使用。
 
 并验证：
 

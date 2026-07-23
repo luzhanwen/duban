@@ -1,8 +1,8 @@
-# 开书读伴设定流程
+# 开书读伴设定流程（历史档案）
 
-> 2026-07-13 方向校正：本文件记录的是当前已实现流程。后续不再优先扩展名字、颜色、表情或“温和型/追问型”等抽象人格；开书设置将按 [P7 主动陪读引擎实施计划](./COMPANION_ACTIVE_READING_PLAN.md) 收敛为有真实功能映射的阅读目的、主动程度和关注内容。旧数据继续兼容，具体改造安排在 P7.8。
-
-> 最后更新：2026-07-06
+> 最后更新：2026-07-22
+>
+> 状态：完成阶段档案。本文中的分层 SVG、暖黄纸片和旧外观字段描述只反映当时实现，已经过时；当前形象、硬规则、软记忆、按需上下文和禁止主动提问的边界，以 [P7 计划](./COMPANION_ACTIVE_READING_PLAN.md)、[UI 标准](./UI_DESIGN_STANDARDS.md) 和 [统一陪读上下文](./READING_CONTRACT_CONTEXT.md) 为准。
 
 本文档记录开书设置从“先等待整本书导读”改为“先和新读伴对话”的产品设计、数据边界和实现结果。它补充 [READING_CONTRACT_CONTEXT.md](./READING_CONTRACT_CONTEXT.md) 的数据说明，以及 [UI_CHANGELOG.md](./UI_CHANGELOG.md) 的界面演进记录。
 

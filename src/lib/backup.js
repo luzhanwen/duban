@@ -193,10 +193,13 @@ async function importBrowserBackup(backup, mode = "replace") {
       item.key === KEYS.settings && !backup.includesApiKeys
         ? mergePreservedApiKeys(item.value, preservedSettings)
         : item.value;
-    await storageAdapter.setItem(
-      item.key,
-      importMode === "merge" && item.key === KEYS.books ? await mergeBrowserBooks(value) : value
-    );
+    let nextValue = value;
+    if (importMode === "merge" && item.key === KEYS.books) {
+      nextValue = await mergeBrowserBooks(value);
+    } else if (importMode === "merge" && isCompanionEventsKey(item.key)) {
+      nextValue = await mergeBrowserCompanionEvents(item.key, value);
+    }
+    await storageAdapter.setItem(item.key, nextValue);
   }
 
   for (const file of files) {
@@ -233,6 +236,21 @@ async function mergeBrowserBooks(incomingBooks) {
   return merged;
 }
 
+async function mergeBrowserCompanionEvents(key, incomingEvents) {
+  if (!Array.isArray(incomingEvents)) return incomingEvents;
+  const existing = await storageAdapter.getItem(key).catch(() => []);
+  const merged = new Map();
+  for (const event of [...(Array.isArray(existing) ? existing : []), ...incomingEvents]) {
+    if (!event?.id) continue;
+    const current = merged.get(event.id);
+    if (!current || companionEventIsNewer(event, current)) merged.set(event.id, event);
+  }
+  return [...merged.values()].sort((left, right) =>
+    String(left.createdAt || "").localeCompare(String(right.createdAt || "")) ||
+    String(left.id).localeCompare(String(right.id))
+  );
+}
+
 function buildBrowserPreview(backup) {
   const preview = {
     backupId: "",
@@ -251,6 +269,7 @@ function buildBrowserPreview(backup) {
     chatCount: 0,
     reflectionCount: 0,
     guideCount: 0,
+    companionEventCount: 0,
     formattedTextCount: 0,
     coverCount: 0,
     issues: [],
@@ -271,6 +290,8 @@ function buildBrowserPreview(backup) {
       preview.reflectionCount += countGroupedItems(item.value);
     } else if (/^book:.+:questions:/.test(item.key)) {
       preview.guideCount += 1;
+    } else if (isCompanionEventsKey(item.key)) {
+      preview.companionEventCount += Array.isArray(item.value) ? item.value.length : 0;
     } else if (/^book:.+:cover$/.test(item.key)) {
       preview.coverCount += 1;
     } else if (item.key.includes(":formatted-text:")) {
@@ -298,6 +319,9 @@ function validateBackup(backup) {
   }
   if (!Array.isArray(backup.items) || !Array.isArray(backup.files)) {
     throw new Error("备份文件缺少必要的数据段。");
+  }
+  for (const item of backup.items) {
+    if (isCompanionEventsKey(item?.key)) validateCompanionEvents(item.key, item.value);
   }
 }
 
@@ -394,7 +418,36 @@ function backupKeyPriority(key) {
   if (/^book:.+:pages$/.test(key)) return 3;
   if (/^progress:/.test(key)) return 4;
   if (/^book:.+:(notes|chat|reflection)$/.test(key) || /^book:.+:questions:/.test(key)) return 5;
+  if (isCompanionEventsKey(key)) return 6;
   return 10;
+}
+
+function validateCompanionEvents(key, value) {
+  if (!Array.isArray(value)) throw new Error("统一陪读事件必须是数组。");
+  const bookId = key.slice("book:".length, -":companion-events".length);
+  const ids = new Set();
+  for (const event of value) {
+    if (!event?.id || !event?.scene || !event?.type || !event?.status) {
+      throw new Error("统一陪读事件缺少必要字段。");
+    }
+    if (ids.has(event.id)) throw new Error("统一陪读事件中存在重复 id。");
+    ids.add(event.id);
+    if (event.bookId !== bookId) throw new Error("统一陪读事件与书籍不匹配。");
+    if (Object.prototype.hasOwnProperty.call(event.sourceAnchor || {}, "text")) {
+      throw new Error("统一陪读事件不得复制正文文本。");
+    }
+  }
+}
+
+function companionEventIsNewer(incoming, current) {
+  const incomingTime = String(incoming?.updatedAt || "");
+  const currentTime = String(current?.updatedAt || "");
+  if (incomingTime !== currentTime) return incomingTime > currentTime;
+  return incoming?.status === "deleted" || current?.status !== "deleted";
+}
+
+function isCompanionEventsKey(key) {
+  return /^book:.+:companion-events$/.test(String(key || ""));
 }
 
 function countGroupedItems(value) {
