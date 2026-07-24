@@ -1,7 +1,7 @@
 # 读伴自动更新架构与操作规范
 
 > 最后更新：2026-07-24
-> 当前阶段：Alpha.6 正在准备发布，修复 macOS 客户端无法连接 GitHub Alpha 清单的问题
+> 当前阶段：Alpha.6 已发布，旧版需手动安装一次；下一次 App 内自动更新验收从 Alpha.6 开始
 > 最后复核：2026-07-24，信任根、通道和发布边界仍有效。
 
 ## 目标
@@ -76,7 +76,7 @@ https://raw.githubusercontent.com/luzhanwen/duban/updater-index/alpha/latest.jso
 - `0.2.0-alpha.4` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布。Alpha.3 → Alpha.4 的 App 内检查、下载、签名校验、安装、重启和数据恢复由用户自行验收，不阻塞 P6 工程阶段冻结。
 - `0.2.0-alpha.5` signed updater artifact、GitHub prerelease 和远端 `alpha/latest.json` 已发布；公开清单已核对版本、签名和 arm64 archive URL。Alpha.4 → Alpha.5 的 App 内检查、下载、签名校验、安装、重启和数据恢复由用户执行人工验收。
 - 2026-07-24 实机发现 Alpha.3 与 Alpha.5 均会在请求 `raw.githubusercontent.com` 时超时，而系统 `curl` 可正常访问。根因是 macOS updater 使用的 Rustls 网络实现与该连接路径不兼容，不是 manifest、签名或通用网络故障。
-- Alpha.6 将 macOS updater 切换为系统原生 TLS，连接失败自动重试一次，并保留签名校验和安装前备份。重建的 formal App 已在真实设置页成功返回“当前已是最新版本 0.2.0-alpha.5”。
+- Alpha.6 将 macOS updater 切换为系统原生 TLS，连接失败自动重试一次，并保留签名校验和安装前备份。重建的 formal App 已在真实设置页成功返回“当前已是最新版本 0.2.0-alpha.5”；正式 Alpha.6 已完成签名、公证、staple、Gatekeeper 和公开更新指针发布。
 - 已发布的 Alpha.3/Alpha.4/Alpha.5 二进制无法通过远端内容修复自身，需手动安装 Alpha.6 一次。下一次真实双版本验收改为 Alpha.6 → 后续 Alpha；Alpha.6 的手动安装不算自动更新成功。
 - 篡改签名、断网、下载中断、备份失败、manifest 仍指向旧版和手动下载 fallback 继续保留在发布 QA 清单。
 

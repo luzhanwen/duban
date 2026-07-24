@@ -3714,3 +3714,7 @@ npm run release:signing-preflight -- --strict
 - 新增 `test:app-updater-reliability`，锁定 macOS 原生 TLS 配置、可重试错误分类和用户可读提示。formal build、security scan、Cargo check 和 29 项 Rust 测试通过。
 - 重建的本地 formal App 已在真实桌面设置页成功访问线上 Alpha 清单，并返回“当前已是最新版本 0.2.0-alpha.5”；验证进程路径为工作区 `target/release/bundle/macos/读伴.app`，避免与 `/Applications/读伴.app` 的同 bundle id 混淆。
 - 发布版本提升到 `0.2.0-alpha.6`。已发布 Alpha.3/Alpha.4/Alpha.5 无法通过远端清单修复自身，用户需手动安装 Alpha.6 一次；下一次真实 App 内自动更新验收从 Alpha.6 → 后续 Alpha 开始。
+- `v0.2.0-alpha.6` 已由 GitHub Actions `Release macOS` #30060084386 正式发布；tag 对应提交为 `c69c62f1a375fae1a3acd994549a168001c9ed74`。
+- 发布流水线完成 Developer ID 签名、Apple 公证、staple、Gatekeeper、更新包签名和 Alpha 指针发布；GitHub Release 共 8 项资产。
+- 正式 DMG SHA-256 为 `63fb583494263a887c0f6a4ee7da1517940d1a5d21b7fbf063cd41666f3f9fbd`，updater archive SHA-256 为 `3cb86397fafdfac77f349434a9fbd7e9f9a7dc6a3843d2ac765d1a4caf05587f`。
+- 公开 `updater-index/alpha/latest.json` 已验证 HTTP 200、版本为 `0.2.0-alpha.6`、签名非空，并指向本次 arm64 updater archive。

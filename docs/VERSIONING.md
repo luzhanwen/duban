@@ -7,7 +7,7 @@
 ## 当前版本
 
 - 当前开发版本：`0.2.0-alpha.6`
-- `0.2.0-alpha.6`：当前正式候选，修复 macOS updater 无法连接 Alpha 清单的问题；发布后需从 Alpha.5 手动安装一次，后续版本再恢复 App 内升级验收。
+- `v0.2.0-alpha.6`：当前已发布的正式 prerelease，修复 macOS updater 无法连接 Alpha 清单的问题；需从 Alpha.3/Alpha.4/Alpha.5 手动安装一次，后续版本再恢复 App 内升级验收。
 - `v0.2.0-alpha.5`：当前已发布的正式 prerelease，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新。
 - `v0.2.0-alpha.3`：首个包含 updater 信任根、签名更新包和 Alpha manifest 的正式 prerelease。
 - `v0.2.0-alpha.4`：上一正式 prerelease，包含旧 PDF fs 读取修复和 Alpha updater 资产；现在作为 Alpha.4 → Alpha.5 自动更新验收的旧版起点。
