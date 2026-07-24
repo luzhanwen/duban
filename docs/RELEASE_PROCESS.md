@@ -1,6 +1,6 @@
 # 读伴发布流程
 
-> 最后更新：2026-07-22
+> 最后更新：2026-07-24
 
 本文档承接 P6.7「正式 macOS 发布包」。它记录发布配置、构建通道、artifact 命名、校验和、Developer ID 签名、公证、staple 和 release notes 约定。发布当天的逐项操作清单维护在 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
@@ -8,7 +8,7 @@ P6.7.6 已新增 tag 驱动的 GitHub Release 自动化；GitHub Environment、S
 
 ## P6.7.1 当前结论
 
-- 当前工作版本必须实时读取 `package.json`，不要在操作时沿用文档快照；本次正式候选为 `0.2.0-alpha.5`。完整规则见 [VERSIONING.md](./VERSIONING.md)。
+- 当前工作版本必须实时读取 `package.json`，不要在操作时沿用文档快照；本次正式候选为 `0.2.0-alpha.6`。完整规则见 [VERSIONING.md](./VERSIONING.md)。
 - 正式 macOS bundle identifier：`com.duban.reader`。
 - 测试 macOS bundle identifier：`com.duban.reader.test`。
 - 正式 App 名称：`读伴`。

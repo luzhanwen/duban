@@ -1,8 +1,14 @@
 import { APP_CHANNEL } from "./appChannel.js";
+import {
+  isRetryableUpdaterError,
+  normalizeUpdaterError,
+} from "./appUpdaterPolicy.js";
 import { isTauriRuntime } from "./runtime.js";
 
 const FORMAL_CHANNEL = "formal";
 const DEFAULT_CHECK_TIMEOUT_MS = 30_000;
+const UPDATE_CHECK_ATTEMPTS = 2;
+const UPDATE_CHECK_RETRY_DELAY_MS = 800;
 const RELEASES_URL = "https://github.com/luzhanwen/duban/releases";
 
 let pendingUpdate = null;
@@ -22,26 +28,38 @@ export async function checkForAppUpdate() {
 
   await clearPendingAppUpdate();
 
-  try {
-    const { check } = await import("@tauri-apps/plugin-updater");
-    const update = await check({ timeout: DEFAULT_CHECK_TIMEOUT_MS });
-    pendingUpdate = update || null;
+  const { check } = await import("@tauri-apps/plugin-updater");
+  let lastError = null;
 
-    if (!update) {
-      return { supported: true, available: false };
+  for (let attempt = 1; attempt <= UPDATE_CHECK_ATTEMPTS; attempt += 1) {
+    try {
+      const update = await check({ timeout: DEFAULT_CHECK_TIMEOUT_MS });
+      pendingUpdate = update || null;
+
+      if (!update) {
+        return { supported: true, available: false };
+      }
+
+      return {
+        supported: true,
+        available: true,
+        version: update.version,
+        currentVersion: update.currentVersion,
+        date: update.date || null,
+        body: update.body || "",
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= UPDATE_CHECK_ATTEMPTS || !isRetryableUpdaterError(error)) {
+        break;
+      }
+      await wait(UPDATE_CHECK_RETRY_DELAY_MS);
     }
-
-    return {
-      supported: true,
-      available: true,
-      version: update.version,
-      currentVersion: update.currentVersion,
-      date: update.date || null,
-      body: update.body || "",
-    };
-  } catch (error) {
-    throw normalizeUpdaterError(error, "检查更新失败");
   }
+
+  throw normalizeUpdaterError(lastError, "检查更新失败", {
+    networkHint: isRetryableUpdaterError(lastError),
+  });
 }
 
 export async function downloadAndInstallAppUpdate(onProgress) {
@@ -120,10 +138,8 @@ function normalizeUpdateProgress(event) {
   };
 }
 
-function normalizeUpdaterError(error, fallbackMessage) {
-  const detail = String(error?.message || error || "").trim();
-  const message = detail ? `${fallbackMessage}：${detail}` : fallbackMessage;
-  const normalized = new Error(message);
-  normalized.cause = error;
-  return normalized;
+function wait(durationMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
 }

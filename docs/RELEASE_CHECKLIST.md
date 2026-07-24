@@ -1,12 +1,12 @@
 # 读伴 Release Checklist
 
-> 最后更新：2026-07-22
+> 最后更新：2026-07-24
 
 这份清单用于每次发布前逐项确认。它不替代 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)，而是把发布当天要做的检查压成一张可执行 checklist。
 
 首个 `0.1.0 formal arm64 signed` 候选包虽通过机器验证，但人工 Smoke Test 发现旧 PDF 的 macOS `asset://` 状态 `0` 问题，已标记为不得分发。Test bundle 已改用受限 Tauri fs 插件并完成旧书回归；下一正式候选仍需重新签名/公证和执行本清单全部人工项。完整证据见 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md)。
 
-`v0.2.0-alpha.5` 是当前已发布的正式 prerelease，已完成签名、公证、staple、Gatekeeper、Release 资产和 Alpha 更新指针发布。它汇总 Alpha.4 之后的 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新；Alpha.4 → Alpha.5 App 内自动更新仍需用户执行人工验收。
+`v0.2.0-alpha.5` 是当前已发布的正式 prerelease。`0.2.0-alpha.6` 为自动更新网络修复候选：macOS updater 改用系统原生 TLS，并增加连接重试和可理解的错误提示。Alpha.3/Alpha.4/Alpha.5 无法通过远端清单修复自身，用户需要手动安装 Alpha.6 一次；后续再从 Alpha.6 验证 App 内升级。
 
 Alpha.4 首次安装回归发现扩展名为 `.mobi` 的混合 MOBI/KF8 文件可能只导入 1 个残缺文本页。Alpha.5 已纳入恢复文本页、按 TOC 层级归并章节以及阅读分段修复；扩大测试前仍应按人工清单执行 `SMK-004`、`LIB-006` 和 `RD-002`。
 

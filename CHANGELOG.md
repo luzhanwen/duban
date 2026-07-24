@@ -4,7 +4,19 @@
 
 ## [Unreleased]
 
-目标版本：`待定`
+目标版本：`0.2.0-alpha.6`
+
+### Changed
+
+- macOS 自动更新请求改用系统原生 TLS；短暂连接错误会自动重试一次，最终失败时显示可理解的网络提示。
+
+### Fixed
+
+- 修复正式桌面版访问 GitHub Alpha 更新清单时长时间等待后报 `error sending request for url`、无法发现新版本的问题。
+
+### Known limitations
+
+- 已发布的 Alpha.3、Alpha.4 和 Alpha.5 内置旧网络实现，无法通过远端清单自我修复；升级到 Alpha.6 需要手动安装一次。Alpha.6 之后可继续执行 App 内自动更新验收。
 
 ## [0.2.0-alpha.5] - 2026-07-23
 

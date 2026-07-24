@@ -3704,3 +3704,13 @@ npm run release:signing-preflight -- --strict
 - 远端 Release 包含 DMG、updater archive、`.sig`、manifest、checksums、notary log、release notes 和 updater candidate 共 8 项资产。
 - GitHub 最终 DMG SHA-256 为 `5f90abd2624ea264697af9dc5d04da32c71b7c1cbc8991a7c86856128da2f42c`；updater archive SHA-256 为 `975dd7caed677aeeb3063b1fa75f8a7e2c13e90321fd8c30ac6ca350ac19762d`。
 - 公开 `updater-index/alpha/latest.json` 已验证返回 `0.2.0-alpha.5`，包含非空签名并指向本次 arm64 updater archive。自动更新发布链已就绪，下一步由用户在已安装 Alpha.4 中执行检查、下载、安装、重启和数据保留验收。
+
+## 2026-07-24：Alpha 自动更新连接故障与 Alpha.6 修复
+
+- 在已安装 `0.2.0-alpha.3` 的“软件更新”中稳定复现检查失败：Tauri updater 请求 `updater-index/alpha/latest.json` 时在取得 HTTP 响应前超时；同机系统 `curl` 直连返回 HTTP 200，远端 manifest、签名和通用网络均正常。
+- 使用当前 `0.2.0-alpha.5` 代码和旧 Rustls 配置复现相同故障，排除仅限 Alpha.3、界面缓存或旧清单的问题。
+- macOS updater 改为 `native-tls`，复用系统 TLS 和信任链；浏览器/test 通道、非 macOS updater、更新公钥、签名验证、安装前备份和数据目录均不改变。
+- 更新检查对瞬时连接错误自动重试一次；最终失败提示改为“无法连接更新服务，请检查网络后重试”，不再直接暴露底层英文 URL 错误。
+- 新增 `test:app-updater-reliability`，锁定 macOS 原生 TLS 配置、可重试错误分类和用户可读提示。formal build、security scan、Cargo check 和 29 项 Rust 测试通过。
+- 重建的本地 formal App 已在真实桌面设置页成功访问线上 Alpha 清单，并返回“当前已是最新版本 0.2.0-alpha.5”；验证进程路径为工作区 `target/release/bundle/macos/读伴.app`，避免与 `/Applications/读伴.app` 的同 bundle id 混淆。
+- 发布版本提升到 `0.2.0-alpha.6`。已发布 Alpha.3/Alpha.4/Alpha.5 无法通过远端清单修复自身，用户需手动安装 Alpha.6 一次；下一次真实 App 内自动更新验收从 Alpha.6 → 后续 Alpha 开始。

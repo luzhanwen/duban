@@ -1,7 +1,7 @@
 {
   "name": "duban",
   "private": true,
-  "version": "0.2.0-alpha.5",
+  "version": "0.2.0-alpha.6",
   "type": "module",
   "license": "MIT",
   "description": "读伴 —— 本地优先的 AI 伴读应用（BYOK）",
@@ -68,6 +68,7 @@
     "test:tauri-ai-cancellation": "node scripts/test_tauri_ai_cancellation.mjs",
     "test:prompt-word-substitutions": "node scripts/test_prompt_word_substitutions.mjs",
     "test:book-setup-experience": "node scripts/test_book_setup_experience.mjs",
+    "test:app-updater-reliability": "node scripts/test_app_updater_reliability.mjs",
     "test:p7": "npm run test:companion-journey && npm run test:companion-shell && npm run test:companion-timeline && npm run test:companion-transition && npm run test:companion-markdown && npm run test:content-map && npm run test:reading-frontier && npm run test:reader-keyboard && npm run test:companion-entrypoints && npm run test:companion-policy && npm run test:companion-context && npm run test:companion-events && npm run test:companion-section-record && npm run test:guide-memory-carryover && npm run test:companion-memory-management && npm run test:companion-visual-state && npm run test:companion-diagnostics && npm run test:p7-qa-cases && npm run test:reading-guide-reliability && npm run test:reading-guide-viewport && npm run test:reading-reflection-experience && npm run test:reading-plan-chunks && npm run test:tauri-ai-cancellation && npm run test:prompt-word-substitutions && npm run test:book-ticket-status && npm run test:icon-semantics && npm run test:book-setup-experience",
     "p7:preflight": "node scripts/p7_release_preflight.mjs",
     "security:audit": "npm audit && npm run security:rust-duplicates && npm run security:scan",

@@ -1,13 +1,14 @@
 # 读伴版本管理规范
 
-> 最后更新：2026-07-22
+> 最后更新：2026-07-24
 
 本文档定义读伴的 App 版本、Git tag、发布通道、数据兼容版本和升版流程。版本相关改动必须同时遵守 [RELEASE_PROCESS.md](./RELEASE_PROCESS.md) 与 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
 
 ## 当前版本
 
-- 当前开发版本：`0.2.0-alpha.5`
-- `v0.2.0-alpha.5`：当前已发布的正式 prerelease，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新，并用于 Alpha.4 → Alpha.5 自动更新验收。
+- 当前开发版本：`0.2.0-alpha.6`
+- `0.2.0-alpha.6`：当前正式候选，修复 macOS updater 无法连接 Alpha 清单的问题；发布后需从 Alpha.5 手动安装一次，后续版本再恢复 App 内升级验收。
+- `v0.2.0-alpha.5`：当前已发布的正式 prerelease，汇总 P7 陪读流程、MOBI/PDF 阅读修复、导读可靠性、阅读计划迁移与发布安全更新。
 - `v0.2.0-alpha.3`：首个包含 updater 信任根、签名更新包和 Alpha manifest 的正式 prerelease。
 - `v0.2.0-alpha.4`：上一正式 prerelease，包含旧 PDF fs 读取修复和 Alpha updater 资产；现在作为 Alpha.4 → Alpha.5 自动更新验收的旧版起点。
 - `v0.2.0-alpha.1`：首次自动发布失败 tag，签名前停止且没有 GitHub Release；保持不可变。
@@ -26,7 +27,7 @@
 
 ```bash
 npm run version:check
-npm run version:set -- 0.2.0-alpha.5
+npm run version:set -- 0.2.0-alpha.6
 npm run version:bump -- prerelease
 npm run version:bump -- patch
 npm run version:bump -- minor

@@ -189,7 +189,7 @@ App 化专项路线和每次实施记录维护在 [APP_EVOLUTION_LOG.md](./APP_E
 - 已建立 [BACKEND_DEVELOPMENT_STANDARDS.md](./BACKEND_DEVELOPMENT_STANDARDS.md) 和 [AI_HANDOFF_PROMPTS.md](./AI_HANDOFF_PROMPTS.md)，为后续后端扩展和 AI 接手提供固定标准。
 - 已能生成 Developer ID 正式签名/Apple 公证的 macOS `.app`、`.dmg`；旧 PDF 的 `asset://` 状态 `0` 问题已在真实 Test bundle 中复现并改用受限 Tauri fs 插件修复，迁移前旧书原页与文本层回归通过。下一正式候选包需包含该修复并重新签名、公证。
 - test/formal 桌面数据与 Keychain 已改为按 identifier 隔离；历史开发书库已从误用的正式目录迁入 `com.duban.reader.test`，并保留本机回滚快照。本地双进程验证显示测试库 2 本、正式库 0 本。
-- 版本管理基础和 App 内可见性已建立：当前已发布版本为 `0.2.0-alpha.5`，单一版本源、同步/校验/升版脚本、CI 版本护栏、VERSIONING 和 CHANGELOG 已落地；设置页/诊断会显示 channel、runtime、commit、dirty、SQLite schema 和 backup version。
+- 版本管理基础和 App 内可见性已建立：当前发布候选为 `0.2.0-alpha.6`，单一版本源、同步/校验/升版脚本、CI 版本护栏、VERSIONING 和 CHANGELOG 已落地；设置页/诊断会显示 channel、runtime、commit、dirty、SQLite schema 和 backup version。
 - tag 驱动的 macOS 发布流水线已建立：clean annotated `v<version>` tag 会触发版本/Changelog/QA 校验、Developer ID 签名、Apple 公证/staple、Gatekeeper 检查和 GitHub Release artifact 上传；P6.8 自动更新将直接复用这套版本和发布资产。
 - Alpha.4 发布前用户体验收口已新增首次 AI 配置向导：无 Key 用户按“服务、验证、完成”三步设置，默认推荐 DeepSeek；已有 Key 用户只依据非敏感状态跳过，不读取 Keychain 明文。
 - 品牌系统已完成横版、竖版、简版三规格收束，并内置仅含“读伴”的轻量开源字标字体；导航、开屏和首次设置不再各自拼装 Logo。
@@ -198,8 +198,8 @@ App 化专项路线和每次实施记录维护在 [APP_EVOLUTION_LOG.md](./APP_E
 - 阅读器窄窗口策略已补齐：滚动/翻页均支持专注阅读，900–1180px 使用分行工具栏与覆盖式读伴侧栏，PDF 滚动模式保留可读宽度下限。
 - 阅读计划内页码已区分本节相对页码与原书来源页码；底层定位继续使用真实 PDF 页码，现有进度、笔记和高亮无需迁移。
 - P7 已重新规划为“连续体验先行、按需能力随后”：先用现有数据串通导读、读中和读后，让自由提问嵌入阅读过程，再固化事件/schema，并接入内容地图、防剧透边界、按需上下文、回答预算和记忆闭环。详细拆解见 [COMPANION_ACTIVE_READING_PLAN.md](./COMPANION_ACTIVE_READING_PLAN.md)。
-- P6.1-P6.12 工程基线已完成并冻结：签名/公证发布、自动更新基础、版本管理、CI、QA、备份恢复、诊断、安全和 Public Alpha 说明均已落地。Alpha.3 → Alpha.4 App 内更新体验由用户自行验收，不阻塞阶段切换；updater 私钥离线备份仍是扩大外部测试前的用户运营检查项。
-- `v0.2.0-alpha.5` 已由自动发布工作流完成签名、公证、staple、Gatekeeper、GitHub prerelease 和 Alpha 更新指针发布；P7 陪读流程、混合 MOBI/KF8、动态文本分屏、精确划词、笔记高亮、导读可靠性和阅读计划迁移修复均已进入正式包。下一项发布工作是 Alpha.4 → Alpha.5 App 内自动更新人工验收。
+- P6.1-P6.12 工程基线已完成并冻结：签名/公证发布、自动更新基础、版本管理、CI、QA、备份恢复、诊断、安全和 Public Alpha 说明均已落地。Alpha.3/Alpha.4/Alpha.5 的 updater 网络实现无法连接 Alpha 清单，需手动安装 Alpha.6 一次；updater 私钥离线备份仍是扩大外部测试前的用户运营检查项。
+- `v0.2.0-alpha.5` 已由自动发布工作流完成签名、公证、staple、Gatekeeper、GitHub prerelease 和 Alpha 更新指针发布；`0.2.0-alpha.6` 正在补发 macOS updater 系统 TLS 修复。下一次真正的 App 内升级验收从 Alpha.6 → 后续 Alpha 开始。
 
 可能方向：
 
